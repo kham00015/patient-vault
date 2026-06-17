@@ -27,7 +27,7 @@ HIPAA-oriented clinical records platform — a secure rebuild of the original Fi
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/patient-vault.git
+git clone https://github.com/kham00015/patient-vault.git
 cd patient-vault
 cp .env.example .env
 npm install
