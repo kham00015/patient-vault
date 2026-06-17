@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Patient Vault
 
-## Getting Started
+HIPAA-oriented clinical records platform — a secure rebuild of the original Firebase Patient Vault app.
 
-First, run the development server:
+**Stack:** Next.js 16 · TypeScript · Prisma · PostgreSQL/SQLite · Tailwind CSS
+
+## Features
+
+| Feature | Status |
+|---------|--------|
+| Secure login (httpOnly sessions, bcrypt) | ✅ |
+| Patient CRUD + chart sections | ✅ |
+| Auto-save encrypted notes | ✅ |
+| Clinical notes (dated) | ✅ |
+| Clinic schedule | ✅ |
+| Knowledge base | ✅ |
+| Patient lists | ✅ |
+| Document upload/download | ✅ |
+| AI chat (server-side proxy) | ✅ |
+| AI chart organize | ✅ |
+| Audit logging (all PHI access) | ✅ |
+| Role-based access control | ✅ |
+| Field-level PHI encryption | ✅ |
+| MFA | 🔲 Scaffold ready |
+| Signed BAA cloud deploy | 🔲 See HIPAA doc |
+
+## Quick Start
 
 ```bash
+git clone https://github.com/YOUR_USERNAME/patient-vault.git
+cd patient-vault
+cp .env.example .env
+npm install
+npx prisma db push
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Default dev login** (change immediately):
+- Email: `admin@clinic.local`
+- Password: `ChangeMe123!`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Production
 
-## Learn More
+1. Use **PostgreSQL** (see `docker-compose.yml`)
+2. Set strong `JWT_SECRET` and `ENCRYPTION_KEY`
+3. Deploy on HIPAA-eligible infrastructure with **signed BAA**
+4. Enable HTTPS, WAF, backups, monitoring
+5. Read [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) and [DEVELOPER_HANDOFF.md](./DEVELOPER_HANDOFF.md)
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+├── app/              # Next.js pages + API routes
+├── components/       # UI + main app shell
+└── lib/              # Auth, encryption, audit, AI, storage
+prisma/               # Database schema
+storage/              # Local dev file storage (gitignored)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Proprietary — for clinic use. Developers: see DEVELOPER_HANDOFF.md.

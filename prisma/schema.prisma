@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLINICIAN
+  STAFF
+  READONLY
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PHI_ACCESS
+  PHI_CREATE
+  PHI_UPDATE
+  PHI_DELETE
+  PHI_EXPORT
+  AI_QUERY
+  CONFIG_CHANGE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         Role      @default(CLINICIAN)
+  mfaEnabled   Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+  auditLogs    AuditLog[]
+  patients     Patient[] @relation("CreatedPatients")
+  documents    Document[]
+  kbDocuments  KnowledgeBaseDocument[]
+  patientLists PatientList[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  action     AuditAction
+  resource   String
+  resourceId String?
+  patientId  String?
+  ipAddress  String?
+  userAgent  String?
+  success    Boolean     @default(true)
+  metadata   String?
+  createdAt  DateTime    @default(now())
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([patientId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Patient {
+  id              String           @id @default(cuid())
+  name            String
+  noteDraft       String?
+  diagnosis       String?
+  pmh             String?
+  echo            String?
+  pft             String?
+  sleep           String?
+  labs            String?
+  imaging         String?
+  medications     String?
+  social          String?
+  createdById     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  createdBy       User             @relation("CreatedPatients", fields: [createdById], references: [id])
+  notes           Note[]
+  documents       Document[]
+  scheduleEntries ScheduleEntry[]
+  listMemberships ListPatient[]
+  aiConversation  AIConversation?
+
+  @@index([name])
+  @@index([updatedAt])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  patientId String
+  date      DateTime
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([date])
+}
+
+model Document {
+  id           String   @id @default(cuid())
+  patientId    String
+  name         String
+  fileName     String
+  storageKey   String
+  mimeType     String
+  fileSize     Int
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([patientId])
+}
+
+model ScheduleEntry {
+  id        String   @id @default(cuid())
+  date      DateTime
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([date, patientId])
+  @@index([date])
+}
+
+model KnowledgeBaseDocument {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  keywords    String   @default("[]")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation(fields: [createdById], references: [id])
+
+  @@index([updatedAt])
+}
+
+model PatientList {
+  id          String        @id @default(cuid())
+  name        String
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  patients    ListPatient[]
+
+  @@index([updatedAt])
+}
+
+model ListPatient {
+  listId    String
+  patientId String
+  addedAt   DateTime    @default(now())
+  list      PatientList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  patient   Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@id([listId, patientId])
+}
+
+model AIConversation {
+  id        String   @id @default(cuid())
+  patientId String   @unique
+  messages  String   @default("[]")
+  updatedAt DateTime @updatedAt
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}

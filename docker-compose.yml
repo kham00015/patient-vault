@@ -1,0 +1,21 @@
+# Production database — deploy on HIPAA-eligible infrastructure with BAA signed
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: patientvault
+      POSTGRES_PASSWORD: change_me_in_production
+      POSTGRES_DB: patientvault
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patientvault"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
