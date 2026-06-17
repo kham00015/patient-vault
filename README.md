@@ -24,12 +24,29 @@ HIPAA-oriented clinical records platform — a secure rebuild of the original Fi
 | MFA | 🔲 Scaffold ready |
 | Signed BAA cloud deploy | 🔲 See HIPAA doc |
 
-## Quick Start
+## Production (AWS DIY)
+
+**You + this repo can go far without a developer.** Follow the step-by-step guide:
+
+👉 **[AWS_DEPLOY_GUIDE.md](./AWS_DEPLOY_GUIDE.md)** — BAA → database → backups → deploy
+
+Generate secrets:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/generate-secrets.ps1
+```
+
+Test production stack locally:
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+## Quick Start (local dev)
 
 ```bash
 git clone https://github.com/kham00015/patient-vault.git
 cd patient-vault
 cp .env.example .env
+docker compose up postgres -d
 npm install
 npx prisma db push
 npm run db:seed

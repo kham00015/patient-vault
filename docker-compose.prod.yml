@@ -1,0 +1,43 @@
+# Local production-like stack — test before AWS deploy
+# Usage: docker compose -f docker-compose.prod.yml up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: patientvault
+      POSTGRES_PASSWORD: local_dev_password_change_me
+      POSTGRES_DB: patientvault
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patientvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://patientvault:local_dev_password_change_me@postgres:5432/patientvault
+      JWT_SECRET: local-dev-jwt-secret-min-32-characters-long
+      ENCRYPTION_KEY: local-dev-encryption-key-32bytes!!
+      SESSION_TIMEOUT_MINUTES: 30
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/storage
+      NODE_ENV: production
+    volumes:
+      - app_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  app_storage:
