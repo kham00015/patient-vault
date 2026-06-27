@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -27,6 +27,19 @@ enum AuditAction {
   CONFIG_CHANGE
 }
 
+enum SexAtBirth {
+  MALE
+  FEMALE
+  OTHER
+  UNKNOWN
+}
+
+enum PatientStatus {
+  ACTIVE
+  ARCHIVED
+  DECEASED
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -41,9 +54,15 @@ model User {
   sessions     Session[]
   auditLogs    AuditLog[]
   patients     Patient[] @relation("CreatedPatients")
+  archivedPatients Patient[] @relation("ArchivedPatients")
   documents    Document[]
-  kbDocuments  KnowledgeBaseDocument[]
   patientLists PatientList[]
+  encountersCreated Encounter[] @relation("CreatedEncounters")
+  encountersAsProvider Encounter[] @relation("EncounterProvider")
+  messageThreadsCreated MessageThread[] @relation("CreatedMessageThreads")
+  threadMessagesSent ThreadMessage[] @relation("SentThreadMessages")
+  threadParticipations ThreadParticipant[] @relation("MessageThreadParticipants")
+  remindersCreated Reminder[] @relation("CreatedReminders")
 }
 
 model Session {
@@ -82,8 +101,28 @@ model AuditLog {
 
 model Patient {
   id              String           @id @default(cuid())
+  mrn             String?          @unique
   name            String
-  noteDraft       String?
+  firstName       String?
+  lastName        String?
+  middleName      String?
+  dateOfBirth     DateTime?
+  sexAtBirth      SexAtBirth       @default(UNKNOWN)
+  phone           String?
+  email           String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zip             String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+  primaryInsuranceCarrier      String?
+  primaryInsuranceMemberId     String?
+  primaryInsuranceGroupNumber  String?
+  allergies           String?
+  currentMedications  String?
   diagnosis       String?
   pmh             String?
   echo            String?
@@ -93,47 +132,136 @@ model Patient {
   imaging         String?
   medications     String?
   social          String?
+  fixedNoteSections String @default("{}")
+  status          PatientStatus    @default(ACTIVE)
+  archivedAt      DateTime?
+  archivedById    String?
+  archiveReason   String?
   createdById     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   createdBy       User             @relation("CreatedPatients", fields: [createdById], references: [id])
+  archivedBy      User?            @relation("ArchivedPatients", fields: [archivedById], references: [id], onDelete: SetNull)
   notes           Note[]
   documents       Document[]
+  encounters      Encounter[]
   scheduleEntries ScheduleEntry[]
   listMemberships ListPatient[]
   aiConversation  AIConversation?
+  messageThreads  MessageThread[]
+  reminders       Reminder[]
 
   @@index([name])
+  @@index([lastName, firstName])
+  @@index([mrn])
+  @@index([phone])
+  @@index([status])
   @@index([updatedAt])
 }
 
-model Note {
-  id        String   @id @default(cuid())
-  patientId String
-  date      DateTime
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+enum NoteType {
+  PROGRESS_NOTE
+  NEW_PATIENT
+  PHONE_CALL
+  FOLLOW_UP
+  PROCEDURE
+  REFERRAL
+  LAB_REVIEW
+  DISCHARGE
+  MESSAGE
+  PATIENT_LETTER
+  ADMINISTRATIVE
+}
+
+enum NoteStatus {
+  DRAFT
+  SIGNED
+}
+
+enum VisitCategory {
+  NEW_PATIENT
+  FOLLOW_UP
+}
+
+enum EncounterModality {
+  IN_PERSON
+  VIRTUAL
+  PHONE
+  REVIEW
+  IMAGING
+  PATIENT_LETTER
+}
+
+enum EncounterStatus {
+  OPEN
+  SIGNED
+  CANCELLED
+}
+
+model Encounter {
+  id             String          @id @default(cuid())
+  patientId      String
+  visitCategory  VisitCategory     @default(FOLLOW_UP)
+  modality       EncounterModality @default(IN_PERSON)
+  status         EncounterStatus @default(OPEN)
+  date           DateTime
+  chiefComplaint String?
+  summary        String?
+  providerId     String?
+  createdById    String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  patient        Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  provider       User?           @relation("EncounterProvider", fields: [providerId], references: [id], onDelete: SetNull)
+  createdBy      User            @relation("CreatedEncounters", fields: [createdById], references: [id])
+  notes          Note[]
+  documents      Document[]
 
   @@index([patientId])
   @@index([date])
+  @@index([status])
+  @@index([visitCategory])
+  @@index([modality])
+}
+
+model Note {
+  id          String     @id @default(cuid())
+  patientId   String
+  encounterId String?
+  type        NoteType   @default(PROGRESS_NOTE)
+  status      NoteStatus @default(DRAFT)
+  signedAt    DateTime?
+  date        DateTime
+  content     String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter   Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([date])
+  @@index([type])
+  @@index([status])
 }
 
 model Document {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   patientId    String
+  encounterId  String?
   name         String
   fileName     String
   storageKey   String
   mimeType     String
   fileSize     Int
   uploadedById String
-  uploadedAt   DateTime @default(now())
-  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  uploadedAt   DateTime   @default(now())
+  patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter    Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  uploadedBy   User       @relation(fields: [uploadedById], references: [id])
 
   @@index([patientId])
+  @@index([encounterId])
 }
 
 model ScheduleEntry {
@@ -144,19 +272,6 @@ model ScheduleEntry {
 
   @@unique([date, patientId])
   @@index([date])
-}
-
-model KnowledgeBaseDocument {
-  id          String   @id @default(cuid())
-  title       String
-  content     String
-  keywords    String   @default("[]")
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdBy   User     @relation(fields: [createdById], references: [id])
-
-  @@index([updatedAt])
 }
 
 model PatientList {
@@ -187,4 +302,85 @@ model AIConversation {
   messages  String   @default("[]")
   updatedAt DateTime @updatedAt
   patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+enum MessagePriority {
+  ROUTINE
+  URGENT
+}
+
+enum MessageCategory {
+  GENERAL
+  PATIENT
+  REFILL
+  LAB_RESULT
+  CALLBACK
+  REFERRAL
+}
+
+model MessageThread {
+  id          String          @id @default(cuid())
+  subject     String
+  patientId   String?
+  priority    MessagePriority @default(ROUTINE)
+  category    MessageCategory @default(GENERAL)
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  patient     Patient?        @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  createdBy   User            @relation("CreatedMessageThreads", fields: [createdById], references: [id])
+  messages    ThreadMessage[]
+  participants ThreadParticipant[]
+
+  @@index([updatedAt])
+  @@index([patientId])
+  @@index([createdById])
+}
+
+model ThreadMessage {
+  id        String        @id @default(cuid())
+  threadId  String
+  senderId  String
+  body      String
+  createdAt DateTime      @default(now())
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender    User          @relation("SentThreadMessages", fields: [senderId], references: [id])
+
+  @@index([threadId])
+  @@index([createdAt])
+}
+
+model ThreadParticipant {
+  threadId   String
+  userId     String
+  lastReadAt DateTime?
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user       User          @relation("MessageThreadParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId])
+  @@index([userId])
+}
+
+enum ReminderStatus {
+  PENDING
+  COMPLETED
+}
+
+model Reminder {
+  id          String         @id @default(cuid())
+  patientId   String
+  title       String
+  body        String?
+  dueDate     DateTime
+  status      ReminderStatus @default(PENDING)
+  completedAt DateTime?
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  patient     Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  createdBy   User           @relation("CreatedReminders", fields: [createdById], references: [id])
+
+  @@index([patientId])
+  @@index([dueDate])
+  @@index([status])
 }

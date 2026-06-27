@@ -1,22 +1,42 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
-import { canWrite } from "@/lib/auth";
+import { canWrite, canManageUsers } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { toPatientDTO } from "@/lib/patients";
+import {
+  createPatientSchema,
+  formatPatientName,
+  generateMrn,
+} from "@/lib/patient-registration";
+import { encryptPatientFields } from "@/lib/encryption";
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(request.url);
-  const q = searchParams.get("q")?.trim().toLowerCase();
+  const q = searchParams.get("q")?.trim();
+  const includeArchived =
+    searchParams.get("includeArchived") === "1" && canManageUsers(auth.user.role);
 
   const patients = await prisma.patient.findMany({
-    orderBy: { name: "asc" },
-    ...(q ? { where: { name: { contains: q } } } : {}),
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { name: "asc" }],
+    where: {
+      ...(includeArchived ? {} : { status: "ACTIVE" }),
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q } },
+              { firstName: { contains: q } },
+              { lastName: { contains: q } },
+              { mrn: { contains: q } },
+              { phone: { contains: q } },
+            ],
+          }
+        : {}),
+    },
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);
@@ -32,22 +52,60 @@ export async function GET(request: Request) {
   return NextResponse.json({ patients: patients.map(toPatientDTO) });
 }
 
-const createSchema = z.object({ name: z.string().min(1).max(200) });
-
 export async function POST(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
 
   try {
-    const body = createSchema.parse(await request.json());
-    const existing = await prisma.patient.findFirst({
-      where: { name: { equals: body.name } },
+    const body = createPatientSchema.parse(await request.json());
+    const dob = new Date(body.dateOfBirth);
+    dob.setHours(12, 0, 0, 0);
+
+    const duplicate = await prisma.patient.findFirst({
+      where: {
+        firstName: body.firstName,
+        lastName: body.lastName,
+        dateOfBirth: dob,
+      },
     });
-    if (existing) return badRequest("Patient already exists");
+    if (duplicate) {
+      return badRequest("A patient with the same name and date of birth already exists");
+    }
+
+    const mrn = await generateMrn();
+    const name = formatPatientName(body.firstName, body.lastName, body.middleName);
+
+    const encrypted = encryptPatientFields({
+      email: body.email,
+      addressLine1: body.addressLine1,
+      addressLine2: body.addressLine2,
+      city: body.city,
+      state: body.state,
+      zip: body.zip,
+      emergencyContactName: body.emergencyContactName,
+      emergencyContactPhone: body.emergencyContactPhone,
+      emergencyContactRelation: body.emergencyContactRelation,
+      primaryInsuranceCarrier: body.primaryInsuranceCarrier,
+      primaryInsuranceMemberId: body.primaryInsuranceMemberId,
+      primaryInsuranceGroupNumber: body.primaryInsuranceGroupNumber,
+      allergies: body.allergies,
+      currentMedications: body.currentMedications,
+    });
 
     const patient = await prisma.patient.create({
-      data: { name: body.name.trim(), createdById: auth.user.id },
+      data: {
+        mrn,
+        name,
+        firstName: body.firstName,
+        lastName: body.lastName,
+        middleName: body.middleName,
+        dateOfBirth: dob,
+        sexAtBirth: body.sexAtBirth,
+        phone: body.phone,
+        createdById: auth.user.id,
+        ...encrypted,
+      },
     });
 
     const { ipAddress, userAgent } = getClientInfo(request);
@@ -59,10 +117,15 @@ export async function POST(request: Request) {
       patientId: patient.id,
       ipAddress,
       userAgent,
+      metadata: { mrn },
     });
 
     return NextResponse.json({ patient: toPatientDTO(patient) }, { status: 201 });
-  } catch {
+  } catch (err) {
+    if (err && typeof err === "object" && "issues" in err) {
+      const issue = (err as { issues: { message: string }[] }).issues[0];
+      return badRequest(issue?.message ?? "Invalid request");
+    }
     return badRequest("Invalid request");
   }
 }

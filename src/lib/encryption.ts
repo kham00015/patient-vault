@@ -46,7 +46,6 @@ export function decryptField(ciphertext: string | null | undefined): string | nu
 }
 
 const PHI_FIELDS = [
-  "noteDraft",
   "diagnosis",
   "pmh",
   "echo",
@@ -56,6 +55,21 @@ const PHI_FIELDS = [
   "imaging",
   "medications",
   "social",
+  "email",
+  "addressLine1",
+  "addressLine2",
+  "city",
+  "state",
+  "zip",
+  "emergencyContactName",
+  "emergencyContactPhone",
+  "emergencyContactRelation",
+  "primaryInsuranceCarrier",
+  "primaryInsuranceMemberId",
+  "primaryInsuranceGroupNumber",
+  "allergies",
+  "currentMedications",
+  "archiveReason",
 ] as const;
 
 export function encryptPatientFields<T extends Record<string, unknown>>(data: T): T {

@@ -1,31 +1,41 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Role } from "@prisma/client";
 import { hashPassword } from "../src/lib/auth";
 
 const prisma = new PrismaClient();
 
-async function main() {
-  const email = "admin@clinic.local";
-  const password = "ChangeMe123!";
+const DEV_PASSWORD = "ChangeMe123!";
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    console.log("Seed: admin user already exists");
-    return;
+const SEED_USERS: { email: string; name: string; role: Role }[] = [
+  { email: "admin@clinic.local", name: "Clinic Admin", role: "ADMIN" },
+  { email: "user@clinic.local", name: "Clinic User", role: "STAFF" },
+];
+
+async function main() {
+  const passwordHash = await hashPassword(DEV_PASSWORD);
+
+  for (const user of SEED_USERS) {
+    const existing = await prisma.user.findUnique({ where: { email: user.email } });
+    if (existing) {
+      console.log(`Seed: ${user.email} already exists (${existing.role})`);
+      continue;
+    }
+
+    await prisma.user.create({
+      data: {
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        passwordHash,
+      },
+    });
+
+    console.log(`Seed: created ${user.email} (${user.role})`);
   }
 
-  await prisma.user.create({
-    data: {
-      email,
-      name: "Clinic Admin",
-      role: "ADMIN",
-      passwordHash: await hashPassword(password),
-    },
-  });
-
-  console.log("Seed complete:");
-  console.log(`  Email:    ${email}`);
-  console.log(`  Password: ${password}`);
-  console.log("  Change this password immediately in production.");
+  console.log("\nDev logins (change passwords before production):");
+  console.log("  Admin — admin@clinic.local");
+  console.log("  User  — user@clinic.local");
+  console.log(`  Password (both): ${DEV_PASSWORD}`);
 }
 
 main()

@@ -3,7 +3,6 @@ type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 export async function chatWithAI(params: {
   messages: ChatMessage[];
   patientData?: string;
-  knowledgeBase?: string;
   pastConversations?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -20,7 +19,6 @@ export async function chatWithAI(params: {
 You help analyze patient charts. You do NOT replace clinical judgment.
 Never fabricate medical data. If information is missing, say so.
 ${params.patientData ? `\n\n=== PATIENT CHART ===\n${params.patientData}` : ""}
-${params.knowledgeBase ? `\n\n=== KNOWLEDGE BASE ===\n${params.knowledgeBase}` : ""}
 ${params.pastConversations ? `\n\n=== PAST CONVERSATIONS ===\n${params.pastConversations}` : ""}`;
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {

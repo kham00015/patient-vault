@@ -55,9 +55,14 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
-**Default dev login** (change immediately):
-- Email: `admin@clinic.local`
-- Password: `ChangeMe123!`
+**Default dev logins** (change immediately):
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | `admin@clinic.local` | `ChangeMe123!` |
+| User (staff) | `user@clinic.local` | `ChangeMe123!` |
+
+Staff users can chart patients but cannot archive charts, delete clinical records, or access the audit log.
 
 ## Production
 

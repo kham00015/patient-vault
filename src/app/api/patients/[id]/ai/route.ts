@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { chatWithAI, organizeChartWithAI } from "@/lib/ai";
-import { toPatientDTO, MEDICAL_SECTIONS } from "@/lib/patients";
+import { toPatientDTO, MEDICAL_SECTIONS, isPatientChartWritable, toNoteDTO } from "@/lib/patients";
+import { getNoteTypeLabel } from "@/lib/notes";
 import { preparePatientUpdate } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
@@ -31,22 +32,32 @@ export async function POST(request: Request, { params }: Params) {
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();
+  if (!isPatientChartWritable(patient.status)) {
+    return badRequest("Archived charts are read-only");
+  }
 
   try {
     const body = chatSchema.parse(await request.json());
     const dto = toPatientDTO(patient);
+    const clinicalNotes = await prisma.note.findMany({
+      where: { patientId },
+      orderBy: { date: "desc" },
+    });
 
     let patientData = `Patient: ${dto.name}\n`;
-    if (dto.noteDraft) patientData += `\n=== NOTES ===\n${dto.noteDraft}\n`;
+    if (clinicalNotes.length > 0) {
+      patientData += "\n=== CLINICAL NOTES ===\n";
+      for (const note of clinicalNotes) {
+        const decrypted = toNoteDTO(note);
+        patientData += `${decrypted.date.toISOString().slice(0, 10)} · ${getNoteTypeLabel(decrypted.type)}:\n${decrypted.content}\n\n`;
+      }
+    }
     for (const s of MEDICAL_SECTIONS) {
       const val = dto[s.key as keyof typeof dto];
       if (typeof val === "string" && val.trim()) {
         patientData += `\n=== ${s.label.toUpperCase()} ===\n${val}\n`;
       }
     }
-
-    const kbDocs = await prisma.knowledgeBaseDocument.findMany({ take: 5 });
-    const knowledgeBase = kbDocs.map((d) => `[${d.title}]\n${d.content}`).join("\n---\n");
 
     const existing = await prisma.aIConversation.findUnique({ where: { patientId } });
     const history: { role: string; content: string }[] = existing
@@ -58,7 +69,6 @@ export async function POST(request: Request, { params }: Params) {
     const result = await chatWithAI({
       messages: messages as { role: "user" | "assistant" | "system"; content: string }[],
       patientData,
-      knowledgeBase,
     });
 
     const updated = [...messages, { role: "assistant", content: result.response }];

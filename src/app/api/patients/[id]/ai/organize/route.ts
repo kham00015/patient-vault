@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, notFound } from "@/lib/api";
+import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { organizeChartWithAI } from "@/lib/ai";
-import { toPatientDTO, MEDICAL_SECTIONS, preparePatientUpdate } from "@/lib/patients";
+import { toPatientDTO, MEDICAL_SECTIONS, preparePatientUpdate, isPatientChartWritable, toNoteDTO } from "@/lib/patients";
+import { getNoteTypeLabel } from "@/lib/notes";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -15,10 +16,23 @@ export async function POST(request: Request, { params }: Params) {
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();
+  if (!isPatientChartWritable(patient.status)) {
+    return badRequest("Archived charts are read-only");
+  }
 
   const dto = toPatientDTO(patient);
+  const clinicalNotes = await prisma.note.findMany({
+    where: { patientId },
+    orderBy: { date: "desc" },
+  });
   let combined = `Patient: ${dto.name}\n\n`;
-  if (dto.noteDraft) combined += `=== MAIN NOTES ===\n${dto.noteDraft}\n\n`;
+  if (clinicalNotes.length > 0) {
+    combined += "=== CLINICAL NOTES ===\n";
+    for (const note of clinicalNotes) {
+      const decrypted = toNoteDTO(note);
+      combined += `${decrypted.date.toISOString().slice(0, 10)} · ${getNoteTypeLabel(decrypted.type)}:\n${decrypted.content}\n\n`;
+    }
+  }
   for (const s of MEDICAL_SECTIONS) {
     const val = dto[s.key as keyof typeof dto];
     if (typeof val === "string" && val.trim()) {

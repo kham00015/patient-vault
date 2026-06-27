@@ -134,6 +134,16 @@ export function canWrite(role: Role) {
   return role === "ADMIN" || role === "CLINICIAN" || role === "STAFF";
 }
 
+export function canArchive(role: Role) {
+  return role === "ADMIN" || role === "CLINICIAN";
+}
+
+/** Permanent chart deletion — admin only, with documented reason + MRN confirmation */
+export function canHardDelete(role: Role) {
+  return role === "ADMIN";
+}
+
+/** @deprecated Use canHardDelete — kept for non-patient deletes (notes, documents) */
 export function canDelete(role: Role) {
   return role === "ADMIN" || role === "CLINICIAN";
 }

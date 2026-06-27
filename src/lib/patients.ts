@@ -1,4 +1,4 @@
-import type { Patient } from "@prisma/client";
+import type { Note, Patient } from "@prisma/client";
 import {
   decryptNoteContent,
   decryptPatientFields,
@@ -19,10 +19,31 @@ export function preparePatientUpdate(data: Record<string, string | undefined>) {
   return encryptPatientFields(data);
 }
 
-export function toNoteDTO(note: { id: string; patientId: string; date: Date; content: string; createdAt: Date; updatedAt: Date }) {
+export function toNoteDTO(
+  note: Note & {
+    encounter?: {
+      id: string;
+      visitCategory: string;
+      modality: string;
+      date: Date;
+    } | null;
+  }
+) {
   return {
     ...note,
+    date: note.date.toISOString(),
+    signedAt: note.signedAt?.toISOString() ?? null,
+    createdAt: note.createdAt.toISOString(),
+    updatedAt: note.updatedAt.toISOString(),
     content: decryptNoteContent(note.content),
+    encounter: note.encounter
+      ? {
+          id: note.encounter.id,
+          visitCategory: note.encounter.visitCategory,
+          modality: note.encounter.modality,
+          date: note.encounter.date.toISOString(),
+        }
+      : null,
   };
 }
 
@@ -43,3 +64,7 @@ export const MEDICAL_SECTIONS = [
 ] as const;
 
 export type MedicalSectionKey = (typeof MEDICAL_SECTIONS)[number]["key"];
+
+export function isPatientChartWritable(status?: string | null) {
+  return !status || status === "ACTIVE";
+}
