@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { StructuredNoteEditor, type StructuredNoteData } from "@/components/app/structured-note-editor";
+import { FormsBranchPanel } from "@/components/app/forms-branch-panel";
+import { CommsBranchPanel } from "@/components/app/comms-branch-panel";
+import { SendFaxModal } from "@/components/app/send-fax-modal";
+import type { EncounterFormData } from "@/components/app/clinical-form-editor";
+import type { FaxTransmissionDTO } from "@/lib/fax-transmissions";
 import {
   ENCOUNTER_MODALITIES,
   VISIT_CATEGORIES,
@@ -19,7 +24,7 @@ import { getNoteTypeLabel, NOTE_TYPES, type NoteType } from "@/lib/notes";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
-import { Calendar, ChevronDown, ChevronRight, ClipboardList, Lock, Paperclip, Pill, Plus } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer } from "lucide-react";
 
 type EncounterSummary = {
   id: string;
@@ -31,6 +36,8 @@ type EncounterSummary = {
   providerName?: string | null;
   noteCount: number;
   documentCount: number;
+  formCount: number;
+  faxCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -48,9 +55,11 @@ type EncounterDocument = {
 type EncounterDetail = EncounterSummary & {
   notes: EncounterNote[];
   documents: EncounterDocument[];
+  forms: EncounterFormData[];
+  faxes: FaxTransmissionDTO[];
 };
 
-type EncounterBranch = "notes" | "attachments" | "prescriptions";
+type EncounterBranch = "notes" | "forms" | "attachments" | "comms" | "prescriptions";
 
 function formatEncounterTimelineDate(iso: string) {
   const d = new Date(iso);
@@ -63,12 +72,14 @@ function formatEncounterTimelineDate(iso: string) {
 export function ChartEncountersPanel({
   patientId,
   chartInsertData,
+  patientDiagnosis,
   isReadOnly,
   canRemoveRecords,
   onPatientDataChange,
 }: {
   patientId: string;
   chartInsertData: PatientChartInsertSnapshot;
+  patientDiagnosis?: string | null;
   isReadOnly: boolean;
   canRemoveRecords: boolean;
   onPatientDataChange?: () => Promise<void>;
@@ -83,10 +94,18 @@ export function ChartEncountersPanel({
   const [selectedVisitCategory, setSelectedVisitCategory] = useState<VisitCategory | null>(null);
   const [pickingNoteTypeFor, setPickingNoteTypeFor] = useState<string | null>(null);
   const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [faxModal, setFaxModal] = useState<{
+    encounterId: string;
+    documentId?: string;
+    toNumber?: string;
+    toName?: string;
+  } | null>(null);
 
   const loadEncounters = useCallback(async () => {
     const data = await api<{ encounters: EncounterSummary[] }>(`/api/patients/${patientId}/encounters`);
     setEncounters(data.encounters);
+    setLoadError("");
   }, [patientId]);
 
   const loadDetail = useCallback(
@@ -108,7 +127,7 @@ export function ChartEncountersPanel({
   useEffect(() => {
     setLoading(true);
     loadEncounters()
-      .catch(() => undefined)
+      .catch(() => setLoadError("Could not load encounters. Try refreshing the page."))
       .finally(() => setLoading(false));
   }, [loadEncounters]);
 
@@ -139,13 +158,9 @@ export function ChartEncountersPanel({
       setPickingNoteTypeFor(null);
       return;
     }
-    const loaded = await ensureEncounterOpen(encounterId);
+    await ensureEncounterOpen(encounterId);
     setActiveBranch({ encounterId, branch });
-    if (branch === "notes" && !isReadOnly && loaded.notes.length === 0) {
-      setPickingNoteTypeFor(encounterId);
-    } else {
-      setPickingNoteTypeFor(null);
-    }
+    setPickingNoteTypeFor(null);
   }
 
   async function createEncounter(visitCategory: VisitCategory, modality: EncounterModality) {
@@ -159,16 +174,12 @@ export function ChartEncountersPanel({
     setExpandedId(data.encounter.id);
     await loadDetail(data.encounter.id);
     setActiveBranch({ encounterId: data.encounter.id, branch: "notes" });
-    if (modality === "PATIENT_LETTER") {
-      await createNote(data.encounter.id, "PATIENT_LETTER");
-    } else {
-      setPickingNoteTypeFor(data.encounter.id);
-    }
+    setPickingNoteTypeFor(null);
     await onPatientDataChange?.();
   }
 
   async function createNote(encounterId: string, type: NoteType) {
-    const res = await api<{ note: EncounterNote }>(`/api/patients/${patientId}/notes`, {
+    await api<{ note: EncounterNote }>(`/api/patients/${patientId}/notes`, {
       method: "POST",
       json: {
         date: toDateInputValue(new Date()),
@@ -179,7 +190,6 @@ export function ChartEncountersPanel({
     setPickingNoteTypeFor(null);
     await loadDetail(encounterId);
     await loadEncounters();
-    setActiveNote(res.note);
     await onPatientDataChange?.();
   }
 
@@ -192,6 +202,19 @@ export function ChartEncountersPanel({
     }
     await onPatientDataChange?.();
   }
+
+  function openFaxModal(
+    encounterId: string,
+    documentId?: string,
+    toNumber?: string,
+    toName?: string
+  ) {
+    setFaxModal({ encounterId, documentId, toNumber, toName });
+    setActiveBranch({ encounterId, branch: "comms" });
+    setExpandedId(encounterId);
+  }
+
+  const faxModalEncounter = faxModal ? details[faxModal.encounterId] : null;
 
   async function updateEncounterDate(encounterId: string, date: string) {
     const data = await api<{ encounter: EncounterDetail }>(
@@ -305,7 +328,10 @@ export function ChartEncountersPanel({
       )}
 
       {loading && <p className="text-sm text-[#6b7c93]">Loading encounters...</p>}
-      {!loading && encounters.length === 0 && !pickingEncounter && (
+      {!loading && loadError && (
+        <p className="text-sm text-rose-300">{loadError}</p>
+      )}
+      {!loading && !loadError && encounters.length === 0 && !pickingEncounter && (
         <p className="text-sm text-[#6b7c93]">No encounters yet. Create one to document a clinic visit.</p>
       )}
 
@@ -392,6 +418,15 @@ export function ChartEncountersPanel({
                               onClick={() => openBranch(enc.id, "notes")}
                             />
                             <EncounterBranchCircle
+                              icon={FileText}
+                              label="Forms"
+                              count={detail.forms.length}
+                              active={branchOpen === "forms"}
+                              ringClass="border-sky-400/70 bg-sky-500/10 text-sky-300"
+                              activeRingClass="ring-sky-400/50"
+                              onClick={() => openBranch(enc.id, "forms")}
+                            />
+                            <EncounterBranchCircle
                               icon={Paperclip}
                               label="Files"
                               count={detail.documents.length}
@@ -399,6 +434,15 @@ export function ChartEncountersPanel({
                               ringClass="border-violet-400/70 bg-violet-500/10 text-violet-300"
                               activeRingClass="ring-violet-400/50"
                               onClick={() => openBranch(enc.id, "attachments")}
+                            />
+                            <EncounterBranchCircle
+                              icon={Printer}
+                              label="Comms"
+                              count={detail.faxes?.length ?? 0}
+                              active={branchOpen === "comms"}
+                              ringClass="border-teal-400/70 bg-teal-500/10 text-teal-300"
+                              activeRingClass="ring-teal-400/50"
+                              onClick={() => openBranch(enc.id, "comms")}
                             />
                             <EncounterBranchCircle
                               icon={Pill}
@@ -423,6 +467,16 @@ export function ChartEncountersPanel({
                             />
                           )}
 
+                          {branchOpen === "forms" && (
+                            <FormsBranchPanel
+                              patientId={patientId}
+                              encounterId={enc.id}
+                              forms={detail.forms}
+                              isReadOnly={isReadOnly}
+                              onRefresh={() => refreshEncounter(enc.id)}
+                            />
+                          )}
+
                           {branchOpen === "attachments" && (
                             <AttachmentsBranchPanel
                               patientId={patientId}
@@ -431,6 +485,17 @@ export function ChartEncountersPanel({
                               isReadOnly={isReadOnly}
                               canRemoveRecords={canRemoveRecords}
                               onRefresh={() => refreshEncounter(enc.id)}
+                              onSendFax={(documentId) => openFaxModal(enc.id, documentId)}
+                            />
+                          )}
+
+                          {branchOpen === "comms" && (
+                            <CommsBranchPanel
+                              patientId={patientId}
+                              faxes={detail.faxes ?? []}
+                              documents={detail.documents}
+                              isReadOnly={isReadOnly}
+                              onSendFax={(documentId) => openFaxModal(enc.id, documentId)}
                             />
                           )}
 
@@ -451,6 +516,23 @@ export function ChartEncountersPanel({
           })}
         </div>
       </div>
+
+      {faxModal && (
+        <SendFaxModal
+          open
+          onClose={() => setFaxModal(null)}
+          patientId={patientId}
+          encounterId={faxModal.encounterId}
+          documents={faxModalEncounter?.documents ?? []}
+          initialDocumentId={faxModal.documentId}
+          initialToNumber={faxModal.toNumber}
+          initialToName={faxModal.toName}
+          onSent={async () => {
+            await refreshEncounter(faxModal.encounterId);
+            setFaxModal(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -611,10 +693,18 @@ function NotesBranchPanel({
 }) {
   return (
     <div className="mt-1.5 rounded-md border border-[#243044] bg-[#121820]/80 p-2">
+      {!isReadOnly && !pickingNoteType && (
+        <div className="mb-2 flex justify-end">
+          <Button variant="success" className="!h-7 !text-[10px]" onClick={onStartNote}>
+            <Plus size={12} /> Create Note
+          </Button>
+        </div>
+      )}
+
       {pickingNoteType && (
-        <div className="mb-2 border-b border-[#243044] pb-2">
+        <div className={cn("border-[#243044] pb-2", notes.length > 0 && "mb-2 border-b")}>
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-cyan-200">New note</span>
+            <span className="text-[10px] font-medium uppercase tracking-wide text-cyan-200">Choose note type</span>
             <Button className="!h-6 !px-2 !text-[10px]" onClick={onCancelPicker}>
               Cancel
             </Button>
@@ -634,39 +724,43 @@ function NotesBranchPanel({
         </div>
       )}
 
-      {notes.length === 0 && !pickingNoteType ? (
-        <div className="flex items-center justify-between gap-2 py-1">
-          <p className="text-xs text-[#6b7c93]">No notes yet.</p>
-          {!isReadOnly && (
-            <Button variant="success" className="!h-7 !text-[10px]" onClick={onStartNote}>
-              Start Note
-            </Button>
-          )}
-        </div>
-      ) : (
+      {notes.length > 0 && (
         <div className="space-y-1">
           {notes.map((note) => (
             <EncounterNoteRow key={note.id} note={note} onOpen={() => onOpenNote(note)} />
           ))}
-          {!isReadOnly && !pickingNoteType && (
-            <Button className="!mt-1 !h-7 w-full !text-[10px]" onClick={onStartNote}>
-              <Plus size={12} /> Add Note
-            </Button>
-          )}
         </div>
       )}
     </div>
   );
 }
 
+function NoteStatusBadge({ status }: { status: "DRAFT" | "SIGNED" }) {
+  const isSigned = status === "SIGNED";
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+        isSigned ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+      )}
+    >
+      {isSigned ? "Signed" : "Draft"}
+    </span>
+  );
+}
+
 function EncounterNoteRow({ note, onOpen }: { note: EncounterNote; onOpen: () => void }) {
+  const status = note.status ?? "DRAFT";
   return (
     <button
       type="button"
       onClick={onOpen}
       className="flex w-full items-center justify-between gap-2 rounded border border-[#243044] bg-[#0f1520] px-2 py-1.5 text-left transition hover:border-cyan-500/30"
     >
-      <span className="truncate text-[11px] font-medium text-cyan-200">{getNoteTypeLabel(note.type)}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-[11px] font-medium text-cyan-200">{getNoteTypeLabel(note.type)}</span>
+        <NoteStatusBadge status={status} />
+      </div>
       <span className="shrink-0 text-[10px] text-[#6b7c93]">{formatDate(note.date)}</span>
     </button>
   );
@@ -679,6 +773,7 @@ function AttachmentsBranchPanel({
   isReadOnly,
   canRemoveRecords,
   onRefresh,
+  onSendFax,
 }: {
   patientId: string;
   encounterId: string;
@@ -686,6 +781,7 @@ function AttachmentsBranchPanel({
   isReadOnly: boolean;
   canRemoveRecords: boolean;
   onRefresh: () => Promise<void>;
+  onSendFax: (documentId: string) => void;
 }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -761,6 +857,14 @@ function AttachmentsBranchPanel({
                 >
                   Open
                 </Button>
+                {!isReadOnly && (
+                  <Button
+                    className="!h-7 !px-2 !text-[10px]"
+                    onClick={() => onSendFax(d.id)}
+                  >
+                    Fax
+                  </Button>
+                )}
                 {!isReadOnly && canRemoveRecords && (
                   <Button
                     variant="danger"

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
-import type { Role, User } from "@prisma/client";
+import { type SessionUser } from "./roles";
 
 const COOKIE_NAME = "pv_session";
 const SALT_ROUNDS = 12;
@@ -36,7 +36,17 @@ export async function verifyPassword(password: string, hash: string) {
   return bcrypt.compare(password, hash);
 }
 
-export type SessionUser = Pick<User, "id" | "email" | "name" | "role">;
+export type { SessionUser } from "./roles";
+export {
+  canWrite,
+  canArchive,
+  canHardDelete,
+  canDelete,
+  canManageUsers,
+  canViewAudit,
+  canManageScheduleReady,
+  canWriteScheduleDocNotes,
+} from "./roles";
 
 export async function createSession(
   user: SessionUser,
@@ -128,30 +138,4 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
-
-export function canWrite(role: Role) {
-  return role === "ADMIN" || role === "CLINICIAN" || role === "STAFF";
-}
-
-export function canArchive(role: Role) {
-  return role === "ADMIN" || role === "CLINICIAN";
-}
-
-/** Permanent chart deletion — admin only, with documented reason + MRN confirmation */
-export function canHardDelete(role: Role) {
-  return role === "ADMIN";
-}
-
-/** @deprecated Use canHardDelete — kept for non-patient deletes (notes, documents) */
-export function canDelete(role: Role) {
-  return role === "ADMIN" || role === "CLINICIAN";
-}
-
-export function canManageUsers(role: Role) {
-  return role === "ADMIN";
-}
-
-export function canViewAudit(role: Role) {
-  return role === "ADMIN";
 }

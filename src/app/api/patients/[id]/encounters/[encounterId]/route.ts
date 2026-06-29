@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AuditAction, type Document, type Encounter, type Note } from "@prisma/client";
+import { AuditAction, type Document, type Encounter, type EncounterForm, type FaxTransmission, type Note, type User } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { isPatientChartWritable, toNoteDTO } from "@/lib/patients";
+import { toFormDTO } from "@/lib/forms";
+import { toFaxDTO } from "@/lib/fax-transmissions";
 import { ENCOUNTER_MODALITIES, ENCOUNTER_STATUSES, VISIT_CATEGORIES } from "@/lib/encounters";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
@@ -28,6 +30,13 @@ function toEncounterDetail(
     provider: { name: string | null; email: string } | null;
     notes: Note[];
     documents: Document[];
+    forms: (EncounterForm & {
+      document: Pick<Document, "id" | "name" | "fileName" | "mimeType" | "fileSize"> | null;
+    })[];
+    faxTransmissions: (FaxTransmission & {
+      document: Pick<Document, "id" | "name" | "fileName" | "mimeType" | "fileSize">;
+      sentBy: Pick<User, "id" | "name" | "email">;
+    })[];
   }
 ) {
   return {
@@ -48,6 +57,8 @@ function toEncounterDetail(
       ...d,
       uploadedAt: d.uploadedAt.toISOString(),
     })),
+    forms: encounter.forms.map(toFormDTO),
+    faxes: encounter.faxTransmissions.map(toFaxDTO),
   };
 }
 
@@ -62,6 +73,19 @@ export async function GET(request: Request, { params }: Params) {
       provider: { select: { name: true, email: true } },
       notes: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
       documents: { orderBy: { uploadedAt: "desc" } },
+      forms: {
+        orderBy: { updatedAt: "desc" },
+        include: {
+          document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
+        },
+      },
+      faxTransmissions: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
+          sentBy: { select: { id: true, name: true, email: true } },
+        },
+      },
     },
   });
   if (!encounter) return notFound();
@@ -122,6 +146,19 @@ export async function PATCH(request: Request, { params }: Params) {
         provider: { select: { name: true, email: true } },
         notes: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
         documents: { orderBy: { uploadedAt: "desc" } },
+        forms: {
+          orderBy: { updatedAt: "desc" },
+          include: {
+            document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
+          },
+        },
+        faxTransmissions: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
+            sentBy: { select: { id: true, name: true, email: true } },
+          },
+        },
       },
     });
 

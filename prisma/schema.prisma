@@ -59,10 +59,13 @@ model User {
   patientLists PatientList[]
   encountersCreated Encounter[] @relation("CreatedEncounters")
   encountersAsProvider Encounter[] @relation("EncounterProvider")
+  encounterFormsCreated EncounterForm[] @relation("CreatedEncounterForms")
+  faxTransmissionsSent FaxTransmission[] @relation("SentFaxTransmissions")
   messageThreadsCreated MessageThread[] @relation("CreatedMessageThreads")
   threadMessagesSent ThreadMessage[] @relation("SentThreadMessages")
   threadParticipations ThreadParticipant[] @relation("MessageThreadParticipants")
   remindersCreated Reminder[] @relation("CreatedReminders")
+  contactsCreated Contact[] @relation("CreatedContacts")
 }
 
 model Session {
@@ -145,6 +148,8 @@ model Patient {
   notes           Note[]
   documents       Document[]
   encounters      Encounter[]
+  encounterForms  EncounterForm[]
+  faxTransmissions FaxTransmission[]
   scheduleEntries ScheduleEntry[]
   listMemberships ListPatient[]
   aiConversation  AIConversation?
@@ -216,6 +221,8 @@ model Encounter {
   createdBy      User            @relation("CreatedEncounters", fields: [createdById], references: [id])
   notes          Note[]
   documents      Document[]
+  forms          EncounterForm[]
+  faxTransmissions FaxTransmission[]
 
   @@index([patientId])
   @@index([date])
@@ -259,18 +266,108 @@ model Document {
   patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   encounter    Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
   uploadedBy   User       @relation(fields: [uploadedById], references: [id])
+  encounterForm EncounterForm?
+  faxTransmissions FaxTransmission[]
 
   @@index([patientId])
   @@index([encounterId])
 }
 
-model ScheduleEntry {
-  id        String   @id @default(cuid())
-  date      DateTime
-  patientId String
-  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+enum FormSource {
+  ONLINE
+  UPLOAD
+}
 
-  @@unique([date, patientId])
+enum FormStatus {
+  DRAFT
+  COMPLETED
+}
+
+model EncounterForm {
+  id             String     @id @default(cuid())
+  patientId      String
+  encounterId    String
+  templateId     String
+  status         FormStatus @default(DRAFT)
+  source         FormSource
+  responses      String?
+  score          Int?
+  interpretation String?
+  documentId     String?    @unique
+  completedAt    DateTime?
+  createdById    String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  patient        Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter      Encounter  @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  document       Document?  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy      User       @relation("CreatedEncounterForms", fields: [createdById], references: [id])
+
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([templateId])
+  @@index([status])
+}
+
+enum FaxDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum FaxStatus {
+  QUEUED
+  SENDING
+  DELIVERED
+  FAILED
+}
+
+model FaxTransmission {
+  id            String        @id @default(cuid())
+  patientId     String
+  encounterId   String
+  documentId    String
+  direction     FaxDirection  @default(OUTBOUND)
+  status        FaxStatus     @default(QUEUED)
+  toNumber      String
+  toName        String?
+  fromNumber    String?
+  coverSheet    String?
+  provider      String
+  providerJobId String?
+  failureReason String?
+  pageCount     Int?
+  sentById      String
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  patient       Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter     Encounter     @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sentBy        User          @relation("SentFaxTransmissions", fields: [sentById], references: [id])
+
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([documentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ScheduleEntry {
+  id                     String        @id @default(cuid())
+  scheduleDay            String?
+  date                   DateTime
+  patientId              String
+  patient                Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  providerKey            String        @default("FIRAS_KHAMIS")
+  visitCategory          VisitCategory @default(FOLLOW_UP)
+  readyAt                DateTime?
+  roomNumber             String?
+  docNotes               String?
+  docNotesAcknowledgedAt DateTime?
+
+  @@unique([scheduleDay, patientId, providerKey])
+  @@index([scheduleDay, providerKey])
   @@index([date])
 }
 
@@ -383,4 +480,33 @@ model Reminder {
   @@index([patientId])
   @@index([dueDate])
   @@index([status])
+}
+
+enum ContactType {
+  REFERRAL_SPECIALIST
+  PHARMA_REP
+  LAB
+  IMAGING
+  HOSPITAL
+  INSURANCE
+  OTHER
+}
+
+model Contact {
+  id          String      @id @default(cuid())
+  name        String
+  type        ContactType @default(OTHER)
+  location    String?
+  phone       String?
+  notes       String?
+  company     String?
+  drug        String?
+  createdById String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  createdBy   User        @relation("CreatedContacts", fields: [createdById], references: [id])
+
+  @@index([type])
+  @@index([name])
+  @@index([updatedAt])
 }

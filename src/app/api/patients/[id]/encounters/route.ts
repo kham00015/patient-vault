@@ -39,7 +39,7 @@ function toEncounterSummary(
     createdAt: Date;
     updatedAt: Date;
     provider: { name: string | null; email: string } | null;
-    _count: { notes: number; documents: number };
+    _count: { notes: number; documents: number; forms: number; faxTransmissions: number };
   }
 ) {
   return {
@@ -55,6 +55,8 @@ function toEncounterSummary(
     providerName: encounter.provider?.name ?? encounter.provider?.email ?? null,
     noteCount: encounter._count.notes,
     documentCount: encounter._count.documents,
+    formCount: encounter._count.forms,
+    faxCount: encounter._count.faxTransmissions,
     createdAt: encounter.createdAt.toISOString(),
     updatedAt: encounter.updatedAt.toISOString(),
   };
@@ -73,7 +75,7 @@ export async function GET(request: Request, { params }: Params) {
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     include: {
       provider: { select: { name: true, email: true } },
-      _count: { select: { notes: true, documents: true } },
+      _count: { select: { notes: true, documents: true, forms: true, faxTransmissions: true } },
     },
   });
 
@@ -120,7 +122,7 @@ export async function POST(request: Request, { params }: Params) {
       },
       include: {
         provider: { select: { name: true, email: true } },
-        _count: { select: { notes: true, documents: true } },
+        _count: { select: { notes: true, documents: true, forms: true, faxTransmissions: true } },
       },
     });
 

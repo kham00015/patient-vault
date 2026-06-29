@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SessionUser } from "@/lib/auth";
+import type { SessionUser } from "@/lib/roles";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ import { ChartDiagnosisPanel } from "@/components/app/chart-diagnosis-panel";
 import { MessagingPanel } from "@/components/app/messaging-panel";
 import { PatientRemindersModal } from "@/components/app/patient-reminders-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
+import { ContactsPanel } from "@/components/app/contacts-panel";
+import { SchedulePanel } from "@/components/app/schedule-panel";
 import { CLINIC_NAME } from "@/lib/branding";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { formatEncounterLabel } from "@/lib/encounters";
@@ -46,6 +48,7 @@ import {
   LogOut,
   MessageSquare,
   Bell,
+  BookUser,
   Plus,
   Search,
   Stethoscope,
@@ -154,7 +157,7 @@ const CHART_TABS: { id: ChartTab; label: string; shortLabel: string }[] = [
   { id: "documents", label: "Documents", shortLabel: "Documents" },
 ];
 
-type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders";
+type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts";
 
 type ModalType =
   | "patients"
@@ -357,6 +360,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
     { id: "lists", label: "Lists", icon: List, color: "text-fuchsia-400" },
     { id: "messages", label: "Messages", icon: MessageSquare, color: "text-sky-300" },
     { id: "reminders", label: "Reminders", icon: Bell, color: "text-orange-300" },
+    { id: "contacts", label: "Contacts", icon: BookUser, color: "text-lime-300" },
   ] as const;
 
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit") {
@@ -377,6 +381,11 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
     }
     if (id === "reminders") {
       setMainView("reminders");
+      setModal(null);
+      return;
+    }
+    if (id === "contacts") {
+      setMainView("contacts");
       setModal(null);
       return;
     }
@@ -406,7 +415,8 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
                 ((item.id === "schedule" && mainView === "schedule") ||
                   (item.id === "lists" && mainView === "lists") ||
                   (item.id === "messages" && mainView === "messages") ||
-                  (item.id === "reminders" && mainView === "reminders"))
+                  (item.id === "reminders" && mainView === "reminders") ||
+                  (item.id === "contacts" && mainView === "contacts"))
                   ? "border-cyan-500/40 bg-cyan-500/10"
                   : "border-transparent"
               )}
@@ -463,6 +473,11 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
                   <Bell className="text-orange-300" size={20} />
                   <h1 className="text-lg font-semibold">Reminders</h1>
                 </>
+              ) : mainView === "contacts" ? (
+                <>
+                  <BookUser className="text-lime-300" size={20} />
+                  <h1 className="text-lg font-semibold">Contacts</h1>
+                </>
               ) : (
                 <>
                   <Stethoscope className="text-cyan-400" size={20} />
@@ -475,7 +490,8 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
             {(mainView === "schedule" ||
               mainView === "lists" ||
               mainView === "messages" ||
-              mainView === "reminders") &&
+              mainView === "reminders" ||
+              mainView === "contacts") &&
               current && (
               <Button className="!py-2 !text-xs" onClick={() => setMainView("chart")}>
                 Open {formatDisplayName(current)}&apos;s Chart
@@ -577,7 +593,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-4">
           {mainView === "schedule" ? (
-            <SchedulePanel patients={patients} onSelectPatient={selectPatient} />
+            <SchedulePanel user={user} patients={patients} onSelectPatient={selectPatient} />
           ) : mainView === "lists" ? (
             <ListsPanel patients={patients} onSelectPatient={selectPatient} />
           ) : mainView === "messages" ? (
@@ -595,6 +611,8 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
               onSelectPatient={selectPatient}
               canEdit={user.role !== "READONLY"}
             />
+          ) : mainView === "contacts" ? (
+            <ContactsPanel canEdit={user.role !== "READONLY"} />
           ) : !current ? (
             <div className="flex flex-1 items-center justify-center text-sm text-[#6b7c93]">
               Select a patient to view chart
@@ -605,6 +623,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
                 <ChartEncountersPanel
                   patientId={current.id}
                   chartInsertData={chartInsertData}
+                  patientDiagnosis={current.diagnosis}
                   isReadOnly={!!isChartReadOnly}
                   canRemoveRecords={canRemoveRecords}
                   onPatientDataChange={refreshNotes}
@@ -848,20 +867,40 @@ function ChartNotesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-      <div className="space-y-2">
-        {notes.length === 0 && <p className="text-sm text-[#6b7c93]">No clinical notes yet.</p>}
-        {notes.map((n) => (
-          <button
-            key={n.id}
-            type="button"
-            onClick={() => setActiveNote(n)}
-            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-[#243044] bg-[#0f1520] px-4 py-3 text-left transition hover:border-cyan-500/40 hover:bg-[#1a2330]"
-          >
-            <span className="text-sm font-medium text-cyan-200">{getNoteTypeLabel(n.type)}</span>
-            <span className="text-sm text-[#8b9cb3]">{formatDate(n.date)}</span>
-          </button>
-        ))}
-      </div>
+      {notes.length > 0 && (
+        <div className="space-y-2">
+          {notes.map((n) => {
+            const status = n.status ?? "DRAFT";
+            const isSigned = status === "SIGNED";
+            return (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => setActiveNote(n)}
+                className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-[#243044] bg-[#0f1520] px-4 py-3 text-left transition hover:border-cyan-500/40 hover:bg-[#1a2330]"
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-cyan-200">{getNoteTypeLabel(n.type)}</span>
+                  <span
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      isSigned ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+                    )}
+                  >
+                    {isSigned ? "Signed" : "Draft"}
+                  </span>
+                  {n.encounter && (
+                    <span className="text-xs text-[#6b7c93]">
+                      {formatEncounterLabel(n.encounter.visitCategory, n.encounter.modality)}
+                    </span>
+                  )}
+                </div>
+                <span className="text-sm text-[#8b9cb3]">{formatDate(n.date)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1155,103 +1194,6 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
         }}>Clear History</Button>
       </div>
     </Modal>
-  );
-}
-
-function SchedulePanel({
-  patients,
-  onSelectPatient,
-}: {
-  patients: Patient[];
-  onSelectPatient: (p: Patient) => void;
-}) {
-  const [date, setDate] = useState(toDateInputValue(new Date()));
-  const [scheduled, setScheduled] = useState<{ id: string; name: string }[]>([]);
-  const [patientId, setPatientId] = useState("");
-
-  const load = useCallback(async () => {
-    const data = await api<{ patients: { id: string; name: string }[] }>(`/api/schedule?date=${date}`);
-    setScheduled(data.patients);
-  }, [date]);
-
-  useEffect(() => {
-    load().catch(() => undefined);
-  }, [load]);
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="mb-1 block text-xs text-[#6b7c93]">Date</label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="max-w-[200px]" />
-        </div>
-        <p className="text-sm text-[#8b9cb3]">
-          {scheduled.length} patient{scheduled.length === 1 ? "" : "s"} scheduled
-        </p>
-      </div>
-      <div className="mb-4 flex max-w-xl gap-2">
-        <select
-          className="flex-1 rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
-          value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
-        >
-          <option value="">Select patient...</option>
-          {patients
-            .filter((p) => !scheduled.some((s) => s.id === p.id))
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {formatDisplayName(p)}
-              </option>
-            ))}
-        </select>
-        <Button
-          variant="success"
-          onClick={async () => {
-            if (!patientId) return;
-            await api("/api/schedule", { method: "POST", json: { date, patientId } });
-            setPatientId("");
-            await load();
-          }}
-        >
-          Add
-        </Button>
-      </div>
-      <div className="space-y-2">
-        {scheduled.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-[#243044] px-4 py-8 text-center text-sm text-[#6b7c93]">
-            No patients scheduled for this date
-          </p>
-        ) : (
-          scheduled.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between rounded-xl border border-[#243044] bg-[#0f1520] px-4 py-3"
-            >
-              <button
-                type="button"
-                className="text-left font-medium text-cyan-300 hover:underline"
-                onClick={() => {
-                  const patient = patients.find((x) => x.id === p.id);
-                  if (patient) onSelectPatient(patient);
-                }}
-              >
-                {p.name}
-              </button>
-              <Button
-                variant="danger"
-                className="!text-xs"
-                onClick={async () => {
-                  await api("/api/schedule", { method: "DELETE", json: { date, patientId: p.id } });
-                  await load();
-                }}
-              >
-                Remove
-              </Button>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
   );
 }
 

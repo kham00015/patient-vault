@@ -12,6 +12,7 @@ export function Modal({
   children,
   className,
   wide,
+  xl,
 }: {
   open: boolean;
   onClose: () => void;
@@ -19,6 +20,7 @@ export function Modal({
   children: ReactNode;
   className?: string;
   wide?: boolean;
+  xl?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -39,7 +41,7 @@ export function Modal({
       <div
         className={cn(
           "animate-fade-in max-h-[90vh] w-full overflow-hidden rounded-2xl border border-[#2d3f57] bg-[#121820] shadow-2xl",
-          wide ? "max-w-4xl" : "max-w-2xl",
+          wide ? "max-w-4xl" : xl ? "max-w-5xl" : "max-w-2xl",
           className
         )}
         onClick={(e) => e.stopPropagation()}

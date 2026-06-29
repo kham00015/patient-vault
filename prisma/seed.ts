@@ -8,6 +8,8 @@ const DEV_PASSWORD = "ChangeMe123!";
 const SEED_USERS: { email: string; name: string; role: Role }[] = [
   { email: "admin@clinic.local", name: "Clinic Admin", role: "ADMIN" },
   { email: "user@clinic.local", name: "Clinic User", role: "STAFF" },
+  { email: "firas.khamis@clinic.local", name: "Firas Khamis", role: "CLINICIAN" },
+  { email: "nicholas.kalayeh@clinic.local", name: "Nicholas Kalayeh", role: "CLINICIAN" },
 ];
 
 async function main() {
@@ -33,9 +35,11 @@ async function main() {
   }
 
   console.log("\nDev logins (change passwords before production):");
-  console.log("  Admin — admin@clinic.local");
-  console.log("  User  — user@clinic.local");
-  console.log(`  Password (both): ${DEV_PASSWORD}`);
+  console.log("  Admin    — admin@clinic.local");
+  console.log("  User     — user@clinic.local");
+  console.log("  Dr Khamis — firas.khamis@clinic.local");
+  console.log("  Dr Kalayeh — nicholas.kalayeh@clinic.local");
+  console.log(`  Password (all): ${DEV_PASSWORD}`);
 }
 
 main()
