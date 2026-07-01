@@ -5,7 +5,17 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
-sudo apt-get install -y curl docker.io docker-compose-plugin git curl
+sudo apt-get install -y curl git docker.io
+
+# Ubuntu 24.04: docker-compose-plugin package name varies — install compose v2 manually if needed
+if ! sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+  if ! sudo apt-get install -y docker-compose-v2 2>/dev/null; then
+    sudo mkdir -p /usr/local/lib/docker/cli-plugins
+    sudo curl -fsSL "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64" \
+      -o /usr/local/lib/docker/cli-plugins/docker-compose
+    sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+  fi
+fi
 
 sudo usermod -aG docker "$USER" || true
 
