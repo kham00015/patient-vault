@@ -3,11 +3,11 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
-import { MESSAGE_CATEGORIES, MESSAGE_PRIORITIES } from "@/lib/messages";
+import { MESSAGE_CATEGORIES, MESSAGE_PRIORITIES, type MessageCategory, type MessagePriority } from "@/lib/messages";
 import { threadInclude, toThreadSummary } from "@/lib/message-threads";
 
-const priorityValues = MESSAGE_PRIORITIES.map((p) => p.value) as [string, ...string[]];
-const categoryValues = MESSAGE_CATEGORIES.map((c) => c.value) as [string, ...string[]];
+const priorityValues = MESSAGE_PRIORITIES.map((p) => p.value) as [MessagePriority, ...MessagePriority[]];
+const categoryValues = MESSAGE_CATEGORIES.map((c) => c.value) as [MessageCategory, ...MessageCategory[]];
 
 const createSchema = z.object({
   recipientId: z.string().min(1),
