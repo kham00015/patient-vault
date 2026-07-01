@@ -53,10 +53,17 @@ export async function POST(request: Request) {
       data: { lastLoginAt: new Date() },
     });
 
+    const forwardedProto = request.headers.get("x-forwarded-proto");
+    const secureCookie =
+      forwardedProto === "https" ||
+      request.url.startsWith("https://") ||
+      process.env.NODE_ENV === "production";
+
     await createSession(
       { id: user.id, email: user.email, name: user.name, role: user.role },
       ipAddress,
-      userAgent
+      userAgent,
+      { secureCookie }
     );
 
     await createAuditLog({

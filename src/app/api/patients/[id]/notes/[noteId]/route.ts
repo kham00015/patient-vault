@@ -26,6 +26,9 @@ export async function DELETE(request: Request, { params }: Params) {
 
     const note = await prisma.note.findFirst({ where: { id: noteId, patientId } });
     if (!note) return notFound();
+    if (note.status === "SIGNED") {
+      return badRequest("Signed notes cannot be deleted. Add an addendum instead.");
+    }
 
     await prisma.note.delete({ where: { id: noteId } });
 

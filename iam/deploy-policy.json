@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PatientVaultDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:*",
+        "route53:*",
+        "route53domains:*",
+        "s3:*",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeInstances",
+        "iam:GetUser",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

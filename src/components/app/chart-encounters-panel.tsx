@@ -24,7 +24,7 @@ import { getNoteTypeLabel, NOTE_TYPES, type NoteType } from "@/lib/notes";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
-import { Calendar, ChevronDown, ChevronRight, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer, Trash2 } from "lucide-react";
 
 type EncounterSummary = {
   id: string;
@@ -38,6 +38,7 @@ type EncounterSummary = {
   documentCount: number;
   formCount: number;
   faxCount: number;
+  deletable?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -101,6 +102,7 @@ export function ChartEncountersPanel({
     toNumber?: string;
     toName?: string;
   } | null>(null);
+  const [deleteEncounterId, setDeleteEncounterId] = useState<string | null>(null);
 
   const loadEncounters = useCallback(async () => {
     const data = await api<{ encounters: EncounterSummary[] }>(`/api/patients/${patientId}/encounters`);
@@ -215,6 +217,25 @@ export function ChartEncountersPanel({
   }
 
   const faxModalEncounter = faxModal ? details[faxModal.encounterId] : null;
+
+  async function deleteEncounter(encounterId: string, reason: string) {
+    await api(`/api/patients/${patientId}/encounters/${encounterId}`, {
+      method: "DELETE",
+      json: { reason },
+    });
+    setDeleteEncounterId(null);
+    if (expandedId === encounterId) {
+      setExpandedId(null);
+      setActiveBranch(null);
+    }
+    setDetails((prev) => {
+      const next = { ...prev };
+      delete next[encounterId];
+      return next;
+    });
+    await loadEncounters();
+    await onPatientDataChange?.();
+  }
 
   async function updateEncounterDate(encounterId: string, date: string) {
     const data = await api<{ encounter: EncounterDetail }>(
@@ -390,6 +411,19 @@ export function ChartEncountersPanel({
                         <div className="mt-0.5 truncate text-[11px] text-[#8b9cb3]">{enc.chiefComplaint}</div>
                       )}
                     </div>
+                    {!isReadOnly && enc.deletable && (
+                      <Button
+                        variant="danger"
+                        className="!h-7 !px-2 !text-[10px] shrink-0"
+                        title="Delete unsigned encounter"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteEncounterId(enc.id);
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </Button>
+                    )}
                   </button>
 
                   {isExpanded && (
@@ -404,6 +438,8 @@ export function ChartEncountersPanel({
                             visitDate={detail.date}
                             createdAt={detail.createdAt}
                             isReadOnly={isReadOnly}
+                            canDelete={enc.deletable === true}
+                            onDelete={() => setDeleteEncounterId(enc.id)}
                             onDateChange={(date) => updateEncounterDate(enc.id, date)}
                           />
 
@@ -533,6 +569,18 @@ export function ChartEncountersPanel({
           }}
         />
       )}
+
+      <DeleteReasonModal
+        open={!!deleteEncounterId}
+        onClose={() => setDeleteEncounterId(null)}
+        title="Delete Encounter"
+        description="Only unsigned draft encounters can be removed. This permanently deletes draft notes, forms, and attachments on this visit. The action is audit-logged — provide a reason."
+        confirmLabel="Delete Encounter"
+        onConfirm={async (reason) => {
+          if (!deleteEncounterId) return;
+          await deleteEncounter(deleteEncounterId, reason);
+        }}
+      />
     </div>
   );
 }
@@ -541,11 +589,15 @@ function EncounterDateRow({
   visitDate,
   createdAt,
   isReadOnly,
+  canDelete,
+  onDelete,
   onDateChange,
 }: {
   visitDate: string;
   createdAt: string;
   isReadOnly: boolean;
+  canDelete?: boolean;
+  onDelete?: () => void;
   onDateChange: (date: string) => Promise<void>;
 }) {
   const [date, setDate] = useState(() => toDateInputValue(visitDate));
@@ -605,6 +657,18 @@ function EncounterDateRow({
           {!isReadOnly && <AutoSaveStatus saving={saving} dirty={dirty} />}
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-[#6b7c93]">
+          {canDelete && !isReadOnly && onDelete && (
+            <Button
+              variant="danger"
+              className="!h-7 !px-2.5 !text-[10px] mr-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+            >
+              <Trash2 size={12} className="mr-1" /> Delete
+            </Button>
+          )}
           <Lock size={11} className="shrink-0 text-[#4a5568]" />
           <span>
             Chart created{" "}

@@ -51,7 +51,8 @@ export {
 export async function createSession(
   user: SessionUser,
   ipAddress?: string,
-  userAgent?: string
+  userAgent?: string,
+  options?: { secureCookie?: boolean }
 ) {
   const sessionToken = randomBytes(32).toString("hex");
   const tokenHash = hashToken(sessionToken);
@@ -79,9 +80,11 @@ export async function createSession(
     .sign(getJwtSecret());
 
   const cookieStore = await cookies();
+  const secure =
+    options?.secureCookie ?? process.env.NODE_ENV === "production";
   cookieStore.set(COOKIE_NAME, jwt, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure,
     sameSite: "lax",
     path: "/",
     expires: expiresAt,

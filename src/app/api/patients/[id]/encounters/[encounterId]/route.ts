@@ -5,10 +5,12 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
+import { deleteRecordReasonSchema } from "@/lib/patient-lifecycle";
 import { isPatientChartWritable, toNoteDTO } from "@/lib/patients";
 import { toFormDTO } from "@/lib/forms";
 import { toFaxDTO } from "@/lib/fax-transmissions";
-import { ENCOUNTER_MODALITIES, ENCOUNTER_STATUSES, VISIT_CATEGORIES } from "@/lib/encounters";
+import { deleteDocument } from "@/lib/storage";
+import { ENCOUNTER_MODALITIES, ENCOUNTER_STATUSES, getEncounterDeleteBlockReason, VISIT_CATEGORIES } from "@/lib/encounters";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -183,6 +185,92 @@ export async function PATCH(request: Request, { params }: Params) {
 
     return NextResponse.json({ encounter: toEncounterDetail(encounter) });
   } catch {
+    return badRequest("Invalid request");
+  }
+}
+
+export async function DELETE(request: Request, { params }: Params) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+  if (!canWrite(auth.user.role)) return forbidden();
+  const { id: patientId, encounterId } = await params;
+
+  try {
+    const body = deleteRecordReasonSchema.parse(await request.json());
+
+    const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+    if (!patient) return notFound("Patient not found");
+    if (!isPatientChartWritable(patient.status)) {
+      return badRequest("Archived charts are read-only");
+    }
+
+    const encounter = await prisma.encounter.findFirst({
+      where: { id: encounterId, patientId },
+      include: {
+        notes: { select: { id: true, status: true, type: true, date: true } },
+        forms: { include: { document: true } },
+        documents: true,
+        faxTransmissions: { select: { id: true } },
+      },
+    });
+    if (!encounter) return notFound();
+
+    const blockReason = getEncounterDeleteBlockReason({
+      status: encounter.status,
+      signedNoteCount: encounter.notes.filter((n) => n.status === "SIGNED").length,
+      completedFormCount: encounter.forms.filter((f) => f.status === "COMPLETED").length,
+      faxCount: encounter.faxTransmissions.length,
+    });
+    if (blockReason) return badRequest(blockReason);
+
+    const deletedDocIds = new Set<string>();
+
+    await prisma.$transaction(async (tx) => {
+      for (const form of encounter.forms) {
+        if (form.document && !deletedDocIds.has(form.document.id)) {
+          await deleteDocument(form.document.storageKey);
+          await tx.document.delete({ where: { id: form.document.id } });
+          deletedDocIds.add(form.document.id);
+        }
+      }
+
+      for (const doc of encounter.documents) {
+        if (deletedDocIds.has(doc.id)) continue;
+        await deleteDocument(doc.storageKey);
+        await tx.document.delete({ where: { id: doc.id } });
+        deletedDocIds.add(doc.id);
+      }
+
+      await tx.note.deleteMany({ where: { encounterId } });
+      await tx.encounter.delete({ where: { id: encounterId } });
+    });
+
+    const { ipAddress, userAgent } = getClientInfo(request);
+    await createAuditLog({
+      userId: auth.user.id,
+      action: AuditAction.PHI_DELETE,
+      resource: "encounter",
+      resourceId: encounterId,
+      patientId,
+      ipAddress,
+      userAgent,
+      metadata: JSON.stringify({
+        reason: body.reason,
+        visitCategory: encounter.visitCategory,
+        modality: encounter.modality,
+        visitDate: encounter.date.toISOString(),
+        draftNoteCount: encounter.notes.length,
+        formCount: encounter.forms.length,
+        documentCount: encounter.documents.length,
+      }),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    if (err && typeof err === "object" && "issues" in err) {
+      const issue = (err as { issues: { message: string }[] }).issues[0];
+      return badRequest(issue?.message ?? "Invalid request");
+    }
     return badRequest("Invalid request");
   }
 }

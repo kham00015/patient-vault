@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api-client";
@@ -9,7 +8,6 @@ import { APP_TAGLINE, CLINIC_NAME } from "@/lib/branding";
 import { Shield, Stethoscope } from "lucide-react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,8 +19,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await api("/api/auth/login", { method: "POST", json: { email, password } });
-      router.push("/app");
-      router.refresh();
+      window.location.href = "/app";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

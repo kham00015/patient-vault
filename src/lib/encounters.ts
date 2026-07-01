@@ -135,6 +135,37 @@ export function getEncounterStatusLabel(status: string) {
   return ENCOUNTER_STATUSES.find((s) => s.value === status)?.label ?? status;
 }
 
+/** Whether an encounter may be removed (unsigned / no transmitted records). */
+export function getEncounterDeleteBlockReason(encounter: {
+  status: string;
+  signedNoteCount?: number;
+  completedFormCount?: number;
+  faxCount?: number;
+}): string | null {
+  if (encounter.status === "SIGNED") {
+    return "Signed encounters cannot be deleted. Use an addendum or contact an administrator.";
+  }
+  if (encounter.status === "CANCELLED") {
+    return "Cancelled encounters are kept for audit and cannot be deleted.";
+  }
+  if ((encounter.signedNoteCount ?? 0) > 0) {
+    return "This encounter has a signed note and cannot be deleted.";
+  }
+  if ((encounter.completedFormCount ?? 0) > 0) {
+    return "This encounter has a completed form and cannot be deleted.";
+  }
+  if ((encounter.faxCount ?? 0) > 0) {
+    return "This encounter has fax activity and cannot be deleted.";
+  }
+  return null;
+}
+
+export function isEncounterDeletable(
+  encounter: Parameters<typeof getEncounterDeleteBlockReason>[0]
+) {
+  return getEncounterDeleteBlockReason(encounter) === null;
+}
+
 export function getDefaultNoteTypeForEncounter(
   visitCategory: VisitCategory,
   modality: EncounterModality
