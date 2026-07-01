@@ -68,16 +68,7 @@ export async function createSession(
     },
   });
 
-  const jwt = await new SignJWT({
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-    sid: tokenHash,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
-    .sign(getJwtSecret());
+  const jwt = await signSessionJwt(user, tokenHash, expiresAt);
 
   const cookieStore = await cookies();
   const secure =
@@ -91,6 +82,30 @@ export async function createSession(
   });
 
   return jwt;
+}
+
+async function signSessionJwt(
+  user: SessionUser,
+  tokenHash: string,
+  expiresAt: Date
+) {
+  return new SignJWT({
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    sid: tokenHash,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
+    .sign(getJwtSecret());
+}
+
+function sessionCookieSecure() {
+  if (process.env.NODE_ENV === "production") return true;
+  // Staging/demo over HTTPS tunnel (Cloudflare, Caddy) still needs Secure cookies.
+  if (process.env.APP_HOSTNAME?.includes(".")) return true;
+  return false;
 }
 
 export async function destroySession() {
@@ -130,11 +145,25 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
     if (!user?.isActive) return null;
 
-    // Sliding expiration
+    // Sliding expiration — keep DB session and browser cookie in sync
     const newExpiry = new Date(Date.now() + getSessionTimeoutMs());
     await prisma.session.update({
       where: { id: session.id },
       data: { expiresAt: newExpiry },
+    });
+
+    const cookieStore = await cookies();
+    const refreshedJwt = await signSessionJwt(
+      { id: user.id, email: user.email, name: user.name, role: user.role },
+      sid,
+      newExpiry
+    );
+    cookieStore.set(COOKIE_NAME, refreshedJwt, {
+      httpOnly: true,
+      secure: sessionCookieSecure(),
+      sameSite: "lax",
+      path: "/",
+      expires: newExpiry,
     });
 
     return { id: user.id, email: user.email, name: user.name, role: user.role };

@@ -5,7 +5,7 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
-sudo apt-get install -y docker.io docker-compose-plugin git curl
+sudo apt-get install -y curl docker.io docker-compose-plugin git curl
 
 sudo usermod -aG docker "$USER" || true
 
