@@ -1,9 +1,10 @@
+import { MessageCategory, MessagePriority } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
-import { MESSAGE_CATEGORIES, MESSAGE_PRIORITIES, type MessageCategory, type MessagePriority } from "@/lib/messages";
+import { MESSAGE_CATEGORIES, MESSAGE_PRIORITIES } from "@/lib/messages";
 import { threadInclude, toThreadSummary } from "@/lib/message-threads";
 
 const priorityValues = MESSAGE_PRIORITIES.map((p) => p.value) as [MessagePriority, ...MessagePriority[]];
@@ -66,8 +67,8 @@ export async function POST(request: Request) {
       data: {
         subject: body.subject.trim(),
         patientId: body.patientId ?? null,
-        priority: body.priority ?? "ROUTINE",
-        category: body.category ?? "GENERAL",
+        priority: body.priority ?? MessagePriority.ROUTINE,
+        category: body.category ?? MessageCategory.GENERAL,
         createdById: auth.user.id,
         updatedAt: now,
         messages: {
