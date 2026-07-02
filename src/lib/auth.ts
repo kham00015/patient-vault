@@ -108,10 +108,7 @@ async function signSessionJwt(
 }
 
 function sessionCookieSecure() {
-  if (process.env.NODE_ENV === "production") return true;
-  // Staging/demo over HTTPS tunnel (Cloudflare, Caddy) still needs Secure cookies.
-  if (process.env.APP_HOSTNAME?.includes(".")) return true;
-  return false;
+  return cookieSecure();
 }
 
 export async function destroySession() {
@@ -164,13 +161,17 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       sid,
       newExpiry
     );
-    cookieStore.set(COOKIE_NAME, refreshedJwt, {
-      httpOnly: true,
-      secure: sessionCookieSecure(),
-      sameSite: "lax",
-      path: "/",
-      expires: newExpiry,
-    });
+    try {
+      cookieStore.set(COOKIE_NAME, refreshedJwt, {
+        httpOnly: true,
+        secure: sessionCookieSecure(),
+        sameSite: "lax",
+        path: "/",
+        expires: newExpiry,
+      });
+    } catch {
+      // Server Components cannot always mutate cookies during render; session is still valid.
+    }
 
     return { id: user.id, email: user.email, name: user.name, role: user.role };
   } catch {
