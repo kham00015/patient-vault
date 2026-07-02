@@ -12,12 +12,14 @@ import {
   ENCOUNTER_MODALITIES,
   isEncounterDeletable,
   VISIT_CATEGORIES,
+  type EncounterModality,
+  type VisitCategory,
 } from "@/lib/encounters";
 
 type Params = { params: Promise<{ id: string }> };
 
-const visitCategoryValues = VISIT_CATEGORIES.map((c) => c.value) as [string, ...string[]];
-const modalityValues = ENCOUNTER_MODALITIES.map((m) => m.value) as [string, ...string[]];
+const visitCategoryValues = VISIT_CATEGORIES.map((c) => c.value) as [VisitCategory, ...VisitCategory[]];
+const modalityValues = ENCOUNTER_MODALITIES.map((m) => m.value) as [EncounterModality, ...EncounterModality[]];
 
 const createSchema = z.object({
   visitCategory: z.enum(visitCategoryValues).optional(),

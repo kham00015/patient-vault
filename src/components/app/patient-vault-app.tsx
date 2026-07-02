@@ -197,7 +197,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
     setPatients(data.patients);
   }, [includeArchived, user.role]);
 
-  const selectPatient = useCallback(async (patient: Patient) => {
+  const selectPatient = useCallback(async (patient: Pick<Patient, "id">) => {
     try {
       const data = await api<{ patient: Patient }>(`/api/patients/${patient.id}`);
       const notesData = await api<{ notes: Note[] }>(`/api/patients/${patient.id}/notes`);
@@ -265,7 +265,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
     notify(`Patient registered — ${result.patient.mrn ?? "MRN assigned"}`, "success");
   }
 
-  const isChartReadOnly = current?.status && current.status !== "ACTIVE";
+  const isChartReadOnly = Boolean(current?.status && current.status !== "ACTIVE");
 
   async function archivePatient(data: ArchivePatientInput) {
     if (!current) return;
@@ -420,7 +420,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
                   ? "border-cyan-500/40 bg-cyan-500/10"
                   : "border-transparent"
               )}
-              disabled={"disabled" in item && item.disabled}
+              disabled={Boolean("disabled" in item && item.disabled)}
               onClick={() => handleNavClick(item.id)}
             >
               <item.icon size={18} className={item.color} />

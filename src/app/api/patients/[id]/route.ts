@@ -137,7 +137,9 @@ export async function PATCH(request: Request, { params }: Params) {
     const patient = await prisma.patient.update({ where: { id }, data: encrypted });
 
     const { ipAddress, userAgent } = getClientInfo(request);
-    const auditMeta: Record<string, unknown> = { fields: Object.keys(body).filter((k) => k !== "reason") };
+    const auditMeta: Record<string, string | number | boolean | string[] | null | undefined> = {
+      fields: Object.keys(body).filter((k) => k !== "reason"),
+    };
     if (clearingFields.length > 0) {
       auditMeta.action = "clear_clinical_data";
       auditMeta.clearedFields = clearingFields;
@@ -152,7 +154,7 @@ export async function PATCH(request: Request, { params }: Params) {
       patientId: id,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify(auditMeta),
+      metadata: auditMeta,
     });
 
     return NextResponse.json({ patient: toPatientDTO(patient) });
@@ -189,12 +191,12 @@ export async function DELETE(request: Request, { params }: Params) {
       patientId: id,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify({
+      metadata: {
         action: "hard_delete",
         reason: body.reason,
         mrn: existing.mrn,
         patientName: existing.name,
-      }),
+      },
     });
 
     return NextResponse.json({ ok: true });

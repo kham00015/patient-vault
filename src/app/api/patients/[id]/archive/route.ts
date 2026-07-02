@@ -56,13 +56,13 @@ export async function POST(request: Request, { params }: Params) {
       patientId: id,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify({
+      metadata: {
         action: "archive",
         status,
         category: body.category,
         mrn: existing.mrn,
         patientName: existing.name,
-      }),
+      },
     });
 
     return NextResponse.json({ patient: toPatientDTO(patient) });

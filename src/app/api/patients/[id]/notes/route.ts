@@ -123,8 +123,12 @@ export async function POST(request: Request, { params }: Params) {
           data: {
             date,
             content,
-            ...(body.type ? { type: body.type } : {}),
-            ...(body.encounterId !== undefined ? { encounterId: body.encounterId || null } : {}),
+            ...(body.type ? { type: body.type as NoteType } : {}),
+            ...(body.encounterId !== undefined
+              ? body.encounterId
+                ? { encounter: { connect: { id: body.encounterId } } }
+                : { encounter: { disconnect: true } }
+              : {}),
           },
         })
       : await prisma.note.create({

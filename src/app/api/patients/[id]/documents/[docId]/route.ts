@@ -70,11 +70,11 @@ export async function DELETE(request: Request, { params }: Params) {
       patientId,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify({
+      metadata: {
         reason: body.reason,
         documentName: doc.name,
         fileName: doc.fileName,
-      }),
+      },
     });
 
     return NextResponse.json({ ok: true });

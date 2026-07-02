@@ -174,12 +174,12 @@ export async function PATCH(request: Request, { params }: Params) {
       ipAddress,
       userAgent,
       metadata: dateChanged
-        ? JSON.stringify({
+        ? {
             action: "encounter_date_change",
             previousDate: existing.date.toISOString(),
             newDate: (data.date as Date).toISOString(),
             createdAt: existing.createdAt.toISOString(),
-          })
+          }
         : undefined,
     });
 
@@ -254,7 +254,7 @@ export async function DELETE(request: Request, { params }: Params) {
       patientId,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify({
+      metadata: {
         reason: body.reason,
         visitCategory: encounter.visitCategory,
         modality: encounter.modality,
@@ -262,7 +262,7 @@ export async function DELETE(request: Request, { params }: Params) {
         draftNoteCount: encounter.notes.length,
         formCount: encounter.forms.length,
         documentCount: encounter.documents.length,
-      }),
+      },
     });
 
     return NextResponse.json({ ok: true });

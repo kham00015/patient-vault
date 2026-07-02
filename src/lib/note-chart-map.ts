@@ -28,5 +28,6 @@ export function getChartInsertText(
 ): string {
   if (!canInsertFromChart(sectionKey)) return "";
   const chartKey = NOTE_TO_CHART_MAP[sectionKey];
+  if (!chartKey) return "";
   return snapshot[chartKey]?.trim() ?? "";
 }

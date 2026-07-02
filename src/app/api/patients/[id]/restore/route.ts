@@ -40,12 +40,12 @@ export async function POST(request: Request, { params }: Params) {
     patientId: id,
     ipAddress,
     userAgent,
-    metadata: JSON.stringify({
+    metadata: {
       action: "restore",
       mrn: existing.mrn,
       patientName: existing.name,
       previousStatus: existing.status,
-    }),
+    },
   });
 
   return NextResponse.json({ patient: toPatientDTO(patient) });

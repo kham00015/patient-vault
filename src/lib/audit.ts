@@ -10,7 +10,7 @@ type AuditParams = {
   ipAddress?: string;
   userAgent?: string;
   success?: boolean;
-  metadata?: Record<string, string | number | boolean | string[]>;
+  metadata?: Record<string, string | number | boolean | string[] | null | undefined>;
 };
 
 /** HIPAA: log all PHI access — never store PHI in metadata */

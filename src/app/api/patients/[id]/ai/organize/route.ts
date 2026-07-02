@@ -30,7 +30,7 @@ export async function POST(request: Request, { params }: Params) {
     combined += "=== CLINICAL NOTES ===\n";
     for (const note of clinicalNotes) {
       const decrypted = toNoteDTO(note);
-      combined += `${decrypted.date.toISOString().slice(0, 10)} · ${getNoteTypeLabel(decrypted.type)}:\n${decrypted.content}\n\n`;
+      combined += `${decrypted.date.slice(0, 10)} · ${getNoteTypeLabel(decrypted.type)}:\n${decrypted.content}\n\n`;
     }
   }
   for (const s of MEDICAL_SECTIONS) {

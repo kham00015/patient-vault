@@ -41,10 +41,10 @@ export async function DELETE(request: Request, { params }: Params) {
       patientId,
       ipAddress,
       userAgent,
-      metadata: JSON.stringify({
+      metadata: {
         reason: body.reason,
         noteDate: note.date.toISOString(),
-      }),
+      },
     });
 
     return NextResponse.json({ ok: true });
