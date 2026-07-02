@@ -37,5 +37,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Run migrations then start (override CMD on Lightsail if you migrate separately)
-CMD ["sh", "-c", "npx prisma db push && node server.js"]
+# Apply schema (node path — npx/prisma bin not in minimal runner image)
+CMD ["sh", "-c", "node ./node_modules/prisma/build/index.js db push && node server.js"]
