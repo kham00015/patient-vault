@@ -1,8 +1,6 @@
-{
-  email {$ACME_EMAIL}
-}
-
-{$APP_HOSTNAME:app.patientvault.care} {
+# HTTP only — works before DNS/HTTPS is configured.
+# After DNS is live, switch to the domain block + ACME_EMAIL in .env.production.
+:80 {
 	encode gzip
 	reverse_proxy app:3000
 }
