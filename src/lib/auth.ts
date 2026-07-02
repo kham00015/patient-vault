@@ -48,6 +48,13 @@ export {
   canWriteScheduleDocNotes,
 } from "./roles";
 
+function cookieSecure(override?: boolean) {
+  if (override !== undefined) return override;
+  if (process.env.COOKIE_SECURE === "true") return true;
+  if (process.env.COOKIE_SECURE === "false") return false;
+  return false;
+}
+
 export async function createSession(
   user: SessionUser,
   ipAddress?: string,
@@ -71,8 +78,7 @@ export async function createSession(
   const jwt = await signSessionJwt(user, tokenHash, expiresAt);
 
   const cookieStore = await cookies();
-  const secure =
-    options?.secureCookie ?? process.env.NODE_ENV === "production";
+  const secure = cookieSecure(options?.secureCookie);
   cookieStore.set(COOKIE_NAME, jwt, {
     httpOnly: true,
     secure,

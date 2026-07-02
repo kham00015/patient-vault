@@ -55,9 +55,7 @@ export async function POST(request: Request) {
 
     const forwardedProto = request.headers.get("x-forwarded-proto");
     const secureCookie =
-      forwardedProto === "https" ||
-      request.url.startsWith("https://") ||
-      process.env.NODE_ENV === "production";
+      forwardedProto === "https" || request.url.startsWith("https://");
 
     await createSession(
       { id: user.id, email: user.email, name: user.name, role: user.role },
