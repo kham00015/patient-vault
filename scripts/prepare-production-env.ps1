@@ -34,6 +34,13 @@ if (-not $vars["ACME_EMAIL"]) {
   Write-Host "Set ACME_EMAIL in .env.production to your real practice email before deploy." -ForegroundColor Yellow
 }
 
+if ($vars["DATABASE_URL"] -match '^postgresql://([^:]+):([^@]+)@(.+)$') {
+  $dbUser = $Matches[1]
+  $dbPass = $Matches[2]
+  $dbRest = $Matches[3]
+  $vars["DATABASE_URL"] = "postgresql://${dbUser}:$([uri]::EscapeDataString($dbPass))@${dbRest}"
+}
+
 $lines = @(
   "# Patient Vault production - generated $(Get-Date -Format 'yyyy-MM-dd')",
   "# Upload to Lightsail: /opt/patient-vault/.env.production",
