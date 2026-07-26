@@ -1,4 +1,8 @@
 import { PrismaClient } from "@prisma/client";
+import { applyDatabaseUrl } from "./database-url";
+
+// Ensure passwords with # ? @ etc. never produce an invalid Prisma URL.
+applyDatabaseUrl();
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 

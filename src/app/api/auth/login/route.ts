@@ -19,9 +19,17 @@ const loginSchema = z.object({
 export async function POST(request: Request) {
   const { ipAddress, userAgent } = getClientInfo(request);
 
+  let body: z.infer<typeof loginSchema>;
   try {
-    const body = loginSchema.parse(await request.json());
-    const user = await prisma.user.findUnique({ where: { email: body.email.toLowerCase() } });
+    body = loginSchema.parse(await request.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: body.email.toLowerCase() },
+    });
 
     if (!user || !user.isActive) {
       await createAuditLog({
@@ -75,8 +83,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
     });
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  } catch (err) {
+    console.error("login failed", err instanceof Error ? err.message : err);
+    return NextResponse.json(
+      { error: "Service temporarily unavailable. Please try again." },
+      { status: 503 }
+    );
   }
 }
 

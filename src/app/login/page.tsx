@@ -65,28 +65,30 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-6 space-y-3">
-          <div className="rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
-            <p className="mb-2 font-medium text-cyan-300">Development logins</p>
-            <div className="space-y-2 font-mono text-[11px]">
-              <div>
-                <span className="text-[#6b7c93]">Admin</span>
-                <div>admin@clinic.local</div>
+        {process.env.NODE_ENV !== "production" && (
+          <div className="mt-6 space-y-3">
+            <div className="rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
+              <p className="mb-2 font-medium text-cyan-300">Development logins</p>
+              <div className="space-y-2 font-mono text-[11px]">
+                <div>
+                  <span className="text-[#6b7c93]">Admin</span>
+                  <div>admin@clinic.local</div>
+                </div>
+                <div>
+                  <span className="text-[#6b7c93]">User (staff view)</span>
+                  <div>user@clinic.local</div>
+                </div>
+                <div className="text-[#6b7c93]">Password: ChangeMe123!</div>
               </div>
-              <div>
-                <span className="text-[#6b7c93]">User (staff view)</span>
-                <div>user@clinic.local</div>
-              </div>
-              <div className="text-[#6b7c93]">Password: ChangeMe123!</div>
+            </div>
+            <div className="flex items-start gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
+              <Shield size={16} className="mt-0.5 shrink-0 text-cyan-500" />
+              <p>
+                Development build. Production requires signed BAAs, encrypted hosting, MFA, and a formal HIPAA risk assessment.
+              </p>
             </div>
           </div>
-          <div className="flex items-start gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
-            <Shield size={16} className="mt-0.5 shrink-0 text-cyan-500" />
-            <p>
-              Development build. Production requires signed BAAs, encrypted hosting, MFA, and a formal HIPAA risk assessment.
-            </p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
