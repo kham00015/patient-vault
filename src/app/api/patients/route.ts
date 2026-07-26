@@ -8,8 +8,8 @@ import { toPatientDTO } from "@/lib/patients";
 import {
   createPatientSchema,
   formatPatientName,
-  generateMrn,
 } from "@/lib/patient-registration";
+import { generateMrn } from "@/lib/generate-mrn";
 import { encryptPatientFields } from "@/lib/encryption";
 
 export async function GET(request: Request) {

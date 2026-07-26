@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Modal } from "@/components/ui/modal";
 import { Toast } from "@/components/ui/toast";
-import { MEDICAL_SECTIONS, type MedicalSectionKey } from "@/lib/patients";
+import { MEDICAL_SECTIONS, type MedicalSectionKey } from "@/lib/medical-sections";
 import {
   getNoteTypeLabel,
   type NoteType,

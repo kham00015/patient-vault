@@ -18,7 +18,7 @@ import {
   type PatientChartInsertSnapshot,
 } from "@/lib/note-chart-map";
 import { getAllNoteTabs } from "@/lib/note-templates";
-import { parseFixedNoteSections, type FixedNoteSections } from "@/lib/note-propagation";
+import { parseFixedNoteSections, type FixedNoteSections } from "@/lib/fixed-note-sections";
 import { getNoteTypeLabel, type NoteType } from "@/lib/notes";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";

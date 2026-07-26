@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 
 export const SEX_AT_BIRTH_OPTIONS = [
   { value: "MALE", label: "Male" },
@@ -116,19 +115,6 @@ export function calculateAge(dateOfBirth: Date | string | null | undefined) {
   const monthDiff = today.getMonth() - dob.getMonth();
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
   return age;
-}
-
-export async function generateMrn(): Promise<string> {
-  const patients = await prisma.patient.findMany({
-    where: { mrn: { not: null } },
-    select: { mrn: true },
-  });
-  const maxNum = patients.reduce((max, p) => {
-    const match = p.mrn?.match(/^MRN(\d+)$/);
-    if (!match) return max;
-    return Math.max(max, parseInt(match[1], 10));
-  }, 0);
-  return `MRN${String(maxNum + 1).padStart(6, "0")}`;
 }
 
 export const EMPTY_PATIENT_FORM: CreatePatientInput = {

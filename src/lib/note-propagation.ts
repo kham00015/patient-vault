@@ -7,31 +7,16 @@ import {
   type NoteSectionKey,
   type NoteSections,
 } from "./note-content";
+import {
+  parseFixedNoteSections,
+  type FixedNoteSections,
+} from "./fixed-note-sections";
 
-export type FixedNoteSections = Partial<Record<NoteSectionKey, boolean>>;
-
-export function parseFixedNoteSections(raw: string | null | undefined): FixedNoteSections {
-  if (!raw?.trim()) return {};
-  try {
-    const parsed = JSON.parse(raw) as FixedNoteSections;
-    if (!parsed || typeof parsed !== "object") return {};
-    const out: FixedNoteSections = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (value === true) out[key as NoteSectionKey] = true;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-export function serializeFixedNoteSections(fixes: FixedNoteSections): string {
-  const out: FixedNoteSections = {};
-  for (const [key, value] of Object.entries(fixes)) {
-    if (value === true) out[key as NoteSectionKey] = true;
-  }
-  return JSON.stringify(out);
-}
+export type { FixedNoteSections } from "./fixed-note-sections";
+export {
+  parseFixedNoteSections,
+  serializeFixedNoteSections,
+} from "./fixed-note-sections";
 
 export async function buildPropagatedNoteSections(
   patientId: string,
@@ -40,7 +25,9 @@ export async function buildPropagatedNoteSections(
 ): Promise<NoteSections> {
   const base = createEmptySections(noteType);
   const fixes = parseFixedNoteSections(fixedRaw);
-  const fixedKeys = Object.entries(fixes).filter(([, on]) => on).map(([k]) => k as NoteSectionKey);
+  const fixedKeys = Object.entries(fixes)
+    .filter(([, on]) => on)
+    .map(([k]) => k as NoteSectionKey);
   if (fixedKeys.length === 0) return base;
 
   const lastNote = await prisma.note.findFirst({
