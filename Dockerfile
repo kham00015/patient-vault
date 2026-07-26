@@ -1,4 +1,4 @@
-# Patient Vault — production image (AWS Lightsail, ECS, EC2, etc.)
+﻿# Patient Vault — production image (AWS Lightsail, ECS, EC2, etc.)
 FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
@@ -28,8 +28,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/package.json ./package.json
 
 USER nextjs
@@ -37,5 +35,6 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# Apply schema (node path — npx/prisma bin not in minimal runner image)
-CMD ["sh", "-c", "node ./node_modules/prisma/build/index.js db push && node server.js"]
+# Schema changes are applied deliberately (CI/deploy), not on every container boot.
+# Runtime prisma CLI was incomplete in the slim image and crashed login (missing "effect").
+CMD ["node", "server.js"]
