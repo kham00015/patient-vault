@@ -126,6 +126,27 @@ export async function destroySession() {
   cookieStore.delete(COOKIE_NAME);
 }
 
+export async function destroyAllUserSessions(userId: string) {
+  await prisma.session.deleteMany({ where: { userId } });
+}
+
+export async function createMfaPendingToken(userId: string, email: string) {
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  return new SignJWT({ sub: userId, email, purpose: "mfa-pending" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
+    .sign(getJwtSecret());
+}
+
+export async function verifyMfaPendingToken(token: string) {
+  const { payload } = await jwtVerify(token, getJwtSecret());
+  if (payload.purpose !== "mfa-pending" || typeof payload.sub !== "string") {
+    throw new Error("Invalid MFA token");
+  }
+  return { userId: payload.sub, email: payload.email as string | undefined };
+}
+
 export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
@@ -143,10 +164,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, role: true, isActive: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        mustChangePassword: true,
+        mfaEnabled: true,
+        lockedAt: true,
+      },
     });
 
-    if (!user?.isActive) return null;
+    if (!user?.isActive || user.lockedAt) return null;
 
     // Sliding expiration — keep DB session and browser cookie in sync
     const newExpiry = new Date(Date.now() + getSessionTimeoutMs());
@@ -157,7 +187,12 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
     const cookieStore = await cookies();
     const refreshedJwt = await signSessionJwt(
-      { id: user.id, email: user.email, name: user.name, role: user.role },
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
       sid,
       newExpiry
     );
@@ -173,7 +208,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       // Server Components cannot always mutate cookies during render; session is still valid.
     }
 
-    return { id: user.id, email: user.email, name: user.name, role: user.role };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+      mfaEnabled: user.mfaEnabled,
+    };
   } catch {
     return null;
   }

@@ -41,16 +41,22 @@ enum PatientStatus {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  name         String?
-  role         Role      @default(CLINICIAN)
-  mfaEnabled   Boolean   @default(false)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  passwordHash        String
+  name                String?
+  role                Role      @default(CLINICIAN)
+  mfaEnabled          Boolean   @default(false)
+  mfaSecret           String?
+  mfaBackupCodes      String?
+  failedLoginAttempts Int       @default(0)
+  lockedAt            DateTime?
+  mustChangePassword  Boolean   @default(false)
+  passwordChangedAt   DateTime?
+  isActive            Boolean   @default(true)
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   sessions     Session[]
   auditLogs    AuditLog[]
   patients     Patient[] @relation("CreatedPatients")

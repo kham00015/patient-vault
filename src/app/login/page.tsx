@@ -3,25 +3,83 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api-client";
 import { APP_TAGLINE, CLINIC_NAME } from "@/lib/branding";
 import { Shield, Stethoscope } from "lucide-react";
+
+type LoginResponse = {
+  user?: {
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+    mustChangePassword?: boolean;
+    mfaEnabled?: boolean;
+  };
+  mfaRequired?: boolean;
+  mfaToken?: string;
+  mustChangePassword?: boolean;
+  error?: string;
+  locked?: boolean;
+};
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  async function parseLoginResponse(res: Response): Promise<LoginResponse> {
+    const data = (await res.json().catch(() => ({}))) as LoginResponse & { error?: string };
+    if (!res.ok) {
+      throw new Error(data.error ?? `Login failed (${res.status})`);
+    }
+    return data;
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await api("/api/auth/login", { method: "POST", json: { email, password } });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
+      const data = await parseLoginResponse(res);
+
+      if (data.mfaRequired && data.mfaToken) {
+        setMfaToken(data.mfaToken);
+        return;
+      }
+
       window.location.href = "/app";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMfaVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mfaToken) return;
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/mfa/verify-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfaToken, code: mfaCode }),
+        credentials: "include",
+      });
+      await parseLoginResponse(res);
+      window.location.href = "/app";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
       setLoading(false);
     }
@@ -38,57 +96,73 @@ export default function LoginPage() {
           <p className="mt-2 text-sm text-[#8b9cb3]">{APP_TAGLINE}</p>
         </div>
 
-        <form
-          onSubmit={handleLogin}
-          className="rounded-2xl border border-[#243044] bg-[#121820]/90 p-6 shadow-xl backdrop-blur"
-        >
-          <Input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="username"
-            required
-          />
-          <Input
-            className="mt-3"
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-          {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
-          <Button type="submit" variant="primary" className="mt-4 w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
-          </Button>
-        </form>
-
-        {process.env.NODE_ENV !== "production" && (
-          <div className="mt-6 space-y-3">
-            <div className="rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
-              <p className="mb-2 font-medium text-cyan-300">Development logins</p>
-              <div className="space-y-2 font-mono text-[11px]">
-                <div>
-                  <span className="text-[#6b7c93]">Admin</span>
-                  <div>admin@clinic.local</div>
-                </div>
-                <div>
-                  <span className="text-[#6b7c93]">User (staff view)</span>
-                  <div>user@clinic.local</div>
-                </div>
-                <div className="text-[#6b7c93]">Password: ChangeMe123!</div>
-              </div>
-            </div>
-            <div className="flex items-start gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
-              <Shield size={16} className="mt-0.5 shrink-0 text-cyan-500" />
-              <p>
-                Development build. Production requires signed BAAs, encrypted hosting, MFA, and a formal HIPAA risk assessment.
-              </p>
-            </div>
-          </div>
+        {!mfaToken ? (
+          <form
+            onSubmit={handleLogin}
+            className="rounded-2xl border border-[#243044] bg-[#121820]/90 p-6 shadow-xl backdrop-blur"
+          >
+            <Input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+            />
+            <Input
+              className="mt-3"
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
+            <Button type="submit" variant="primary" className="mt-4 w-full" disabled={loading}>
+              {loading ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        ) : (
+          <form
+            onSubmit={handleMfaVerify}
+            className="rounded-2xl border border-[#243044] bg-[#121820]/90 p-6 shadow-xl backdrop-blur"
+          >
+            <p className="mb-3 text-sm text-[#8b9cb3]">
+              Enter the 6-digit code from your authenticator app.
+            </p>
+            <Input
+              placeholder="Authentication code"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value)}
+              autoComplete="one-time-code"
+              required
+            />
+            {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
+            <Button type="submit" variant="primary" className="mt-4 w-full" disabled={loading}>
+              {loading ? "Verifying..." : "Verify"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="mt-2 w-full"
+              onClick={() => {
+                setMfaToken(null);
+                setMfaCode("");
+                setError("");
+              }}
+            >
+              Back to sign in
+            </Button>
+          </form>
         )}
+
+        <div className="mt-6 flex items-start gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
+          <Shield size={16} className="mt-0.5 shrink-0 text-cyan-500" />
+          <p>
+            Accounts lock after 5 failed sign-in attempts. Contact your clinic administrator to reset your password.
+          </p>
+        </div>
       </div>
     </div>
   );

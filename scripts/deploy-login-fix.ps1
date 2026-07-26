@@ -1,9 +1,11 @@
 # Deploy login cookie fix to Lightsail via SSH (run on your PC).
-$key = "$env:USERPROFILE\.ssh\lightsail.pem"
-if (-not (Test-Path $key)) {
-  Write-Host "Missing $key" -ForegroundColor Red
-  Write-Host "Download Lightsail SSH key: Account -> SSH keys -> Default (Virginia)" -ForegroundColor Yellow
-  Write-Host "Save as: $key" -ForegroundColor Yellow
+$keyCandidates = @(
+  "$env:USERPROFILE\.ssh\lightsail.pem",
+  "$env:USERPROFILE\.ssh\LightsailDefaultKey-us-east-1.pem"
+)
+$key = $keyCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $key) {
+  Write-Host "SSH key not found. Save Lightsail default key to .ssh folder." -ForegroundColor Red
   exit 1
 }
 

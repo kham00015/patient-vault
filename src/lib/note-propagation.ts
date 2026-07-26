@@ -7,10 +7,7 @@ import {
   type NoteSectionKey,
   type NoteSections,
 } from "./note-content";
-import {
-  parseFixedNoteSections,
-  type FixedNoteSections,
-} from "./fixed-note-sections";
+import { parseFixedNoteSections } from "./fixed-note-sections";
 
 export type { FixedNoteSections } from "./fixed-note-sections";
 export {

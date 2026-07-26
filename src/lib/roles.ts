@@ -1,6 +1,10 @@
 import type { Role, User } from "@prisma/client";
 
-export type SessionUser = Pick<User, "id" | "email" | "name" | "role">;
+export type SessionUser = Pick<User, "id" | "email" | "name" | "role"> & {
+  mustChangePassword?: boolean;
+  mfaEnabled?: boolean;
+  lockedAt?: Date | null;
+};
 
 export function canWrite(role: Role) {
   return role === "ADMIN" || role === "CLINICIAN" || role === "STAFF";

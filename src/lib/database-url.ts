@@ -21,7 +21,6 @@ export function sanitizeDatabaseUrl(raw: string): string {
     /^(postgresql|postgres):\/\/([^:/?#]+):([^@/?#]*)@([^?]+)(\?.*)?$/i
   );
   if (!match) {
-    // If unencoded `#` was present, the password/host were already truncated in the file.
     if (url.includes("#") && !url.includes("%23")) {
       throw new Error(
         "DATABASE_URL contains an unencoded '#'. Re-write the password with URL encoding (or set DATABASE_HOST/USER/PASSWORD)."

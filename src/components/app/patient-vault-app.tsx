@@ -26,6 +26,11 @@ import { RemindersPanel } from "@/components/app/reminders-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
 import { SchedulePanel } from "@/components/app/schedule-panel";
 import { CLINIC_NAME } from "@/lib/branding";
+import { UsersAdminModal } from "@/components/app/users-admin-modal";
+import {
+  AccountSecurityModal,
+  ChangePasswordModal,
+} from "@/components/app/account-security-modal";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { formatEncounterLabel } from "@/lib/encounters";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
@@ -53,7 +58,9 @@ import {
   Search,
   Stethoscope,
   Trash2,
+  Shield,
   Upload,
+  UserCog,
   Users,
 } from "lucide-react";
 
@@ -167,11 +174,15 @@ type ModalType =
   | "upload"
   | "ai"
   | "audit"
+  | "users"
+  | "security"
   | "reminders"
   | null;
 
-export default function PatientVaultApp({ user }: { user: SessionUser }) {
+export default function PatientVaultApp({ user: initialUser }: { user: SessionUser }) {
   const router = useRouter();
+  const [user, setUser] = useState(initialUser);
+  const [mustChangePassword, setMustChangePassword] = useState(!!initialUser.mustChangePassword);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [current, setCurrent] = useState<Patient | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -363,7 +374,7 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
     { id: "contacts", label: "Contacts", icon: BookUser, color: "text-lime-300" },
   ] as const;
 
-  function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit") {
+  function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
     if (id === "schedule") {
       setMainView("schedule");
       setModal(null);
@@ -393,7 +404,8 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
   }
 
   return (
-    <div className="flex h-screen gap-4 p-3 md:p-4">
+    <>
+    <div className={cn("flex h-screen gap-4 p-3 md:p-4", mustChangePassword && "pointer-events-none opacity-40")}>
       <aside className="flex w-full max-w-[280px] shrink-0 flex-col gap-3">
         <div className="flex items-center justify-between px-1">
           <div>
@@ -438,10 +450,18 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
             </Button>
           ))}
           {user.role === "ADMIN" && (
-            <Button variant="ghost" className="!justify-start gap-3" onClick={() => handleNavClick("audit")}>
-              <ClipboardList size={18} className="text-cyan-400" /> Audit Log
-            </Button>
+            <>
+              <Button variant="ghost" className="!justify-start gap-3" onClick={() => handleNavClick("users")}>
+                <UserCog size={18} className="text-cyan-400" /> Users
+              </Button>
+              <Button variant="ghost" className="!justify-start gap-3" onClick={() => handleNavClick("audit")}>
+                <ClipboardList size={18} className="text-cyan-400" /> Audit Log
+              </Button>
+            </>
           )}
+          <Button variant="ghost" className="!justify-start gap-3" onClick={() => setModal("security")}>
+            <Shield size={18} className="text-violet-400" /> Account security
+          </Button>
         </nav>
 
         <Button variant="ghost" className="!justify-start gap-3 text-[#8b9cb3]" onClick={logout}>
@@ -738,9 +758,26 @@ export default function PatientVaultApp({ user }: { user: SessionUser }) {
       )}
 
       <AuditModal open={modal === "audit"} onClose={() => setModal(null)} />
-
+      <UsersAdminModal open={modal === "users"} onClose={() => setModal(null)} />
+      <AccountSecurityModal
+        open={modal === "security"}
+        onClose={() => setModal(null)}
+        mfaEnabled={!!user.mfaEnabled}
+        onMfaChange={(enabled) => setUser((u) => ({ ...u, mfaEnabled: enabled }))}
+      />
       <Toast message={toast.message} type={toast.type} />
     </div>
+
+      <ChangePasswordModal
+        open={mustChangePassword}
+        forced
+        onComplete={() => {
+          setMustChangePassword(false);
+          setUser((u) => ({ ...u, mustChangePassword: false }));
+          setToast({ message: "Password updated", type: "success" });
+        }}
+      />
+    </>
   );
 }
 
@@ -1042,6 +1079,9 @@ function ChartDocumentsPanel({
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -1053,15 +1093,48 @@ function ChartDocumentsPanel({
     load().catch(() => undefined);
   }, [load]);
 
+  function onFileSelected(selected: File | null) {
+    setFile(selected);
+    setUploadError(null);
+    if (selected && !name.trim()) {
+      setName(selected.name.replace(/\.[^.]+$/, "") || selected.name);
+    }
+  }
+
   async function upload() {
-    if (!file || !name.trim()) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("name", name.trim());
-    await fetch(`/api/patients/${patientId}/documents/upload`, { method: "POST", body: fd, credentials: "include" });
-    setName("");
-    setFile(null);
-    await load();
+    if (!file) {
+      setUploadError("Choose a file first.");
+      return;
+    }
+    if (!name.trim()) {
+      setUploadError("Enter a document name.");
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("name", name.trim());
+      const res = await fetch(`/api/patients/${patientId}/documents/upload`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setUploadError(data?.error ?? `Upload failed (${res.status}). Try a smaller file (max 25MB).`);
+        return;
+      }
+      setName("");
+      setFile(null);
+      setFileInputKey((k) => k + 1);
+      await load();
+    } catch {
+      setUploadError("Upload failed. Check your connection and try again.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -1075,12 +1148,35 @@ function ChartDocumentsPanel({
         </p>
       )}
       {!isReadOnly && (
-        <div className="mb-4 grid gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-3 md:grid-cols-3">
-          <Input placeholder="Document name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <Button variant="success" onClick={upload}>
-            Upload
-          </Button>
+        <div className="mb-4 rounded-xl border border-[#243044] bg-[#0f1520] p-3">
+          <div className="grid gap-2 md:grid-cols-3">
+            <Input
+              placeholder="Document name (required)"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setUploadError(null);
+              }}
+            />
+            <Input
+              key={fileInputKey}
+              type="file"
+              onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+            />
+            <Button
+              variant="success"
+              disabled={uploading || !file || !name.trim()}
+              onClick={upload}
+            >
+              {uploading ? "Uploading..." : "Upload"}
+            </Button>
+          </div>
+          {file && (
+            <p className="mt-2 text-xs text-[#6b7c93]">
+              Selected: {file.name} ({Math.max(1, Math.round(file.size / 1024))} KB)
+            </p>
+          )}
+          {uploadError && <p className="mt-2 text-xs text-red-400">{uploadError}</p>}
         </div>
       )}
       <div className="space-y-2">

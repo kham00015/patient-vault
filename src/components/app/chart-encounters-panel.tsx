@@ -849,25 +849,51 @@ function AttachmentsBranchPanel({
 }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
 
+  function onFileSelected(selected: File | null) {
+    setFile(selected);
+    setUploadError(null);
+    if (selected && !name.trim()) {
+      setName(selected.name.replace(/\.[^.]+$/, "") || selected.name);
+    }
+  }
+
   async function upload() {
-    if (!file || !name.trim()) return;
+    if (!file) {
+      setUploadError("Choose a file first.");
+      return;
+    }
+    if (!name.trim()) {
+      setUploadError("Enter a document name.");
+      return;
+    }
     setUploading(true);
+    setUploadError(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("name", name.trim());
       fd.append("encounterId", encounterId);
-      await fetch(`/api/patients/${patientId}/documents/upload`, {
+      const res = await fetch(`/api/patients/${patientId}/documents/upload`, {
         method: "POST",
         body: fd,
         credentials: "include",
       });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setUploadError(data?.error ?? `Upload failed (${res.status}). Try a smaller file (max 25MB).`);
+        return;
+      }
       setName("");
       setFile(null);
+      setFileInputKey((k) => k + 1);
       await onRefresh();
+    } catch {
+      setUploadError("Upload failed. Check your connection and try again.");
     } finally {
       setUploading(false);
     }
@@ -884,9 +910,10 @@ function AttachmentsBranchPanel({
             onChange={(e) => setName(e.target.value)}
           />
           <Input
+            key={fileInputKey}
             className="!h-8 max-w-[180px] !text-xs"
             type="file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
           />
           <Button
             variant="success"
@@ -898,6 +925,7 @@ function AttachmentsBranchPanel({
           </Button>
         </div>
       )}
+      {uploadError && <p className="mb-2 text-xs text-red-400">{uploadError}</p>}
 
       {documents.length === 0 ? (
         <p className="py-1 text-xs text-[#6b7c93]">No files attached.</p>
