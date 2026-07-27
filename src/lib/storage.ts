@@ -87,6 +87,36 @@ export async function readDocument(storageKey: string): Promise<Buffer> {
   throw new Error(`Unknown storage key: ${storageKey}`);
 }
 
+export async function writeDocument(storageKey: string, buffer: Buffer): Promise<void> {
+  if (storageKey.startsWith("local:")) {
+    const relative = storageKey.replace("local:", "");
+    const fullPath = path.join(LOCAL_PATH, "patients", relative);
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, buffer);
+    return;
+  }
+
+  if (storageKey.startsWith("s3:")) {
+    const key = storageKey.replace("s3:", "");
+    const client = getS3Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: key,
+        Body: buffer,
+        ServerSideEncryption: process.env.AWS_KMS_KEY_ID ? "aws:kms" : "AES256",
+        ...(process.env.AWS_KMS_KEY_ID
+          ? { SSEKMSKeyId: process.env.AWS_KMS_KEY_ID }
+          : {}),
+        ContentType: "text/plain; charset=utf-8",
+      })
+    );
+    return;
+  }
+
+  throw new Error(`Unknown storage key: ${storageKey}`);
+}
+
 export async function deleteDocument(storageKey: string) {
   if (storageKey.startsWith("local:")) {
     const relative = storageKey.replace("local:", "");

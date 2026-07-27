@@ -17,7 +17,11 @@ export async function GET(request: Request, { params }: Params) {
 
   const note = await prisma.note.findFirst({
     where: { id: noteId, patientId },
-    include: { patient: { select: { name: true, mrn: true } } },
+    include: {
+      patient: { select: { name: true, mrn: true } },
+      createdBy: { select: { id: true, name: true, email: true } },
+      signedBy: { select: { id: true, name: true, email: true } },
+    },
   });
   if (!note) return notFound();
 
@@ -32,6 +36,8 @@ export async function GET(request: Request, { params }: Params) {
     signedAt: dto.signedAt ? formatDateOnly(dto.signedAt) : null,
     sections,
     vitals,
+    authorName: dto.authorName,
+    signedByName: dto.signedByName,
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);

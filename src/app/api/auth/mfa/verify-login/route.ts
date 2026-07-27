@@ -9,6 +9,7 @@ import {
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { decryptMfaSecret, verifyTotpCode, verifyBackupCode } from "@/lib/mfa";
 import { clearLoginFailures } from "@/lib/account-lockout";
+import { checkRateLimit, LOGIN_RATE_LIMIT } from "@/lib/rate-limit";
 
 const verifyLoginSchema = z.object({
   mfaToken: z.string().min(1),
@@ -17,6 +18,15 @@ const verifyLoginSchema = z.object({
 
 export async function POST(request: Request) {
   const { ipAddress, userAgent } = getClientInfo(request);
+
+  const rateKey = `mfa:${ipAddress ?? "unknown"}`;
+  const rate = checkRateLimit(rateKey, LOGIN_RATE_LIMIT.maxAttempts, LOGIN_RATE_LIMIT.windowMs);
+  if (!rate.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } }
+    );
+  }
 
   try {
     const body = verifyLoginSchema.parse(await request.json());

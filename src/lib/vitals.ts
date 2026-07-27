@@ -11,6 +11,7 @@ export type VitalsData = {
   pulse: string;
   respiration: string;
   o2Sat: string;
+  o2Amount: string;
   o2RoomAir: boolean;
   currentBpSystolic: string;
   currentBpDiastolic: string;
@@ -29,6 +30,7 @@ export function createEmptyVitals(): VitalsData {
     pulse: "",
     respiration: "",
     o2Sat: "",
+    o2Amount: "",
     o2RoomAir: true,
     currentBpSystolic: "",
     currentBpDiastolic: "",
@@ -88,8 +90,9 @@ export function formatVitalsForDisplay(vitals: VitalsData): string {
   if (vitals.pulse.trim()) vitalParts.push(`Pulse ${vitals.pulse}`);
   if (vitals.respiration.trim()) vitalParts.push(`Resp ${vitals.respiration}`);
   if (vitals.o2Sat.trim()) {
-    vitalParts.push(`O2 ${vitals.o2Sat}%${vitals.o2RoomAir ? " RA" : ""}`);
+    vitalParts.push(`O2 sat ${vitals.o2Sat}%${vitals.o2RoomAir ? " RA" : ""}`);
   }
+  if (vitals.o2Amount.trim()) vitalParts.push(`O2 ${vitals.o2Amount} L/min`);
   if (vitalParts.length) lines.push(vitalParts.join(" · "));
 
   const curBp =

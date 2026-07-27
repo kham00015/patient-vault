@@ -131,13 +131,13 @@ export function RemindersContent({
       </div>
 
       {composing && canEdit && (
-        <div className="mb-4 rounded-xl border border-[#243044] bg-[#0f1520] p-4">
+        <div className="mb-4 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4">
           <div className="grid max-w-2xl gap-3">
             {!patientId && (
-              <label className="block text-xs text-[#6b7c93]">
+              <label className="block text-xs text-[var(--pv-muted)]">
                 Patient
                 <select
-                  className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
                   value={newPatientId}
                   onChange={(e) => setNewPatientId(e.target.value)}
                 >
@@ -170,10 +170,10 @@ export function RemindersContent({
         </div>
       )}
 
-      {loading && <p className="text-sm text-[#6b7c93]">Loading reminders...</p>}
+      {loading && <p className="text-sm text-[var(--pv-muted)]">Loading reminders...</p>}
 
       {!loading && filtered.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[#243044] px-4 py-8 text-center text-sm text-[#6b7c93]">
+        <p className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center text-sm text-[var(--pv-muted)]">
           No {filter === "all" ? "" : filter} reminders
           {patientId ? " for this patient" : ""}.
         </p>
@@ -186,10 +186,10 @@ export function RemindersContent({
             className={cn(
               "rounded-xl border px-4 py-3",
               r.status === "COMPLETED"
-                ? "border-[#243044] bg-[#0f1520]/60 opacity-75"
+                ? "border-[var(--pv-border)] bg-[var(--pv-panel)]/60 opacity-75"
                 : r.isOverdue
                   ? "border-rose-500/40 bg-rose-500/5"
-                  : "border-[#243044] bg-[#0f1520]"
+                  : "border-[var(--pv-border)] bg-[var(--pv-panel)]"
             )}
           >
             <div className="flex items-start gap-3">
@@ -201,7 +201,7 @@ export function RemindersContent({
                     "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border",
                     r.status === "COMPLETED"
                       ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-400"
-                      : "border-[#2d3f57] hover:border-cyan-500/40"
+                      : "border-[var(--pv-border-strong)] hover:border-cyan-500/40"
                   )}
                   title={r.status === "COMPLETED" ? "Mark pending" : "Mark complete"}
                 >
@@ -213,7 +213,7 @@ export function RemindersContent({
                   <span
                     className={cn(
                       "font-medium",
-                      r.status === "COMPLETED" ? "text-[#8b9cb3] line-through" : "text-cyan-200"
+                      r.status === "COMPLETED" ? "text-[var(--pv-muted-2)] line-through" : "text-cyan-200"
                     )}
                   >
                     {r.title}
@@ -224,7 +224,7 @@ export function RemindersContent({
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-[#6b7c93]">
+                <p className="mt-0.5 text-xs text-[var(--pv-muted)]">
                   Due {formatDateOnly(r.dueDate)}
                   {showPatientColumn && (
                     <>
@@ -246,7 +246,7 @@ export function RemindersContent({
                     </>
                   )}
                 </p>
-                {r.body && <p className="mt-1 text-sm text-[#8b9cb3]">{r.body}</p>}
+                {r.body && <p className="mt-1 text-sm text-[var(--pv-muted-2)]">{r.body}</p>}
               </div>
               {canEdit && (
                 <Button
@@ -280,7 +280,7 @@ export function RemindersPanel({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <p className="mb-4 text-xs text-[#6b7c93]">
+      <p className="mb-4 text-xs text-[var(--pv-muted)]">
         Patient-linked follow-ups — callbacks, labs to review, refills, and chart tasks.
       </p>
       <RemindersContent

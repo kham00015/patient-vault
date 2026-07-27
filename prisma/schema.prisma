@@ -72,6 +72,10 @@ model User {
   threadParticipations ThreadParticipant[] @relation("MessageThreadParticipants")
   remindersCreated Reminder[] @relation("CreatedReminders")
   contactsCreated Contact[] @relation("CreatedContacts")
+  notesCreated Note[] @relation("CreatedNotes")
+  notesSigned Note[] @relation("SignedNotes")
+  ordersCreated Order[] @relation("CreatedOrders")
+  ordersReviewed Order[] @relation("ReviewedOrders")
 }
 
 model Session {
@@ -161,6 +165,7 @@ model Patient {
   aiConversation  AIConversation?
   messageThreads  MessageThread[]
   reminders       Reminder[]
+  orders          Order[]
 
   @@index([name])
   @@index([lastName, firstName])
@@ -229,12 +234,65 @@ model Encounter {
   documents      Document[]
   forms          EncounterForm[]
   faxTransmissions FaxTransmission[]
+  orders         Order[]
 
   @@index([patientId])
   @@index([date])
   @@index([status])
   @@index([visitCategory])
   @@index([modality])
+}
+
+enum OrderCategory {
+  LAB
+  IMAGING
+  PROCEDURE
+  REFERRAL
+  OTHER
+}
+
+enum OrderStatus {
+  ORDERED
+  SCHEDULED
+  COMPLETED
+  REVIEWED
+  CANCELLED
+}
+
+enum OrderPriority {
+  ROUTINE
+  URGENT
+  STAT
+}
+
+model Order {
+  id             String        @id @default(cuid())
+  patientId      String
+  encounterId    String?
+  category       OrderCategory
+  name           String
+  code           String?
+  status         OrderStatus   @default(ORDERED)
+  priority       OrderPriority @default(ROUTINE)
+  orderedAt      DateTime      @default(now())
+  expectedAt     DateTime?
+  completedAt    DateTime?
+  reviewedAt     DateTime?
+  notes          String?
+  createdById    String
+  reviewedById   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  patient        Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter      Encounter?    @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  createdBy      User          @relation("CreatedOrders", fields: [createdById], references: [id])
+  reviewedBy     User?         @relation("ReviewedOrders", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([category])
+  @@index([status])
+  @@index([orderedAt])
 }
 
 model Note {
@@ -246,22 +304,31 @@ model Note {
   signedAt    DateTime?
   date        DateTime
   content     String
+  createdById String?
+  signedById  String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   encounter   Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  createdBy   User?      @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: SetNull)
+  signedBy    User?      @relation("SignedNotes", fields: [signedById], references: [id], onDelete: SetNull)
+  documents   Document[]
 
   @@index([patientId])
   @@index([encounterId])
   @@index([date])
   @@index([type])
   @@index([status])
+  @@index([createdById])
+  @@index([signedById])
 }
 
 model Document {
   id           String     @id @default(cuid())
   patientId    String
   encounterId  String?
+  noteId       String?
+  sectionKey   String?
   name         String
   fileName     String
   storageKey   String
@@ -271,12 +338,15 @@ model Document {
   uploadedAt   DateTime   @default(now())
   patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   encounter    Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  note         Note?      @relation(fields: [noteId], references: [id], onDelete: SetNull)
   uploadedBy   User       @relation(fields: [uploadedById], references: [id])
   encounterForm EncounterForm?
   faxTransmissions FaxTransmission[]
 
   @@index([patientId])
   @@index([encounterId])
+  @@index([noteId])
+  @@index([sectionKey])
 }
 
 enum FormSource {

@@ -12,6 +12,7 @@ import { serializeNoteContent, createEmptySections, parseNotePayload } from "@/l
 import { buildPropagatedNoteSections } from "@/lib/note-propagation";
 import { createEmptyVitals, type VitalsData } from "@/lib/vitals";
 import type { NoteType } from "@/lib/notes";
+import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,7 +29,7 @@ export async function GET(request: Request, { params }: Params) {
   const notes = await prisma.note.findMany({
     where: { patientId, ...(encounterId ? { encounterId } : {}) },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-    include: { encounter: { select: { id: true, visitCategory: true, modality: true, date: true } } },
+    include: NOTE_WITH_AUTHORS_INCLUDE,
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);
@@ -124,6 +125,10 @@ export async function POST(request: Request, { params }: Params) {
             date,
             content,
             ...(body.type ? { type: body.type as NoteType } : {}),
+            // Backfill author if an older note was created without createdById
+            ...(existingNote && !existingNote.createdById
+              ? { createdBy: { connect: { id: auth.user.id } } }
+              : {}),
             ...(body.encounterId !== undefined
               ? body.encounterId
                 ? { encounter: { connect: { id: body.encounterId } } }
@@ -139,12 +144,13 @@ export async function POST(request: Request, { params }: Params) {
             type: noteType,
             encounterId: body.encounterId ?? null,
             status: "DRAFT",
+            createdById: auth.user.id,
           },
         });
 
     const withEncounter = await prisma.note.findUnique({
       where: { id: note.id },
-      include: { encounter: { select: { id: true, visitCategory: true, modality: true, date: true } } },
+      include: NOTE_WITH_AUTHORS_INCLUDE,
     });
 
     const { ipAddress, userAgent } = getClientInfo(request);

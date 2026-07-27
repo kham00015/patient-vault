@@ -41,11 +41,11 @@ export function getScheduleVisitStyles(visitCategory: ScheduleEntry["visitCatego
     badgeActive: isNew
       ? "bg-emerald-600/30 text-emerald-200 ring-1 ring-emerald-500/40"
       : "bg-cyan-600/30 text-cyan-200 ring-1 ring-cyan-500/40",
-    badgeInactive: "bg-[#1a2330] text-[#8b9cb3] hover:text-[#c9d5e3]",
+    badgeInactive: "bg-[var(--pv-btn)] text-[var(--pv-muted-2)] hover:text-[var(--pv-fg-soft)]",
     toggleActive: isNew
       ? "!bg-emerald-700 !text-white hover:!bg-emerald-600"
       : "!bg-cyan-700 !text-white hover:!bg-cyan-600",
-    toggleInactive: "!bg-transparent !text-[#8b9cb3] hover:!bg-white/5",
+    toggleInactive: "!bg-transparent !text-[var(--pv-muted-2)] hover:!bg-white/5",
     nameText: isNew ? "text-emerald-300" : "text-cyan-300",
     nameHover: isNew ? "hover:text-emerald-200" : "hover:text-cyan-200",
   };

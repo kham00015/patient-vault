@@ -134,7 +134,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
     <Modal open={open} onClose={onClose} title="User Administration" wide>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-[#8b9cb3]">
+          <p className="text-sm text-[var(--pv-muted-2)]">
             Create accounts, reset passwords, and unlock accounts after failed logins.
           </p>
           <Button variant="primary" className="gap-2" onClick={() => setShowCreate((v) => !v)}>
@@ -143,13 +143,13 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
         </div>
 
         {showCreate && (
-          <div className="rounded-xl border border-[#243044] bg-[#0f1520] p-4 space-y-3">
+          <div className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4 space-y-3">
             <h3 className="text-sm font-semibold text-cyan-300">Create user</h3>
             <div className="grid gap-2 md:grid-cols-2">
               <Input placeholder="Email" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)} />
               <Input placeholder="Full name" value={createName} onChange={(e) => setCreateName(e.target.value)} />
               <select
-                className="rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2.5 text-sm text-white"
+                className="rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2.5 text-sm text-white"
                 value={createRole}
                 onChange={(e) => setCreateRole(e.target.value as (typeof ROLES)[number])}
               >
@@ -176,7 +176,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                 </Button>
               </div>
             </div>
-            <p className="text-xs text-[#6b7c93]">
+            <p className="text-xs text-[var(--pv-muted)]">
               User must change this password on first login. Password needs upper, lower, number, and special character.
             </p>
             <Button variant="success" onClick={createUser}>
@@ -189,19 +189,19 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
         {success && <p className="text-sm text-emerald-400">{success}</p>}
 
         {loading ? (
-          <p className="text-sm text-[#8b9cb3]">Loading users...</p>
+          <p className="text-sm text-[var(--pv-muted-2)]">Loading users...</p>
         ) : (
           <div className="space-y-2">
             {users.map((u) => (
               <div
                 key={u.id}
-                className="rounded-xl border border-[#243044] bg-[#0f1520] p-3 text-xs"
+                className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3 text-xs"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-white">{u.name ?? "—"}</p>
-                    <p className="text-[#8b9cb3]">{u.email}</p>
-                    <p className="mt-1 text-[#6b7c93]">
+                    <p className="text-[var(--pv-muted-2)]">{u.email}</p>
+                    <p className="mt-1 text-[var(--pv-muted)]">
                       {u.role}
                       {!u.isActive && " · Disabled"}
                       {u.mfaEnabled && " · MFA on"}
@@ -214,7 +214,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                       )}
                     </p>
                     {u.lastLoginAt && (
-                      <p className="text-[#6b7c93]">Last login: {formatDate(u.lastLoginAt)}</p>
+                      <p className="text-[var(--pv-muted)]">Last login: {formatDate(u.lastLoginAt)}</p>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -240,7 +240,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                 </div>
 
                 {resetUserId === u.id && (
-                  <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#243044] pt-3">
+                  <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--pv-border)] pt-3">
                     <Input
                       className="max-w-md"
                       value={resetPasswordValue}

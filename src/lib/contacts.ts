@@ -47,8 +47,8 @@ export const CONTACT_TYPES = [
     value: "OTHER",
     label: "Other",
     description: "Other clinic contacts",
-    color: "text-[#8b9cb3]",
-    badge: "bg-[#1a2330] text-[#b8c5d6] ring-[#2d3f57]",
+    color: "text-[var(--pv-muted-2)]",
+    badge: "bg-[var(--pv-btn)] text-[var(--pv-muted-2)] ring-[var(--pv-border-strong)]",
   },
 ] as const;
 

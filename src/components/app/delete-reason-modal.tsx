@@ -46,9 +46,9 @@ export function DeleteReasonModal({
 
   return (
     <Modal open={open} onClose={handleClose} title={title}>
-      <p className="mb-4 text-sm text-[#8b9cb3]">{description}</p>
+      <p className="mb-4 text-sm text-[var(--pv-muted-2)]">{description}</p>
       <label className="block space-y-1.5">
-        <span className="text-xs font-medium text-[#8b9cb3]">Reason for removal *</span>
+        <span className="text-xs font-medium text-[var(--pv-muted-2)]">Reason for removal *</span>
         <Textarea
           className="min-h-[88px]"
           placeholder="Document why this record is being removed..."
@@ -57,7 +57,7 @@ export function DeleteReasonModal({
         />
       </label>
       {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
-      <div className="mt-6 flex justify-end gap-2 border-t border-[#243044] pt-4">
+      <div className="mt-6 flex justify-end gap-2 border-t border-[var(--pv-border)] pt-4">
         <Button onClick={handleClose} disabled={saving}>
           Cancel
         </Button>

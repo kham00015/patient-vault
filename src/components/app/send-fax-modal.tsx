@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,14 +18,17 @@ type FaxConfig = {
 };
 
 type DocOption = { id: string; name: string; fileName: string };
+type EncounterOption = { id: string; label: string };
 
 export function SendFaxModal({
   open,
   onClose,
   patientId,
   encounterId,
+  encounters,
   documents,
   initialDocumentId,
+  initialDocumentIds,
   initialToNumber,
   initialToName,
   initialCoverSheet,
@@ -34,15 +37,19 @@ export function SendFaxModal({
   open: boolean;
   onClose: () => void;
   patientId: string;
-  encounterId: string;
+  encounterId?: string | null;
+  /** When provided, user can pick which encounter to file the fax under. */
+  encounters?: EncounterOption[];
   documents: DocOption[];
   initialDocumentId?: string | null;
+  initialDocumentIds?: string[] | null;
   initialToNumber?: string | null;
   initialToName?: string | null;
   initialCoverSheet?: string | null;
   onSent: () => Promise<void>;
 }) {
-  const [selectedDocId, setSelectedDocId] = useState<string>("");
+  const [selectedEncounterId, setSelectedEncounterId] = useState<string>("");
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [toNumber, setToNumber] = useState("");
   const [toName, setToName] = useState("");
   const [coverSheet, setCoverSheet] = useState("");
@@ -50,7 +57,13 @@ export function SendFaxModal({
   const [error, setError] = useState("");
   const [faxConfig, setFaxConfig] = useState<FaxConfig | null>(null);
 
-  const selectedDoc = documents.find((d) => d.id === selectedDocId) ?? null;
+  const selectedDocs = useMemo(
+    () => documents.filter((d) => selectedDocIds.includes(d.id)),
+    [documents, selectedDocIds]
+  );
+  const allSelected = documents.length > 0 && selectedDocIds.length === documents.length;
+  const effectiveEncounterId = encounterId && !encounters?.length ? encounterId : selectedEncounterId;
+  const needsEncounterPick = (encounters?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -58,14 +71,34 @@ export function SendFaxModal({
       .then((data) => setFaxConfig(data.fax))
       .catch(() => undefined);
     setError("");
-    setSelectedDocId(initialDocumentId ?? documents[0]?.id ?? "");
+
+    const fromIds =
+      initialDocumentIds?.filter((id) => documents.some((d) => d.id === id)) ?? [];
+    const fromSingle =
+      initialDocumentId && documents.some((d) => d.id === initialDocumentId)
+        ? [initialDocumentId]
+        : [];
+    const initial = fromIds.length > 0 ? fromIds : fromSingle.length > 0 ? fromSingle : documents[0] ? [documents[0].id] : [];
+    setSelectedDocIds(initial);
+
+    setSelectedEncounterId(encounterId || encounters?.[0]?.id || "");
     setToNumber(initialToNumber ?? "");
     setToName(initialToName ?? "");
     setCoverSheet(
       initialCoverSheet ??
         (initialToName ? `Specialist referral from Modern Medicine — please see attached.` : "")
     );
-  }, [open, initialDocumentId, initialToNumber, initialToName, initialCoverSheet, documents]);
+  }, [
+    open,
+    encounterId,
+    encounters,
+    initialDocumentId,
+    initialDocumentIds,
+    initialToNumber,
+    initialToName,
+    initialCoverSheet,
+    documents,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -73,20 +106,32 @@ export function SendFaxModal({
       setToName("");
       setCoverSheet("");
       setError("");
+      setSelectedDocIds([]);
+      setSelectedEncounterId("");
     }
   }, [open]);
 
+  function toggleDoc(id: string) {
+    setSelectedDocIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function toggleAll() {
+    setSelectedDocIds(allSelected ? [] : documents.map((d) => d.id));
+  }
+
   async function handleSend() {
-    if (!selectedDocId) return;
+    if (selectedDocIds.length === 0 || !effectiveEncounterId) return;
     setSending(true);
     setError("");
     try {
-      await api<{ fax: FaxTransmissionDTO }>(
-        `/api/patients/${patientId}/encounters/${encounterId}/faxes`,
+      await api<{ faxes: FaxTransmissionDTO[]; fax?: FaxTransmissionDTO; error?: string }>(
+        `/api/patients/${patientId}/encounters/${effectiveEncounterId}/faxes`,
         {
           method: "POST",
           json: {
-            documentId: selectedDocId,
+            documentIds: selectedDocIds,
             toNumber,
             toName: toName.trim() || undefined,
             coverSheet: coverSheet.trim() || undefined,
@@ -106,33 +151,86 @@ export function SendFaxModal({
     <Modal open={open} onClose={onClose} title="Send Fax">
       <div className="space-y-3">
         {documents.length === 0 ? (
-          <p className="text-sm text-amber-300">Upload a document to this encounter first.</p>
+          <p className="text-sm text-amber-300">Upload a document first.</p>
         ) : (
           <>
-            <div>
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Document to fax *</label>
-              <div className="space-y-1">
-                {documents.map((doc) => (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => setSelectedDocId(doc.id)}
-                    className={cn(
-                      "flex w-full flex-col rounded-lg border px-3 py-2 text-left text-sm transition",
-                      selectedDocId === doc.id
-                        ? "border-cyan-500/50 bg-cyan-500/10"
-                        : "border-[#243044] bg-[#0f1520] hover:border-cyan-500/30"
-                    )}
-                  >
-                    <span className="font-medium text-cyan-200">{doc.name}</span>
-                    <span className="text-xs text-[#6b7c93]">{doc.fileName}</span>
-                  </button>
-                ))}
+            {needsEncounterPick && (
+              <div>
+                <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">File under encounter *</label>
+                <select
+                  className="h-10 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm text-white"
+                  value={selectedEncounterId}
+                  onChange={(e) => setSelectedEncounterId(e.target.value)}
+                >
+                  {encounters!.map((enc) => (
+                    <option key={enc.id} value={enc.id}>
+                      {enc.label}
+                    </option>
+                  ))}
+                </select>
               </div>
+            )}
+
+            {!effectiveEncounterId && (
+              <p className="text-sm text-amber-300">
+                Create an encounter first so this fax can be filed in the chart.
+              </p>
+            )}
+
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label className="block text-xs text-[var(--pv-muted-2)]">
+                  Documents to fax * ({selectedDocIds.length} selected)
+                </label>
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="text-[11px] font-medium text-cyan-300 hover:text-cyan-200"
+                >
+                  {allSelected ? "Clear all" : "Select all"}
+                </button>
+              </div>
+              <div className="max-h-48 space-y-1 overflow-y-auto">
+                {documents.map((doc) => {
+                  const checked = selectedDocIds.includes(doc.id);
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => toggleDoc(doc.id)}
+                      className={cn(
+                        "flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition",
+                        checked
+                          ? "border-cyan-500/50 bg-cyan-500/10"
+                          : "border-[var(--pv-border)] bg-[var(--pv-panel)] hover:border-cyan-500/30"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px]",
+                          checked
+                            ? "border-cyan-400 bg-cyan-500/30 text-cyan-100"
+                            : "border-[#3a4a63] text-transparent"
+                        )}
+                        aria-hidden
+                      >
+                        ✓
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium text-cyan-200">{doc.name}</span>
+                        <span className="block text-xs text-[var(--pv-muted)]">{doc.fileName}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[10px] text-[var(--pv-muted)]">
+                Each selected document is sent as its own fax to the same recipient.
+              </p>
             </div>
 
             {faxConfig && (
-              <p className="text-xs text-[#6b7c93]">
+              <p className="text-xs text-[var(--pv-muted)]">
                 Provider: <span className="text-cyan-200">{faxConfig.provider}</span>
                 {faxConfig.mode === "mock" && " (demo — no real fax sent until API key is set)"}
                 {faxConfig.fromNumber && ` · From ${faxConfig.fromNumber}`}
@@ -140,7 +238,7 @@ export function SendFaxModal({
             )}
 
             <div>
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Recipient fax number *</label>
+              <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">Recipient fax number *</label>
               <Input
                 placeholder="e.g. 5551234567 or +15551234567"
                 value={toNumber}
@@ -149,7 +247,7 @@ export function SendFaxModal({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Recipient name</label>
+              <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">Recipient name</label>
               <Input
                 placeholder="Dr. Smith / Specialist office"
                 value={toName}
@@ -158,7 +256,7 @@ export function SendFaxModal({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Cover sheet message</label>
+              <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">Cover sheet message</label>
               <Textarea
                 className="!min-h-[72px]"
                 placeholder="Please see attached records for your review."
@@ -175,10 +273,19 @@ export function SendFaxModal({
           <Button onClick={onClose}>Cancel</Button>
           <Button
             variant="success"
-            disabled={sending || !selectedDoc || !toNumber.trim()}
+            disabled={
+              sending ||
+              selectedDocs.length === 0 ||
+              !toNumber.trim() ||
+              !effectiveEncounterId
+            }
             onClick={handleSend}
           >
-            {sending ? "Sending..." : "Send Fax"}
+            {sending
+              ? "Sending..."
+              : selectedDocs.length > 1
+                ? `Send ${selectedDocs.length} Faxes`
+                : "Send Fax"}
           </Button>
         </div>
       </div>

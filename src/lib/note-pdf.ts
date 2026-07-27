@@ -14,6 +14,8 @@ export function buildNotePdfHtml({
   signedAt,
   sections,
   vitals,
+  authorName,
+  signedByName,
 }: {
   patientName: string;
   mrn?: string | null;
@@ -23,6 +25,8 @@ export function buildNotePdfHtml({
   signedAt?: string | null;
   sections: NoteSections;
   vitals?: VitalsData;
+  authorName?: string | null;
+  signedByName?: string | null;
 }) {
   const tabs = getNoteTabs(noteType);
   const blocks: string[] = [];
@@ -54,6 +58,11 @@ export function buildNotePdfHtml({
       blocks.push(`<section class="block"><pre>${escapeHtml(flat)}</pre></section>`);
     }
   }
+
+  const authorLine =
+    status === "SIGNED"
+      ? signedByName || authorName
+      : authorName || signedByName;
 
   return `<!DOCTYPE html>
 <html>
@@ -87,8 +96,9 @@ export function buildNotePdfHtml({
     <div class="meta">
       <div><strong>Patient:</strong> ${escapeHtml(patientName)}${mrn ? ` · MRN ${escapeHtml(mrn)}` : ""}</div>
       <div><strong>Date of Service:</strong> ${escapeHtml(noteDate)}</div>
+      ${authorLine ? `<div><strong>Author:</strong> ${escapeHtml(authorLine)}</div>` : ""}
       <span class="status ${status === "SIGNED" ? "signed" : "draft"}">${status === "SIGNED" ? "Signed" : "Draft"}</span>
-      ${signedAt ? `<div><strong>Signed:</strong> ${escapeHtml(signedAt)}</div>` : ""}
+      ${signedAt ? `<div><strong>Signed:</strong> ${escapeHtml(signedAt)}${signedByName ? ` by ${escapeHtml(signedByName)}` : ""}</div>` : ""}
     </div>
   </div>
   ${blocks.join("\n")}

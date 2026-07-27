@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import type { FaxTransmissionDTO } from "@/lib/fax-transmissions";
 import { cn, formatDate } from "@/lib/utils";
 import { FileText, Printer } from "lucide-react";
@@ -38,10 +40,12 @@ export function CommsBranchPanel({
   isReadOnly: boolean;
   onSendFax: (documentId?: string) => void;
 }) {
+  const [viewer, setViewer] = useState<{ title: string; url: string } | null>(null);
+
   return (
-    <div className="mt-1.5 rounded-md border border-[#243044] bg-[#121820]/80 p-2">
+    <div className="mt-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/80 p-2">
       {!isReadOnly && (
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-[#243044] pb-2">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--pv-border)] pb-2">
           <span className="text-[10px] font-medium uppercase tracking-wide text-cyan-200">
             Outbound faxes
           </span>
@@ -57,19 +61,19 @@ export function CommsBranchPanel({
       )}
 
       {documents.length === 0 && (
-        <p className="mb-2 text-xs text-[#6b7c93]">
+        <p className="mb-2 text-xs text-[var(--pv-muted)]">
           Upload a file in Files first, then fax it from here.
         </p>
       )}
 
       {faxes.length === 0 ? (
-        <p className="py-1 text-xs text-[#6b7c93]">No faxes sent for this encounter yet.</p>
+        <p className="py-1 text-xs text-[var(--pv-muted)]">No faxes sent for this encounter yet.</p>
       ) : (
         <div className="space-y-1">
           {faxes.map((fax) => (
             <div
               key={fax.id}
-              className="rounded border border-[#243044] bg-[#0f1520] px-2 py-1.5"
+              className="rounded border border-[var(--pv-border)] bg-[var(--pv-panel)] px-2 py-1.5"
             >
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] font-medium text-cyan-200">
@@ -77,10 +81,10 @@ export function CommsBranchPanel({
                 </span>
                 <FaxStatusBadge status={fax.status} />
                 {fax.pageCount != null && (
-                  <span className="text-[9px] text-[#6b7c93]">{fax.pageCount} pg</span>
+                  <span className="text-[9px] text-[var(--pv-muted)]">{fax.pageCount} pg</span>
                 )}
               </div>
-              <div className="mt-0.5 text-[10px] text-[#6b7c93]">
+              <div className="mt-0.5 text-[10px] text-[var(--pv-muted)]">
                 {fax.document.name} · {formatDate(fax.sentAt ?? fax.createdAt)}
                 {fax.sentByName ? ` · by ${fax.sentByName}` : ""}
               </div>
@@ -91,7 +95,10 @@ export function CommsBranchPanel({
                 <Button
                   className="!h-7 !px-2 !text-[10px]"
                   onClick={() =>
-                    window.open(`/api/patients/${patientId}/documents/${fax.documentId}`, "_blank")
+                    setViewer({
+                      title: fax.document.name,
+                      url: `/api/patients/${patientId}/documents/${fax.documentId}`,
+                    })
                   }
                 >
                   <FileText size={11} /> Document
@@ -100,6 +107,15 @@ export function CommsBranchPanel({
             </div>
           ))}
         </div>
+      )}
+
+      {viewer && (
+        <FullPageDocumentViewer
+          title={viewer.title}
+          url={viewer.url}
+          onClose={() => setViewer(null)}
+          backLabel="Back to Comms"
+        />
       )}
     </div>
   );

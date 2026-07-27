@@ -83,7 +83,7 @@ export function SignaturePad({
       <div
         className={cn(
           "overflow-hidden rounded-lg border bg-white",
-          readOnly ? "border-[#243044]" : "border-cyan-500/30"
+          readOnly ? "border-[var(--pv-border)]" : "border-cyan-500/30"
         )}
       >
         <canvas

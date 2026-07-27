@@ -1,6 +1,5 @@
-# HTTP only — works before DNS/HTTPS is configured.
-# After DNS is live, switch to the domain block + ACME_EMAIL in .env.production.
-:80 {
+# HTTPS via Let's Encrypt for app.patientvault.care
+app.patientvault.care {
 	encode gzip
 	reverse_proxy app:3000
 }

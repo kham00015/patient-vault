@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
+import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
 import { isPatientChartWritable, toNoteDTO } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string; noteId: string }> };
@@ -22,8 +23,13 @@ export async function POST(request: Request, { params }: Params) {
 
   const updated = await prisma.note.update({
     where: { id: noteId },
-    data: { status: "SIGNED", signedAt: new Date() },
-    include: { encounter: { select: { id: true, visitCategory: true, modality: true, date: true } } },
+    data: {
+      status: "SIGNED",
+      signedAt: new Date(),
+      signedById: auth.user.id,
+      ...(note.createdById ? {} : { createdById: auth.user.id }),
+    },
+    include: NOTE_WITH_AUTHORS_INCLUDE,
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);

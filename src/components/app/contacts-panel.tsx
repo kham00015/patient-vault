@@ -72,10 +72,10 @@ function ContactForm({
         value={form.name}
         onChange={(e) => onChange({ ...form, name: e.target.value })}
       />
-      <label className="block text-xs text-[#6b7c93]">
+      <label className="block text-xs text-[var(--pv-muted)]">
         Type
         <select
-          className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+          className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
           value={form.type}
           onChange={(e) => onChange({ ...form, type: e.target.value as ContactTypeValue })}
         >
@@ -224,13 +224,13 @@ export function ContactsPanel({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <p className="mb-4 text-xs text-[#6b7c93]">
+      <p className="mb-4 text-xs text-[var(--pv-muted)]">
         Clinic directory for referral specialists, pharma reps, labs, and other contacts.
       </p>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[12rem] flex-1 max-w-md">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#6b7c93]" />
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--pv-muted)]" />
           <Input
             className="!pl-9"
             placeholder="Search name, company, location..."
@@ -274,7 +274,7 @@ export function ContactsPanel({ canEdit }: { canEdit: boolean }) {
       </div>
 
       {(composing || editingId) && canEdit && (
-        <div className="mb-4 rounded-xl border border-[#243044] bg-[#0f1520] p-4">
+        <div className="mb-4 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4">
           <p className="mb-3 text-sm font-medium text-cyan-200">
             {editingId ? "Edit contact" : "New contact"}
           </p>
@@ -289,17 +289,17 @@ export function ContactsPanel({ canEdit }: { canEdit: boolean }) {
         </div>
       )}
 
-      {loading && <p className="text-sm text-[#6b7c93]">Loading contacts...</p>}
+      {loading && <p className="text-sm text-[var(--pv-muted)]">Loading contacts...</p>}
 
       {!loading && contacts.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[#243044] px-4 py-8 text-center text-sm text-[#6b7c93]">
+        <p className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center text-sm text-[var(--pv-muted)]">
           No contacts found{typeFilter !== "ALL" ? ` in ${getContactTypeLabel(typeFilter)}` : ""}.
         </p>
       )}
 
       <div className="min-h-0 flex-1 space-y-2">
         {contacts.map((contact) => (
-          <div key={contact.id} className="rounded-xl border border-[#243044] bg-[#0f1520] px-4 py-3">
+          <div key={contact.id} className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] px-4 py-3">
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -314,26 +314,26 @@ export function ContactsPanel({ canEdit }: { canEdit: boolean }) {
                   </span>
                 </div>
                 {(contact.company || contact.drug) && (
-                  <p className="mt-1 text-sm text-[#b8c5d6]">
+                  <p className="mt-1 text-sm text-[var(--pv-muted-2)]">
                     {[contact.company, contact.drug].filter(Boolean).join(" · ")}
                   </p>
                 )}
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#8b9cb3]">
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--pv-muted-2)]">
                   {contact.location && (
                     <span className="inline-flex items-center gap-1">
-                      <MapPin size={12} className="text-[#6b7c93]" />
+                      <MapPin size={12} className="text-[var(--pv-muted)]" />
                       {contact.location}
                     </span>
                   )}
                   {contact.phone && (
                     <span className="inline-flex items-center gap-1">
-                      <Phone size={12} className="text-[#6b7c93]" />
+                      <Phone size={12} className="text-[var(--pv-muted)]" />
                       {contact.phone}
                     </span>
                   )}
                 </div>
                 {contact.notes && (
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-[#8b9cb3]">{contact.notes}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--pv-muted-2)]">{contact.notes}</p>
                 )}
               </div>
               {canEdit && (

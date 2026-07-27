@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
-import { canWrite, canDelete } from "@/lib/auth";
+import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
-import { saveDocument, deleteDocument } from "@/lib/storage";
+import { saveDocument } from "@/lib/storage";
 import { isPatientChartWritable } from "@/lib/patients";
+import { isDocumentUploadSection } from "@/lib/document-sections";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -26,10 +27,31 @@ export async function POST(request: Request, { params }: Params) {
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
   const name = (formData.get("name") as string | null)?.trim();
-  const encounterId = (formData.get("encounterId") as string | null)?.trim() || undefined;
+  let encounterId = (formData.get("encounterId") as string | null)?.trim() || undefined;
+  const noteId = (formData.get("noteId") as string | null)?.trim() || undefined;
+  const sectionKeyRaw = (formData.get("sectionKey") as string | null)?.trim() || undefined;
 
   if (!file || !name) return badRequest("File and name required");
   if (file.size > MAX_SIZE) return badRequest("File too large (max 25MB)");
+
+  let sectionKey: string | undefined;
+  if (sectionKeyRaw) {
+    if (!isDocumentUploadSection(sectionKeyRaw)) {
+      return badRequest("Invalid document section");
+    }
+    sectionKey = sectionKeyRaw;
+  }
+
+  if (noteId) {
+    const note = await prisma.note.findFirst({
+      where: { id: noteId, patientId },
+      select: { id: true, encounterId: true },
+    });
+    if (!note) return badRequest("Note not found for this patient");
+    if (!encounterId && note.encounterId) {
+      encounterId = note.encounterId;
+    }
+  }
 
   if (encounterId) {
     const encounter = await prisma.encounter.findFirst({
@@ -45,6 +67,8 @@ export async function POST(request: Request, { params }: Params) {
     data: {
       patientId,
       encounterId: encounterId ?? null,
+      noteId: noteId ?? null,
+      sectionKey: sectionKey ?? null,
       name,
       fileName: file.name,
       storageKey,
@@ -63,6 +87,11 @@ export async function POST(request: Request, { params }: Params) {
     patientId,
     ipAddress,
     userAgent,
+    metadata: {
+      noteId: noteId ?? null,
+      sectionKey: sectionKey ?? null,
+      encounterId: encounterId ?? null,
+    },
   });
 
   return NextResponse.json({ document: doc }, { status: 201 });

@@ -58,7 +58,7 @@ function ChangePasswordForm({ onComplete }: { onComplete: () => void }) {
         onChange={(e) => setConfirmPassword(e.target.value)}
         autoComplete="new-password"
       />
-      <p className="text-xs text-[#6b7c93]">
+      <p className="text-xs text-[var(--pv-muted)]">
         Use at least {PASSWORD_MIN_LENGTH} characters with uppercase, lowercase, a number, and a special character.
       </p>
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -140,7 +140,7 @@ export function ChangePasswordModal({
           onChange={(e) => setConfirmPassword(e.target.value)}
           autoComplete="new-password"
         />
-        <p className="text-xs text-[#6b7c93]">
+        <p className="text-xs text-[var(--pv-muted)]">
           Use at least {PASSWORD_MIN_LENGTH} characters with uppercase, lowercase, a number, and a special character.
         </p>
         {error && <p className="text-sm text-red-400">{error}</p>}
@@ -264,7 +264,7 @@ export function AccountSecurityModal({
 
           {!mfaEnabled && !qrDataUrl && (
             <div>
-              <p className="mb-3 text-[#8b9cb3]">
+              <p className="mb-3 text-[var(--pv-muted-2)]">
                 Add an authenticator app (Google Authenticator, Authy, 1Password, etc.) for an extra layer of security.
               </p>
               <Button variant="success" disabled={loading} onClick={startMfaSetup}>
@@ -275,11 +275,11 @@ export function AccountSecurityModal({
 
           {qrDataUrl && (
             <div className="space-y-3">
-              <p className="text-[#8b9cb3]">Scan this QR code with your authenticator app:</p>
+              <p className="text-[var(--pv-muted-2)]">Scan this QR code with your authenticator app:</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qrDataUrl} alt="MFA QR code" className="mx-auto h-48 w-48 rounded-lg bg-white p-2" />
               {setupSecret && (
-                <p className="break-all font-mono text-xs text-[#6b7c93]">Manual key: {setupSecret}</p>
+                <p className="break-all font-mono text-xs text-[var(--pv-muted)]">Manual key: {setupSecret}</p>
               )}
               <Input
                 placeholder="6-digit code from app"
@@ -300,13 +300,13 @@ export function AccountSecurityModal({
                   <span key={c}>{c}</span>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-[#8b9cb3]">Each code works once if you lose your authenticator.</p>
+              <p className="mt-2 text-xs text-[var(--pv-muted-2)]">Each code works once if you lose your authenticator.</p>
             </div>
           )}
 
           {mfaEnabled && (
-            <div className="mt-4 border-t border-[#243044] pt-4">
-              <p className="mb-2 text-[#8b9cb3]">Disable MFA (requires password and current code)</p>
+            <div className="mt-4 border-t border-[var(--pv-border)] pt-4">
+              <p className="mb-2 text-[var(--pv-muted-2)]">Disable MFA (requires password and current code)</p>
               <Input
                 type="password"
                 placeholder="Your password"

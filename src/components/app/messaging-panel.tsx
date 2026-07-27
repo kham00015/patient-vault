@@ -160,14 +160,14 @@ export function MessagingPanel({
             Cancel
           </Button>
         </div>
-        <p className="mb-4 text-xs text-[#6b7c93]">
+        <p className="mb-4 text-xs text-[var(--pv-muted)]">
           Secure internal staff messaging — link a patient when the message is chart-related.
         </p>
         <div className="grid max-w-2xl gap-3">
-          <label className="block text-xs text-[#6b7c93]">
+          <label className="block text-xs text-[var(--pv-muted)]">
             To
             <select
-              className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
               value={recipientId}
               onChange={(e) => setRecipientId(e.target.value)}
             >
@@ -181,10 +181,10 @@ export function MessagingPanel({
           </label>
           <Input placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs text-[#6b7c93]">
+            <label className="block text-xs text-[var(--pv-muted)]">
               Category
               <select
-                className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as MessageCategory)}
               >
@@ -195,10 +195,10 @@ export function MessagingPanel({
                 ))}
               </select>
             </label>
-            <label className="block text-xs text-[#6b7c93]">
+            <label className="block text-xs text-[var(--pv-muted)]">
               Priority
               <select
-                className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as MessagePriority)}
               >
@@ -210,10 +210,10 @@ export function MessagingPanel({
               </select>
             </label>
           </div>
-          <label className="block text-xs text-[#6b7c93]">
+          <label className="block text-xs text-[var(--pv-muted)]">
             Link patient (optional)
             <select
-              className="mt-1 w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm"
               value={patientId}
               onChange={(e) => setPatientId(e.target.value)}
             >
@@ -244,13 +244,13 @@ export function MessagingPanel({
   if (activeThread) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[#243044] pb-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[var(--pv-border)] pb-3">
           <Button className="!text-xs" onClick={() => setActiveThread(null)}>
             ← Back
           </Button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-medium text-cyan-200">{activeThread.subject}</h2>
-            <p className="text-xs text-[#6b7c93]">
+            <p className="text-xs text-[var(--pv-muted)]">
               {getMessageCategoryLabel(activeThread.category)} ·{" "}
               {getMessagePriorityLabel(activeThread.priority)}
               {activeThread.otherParticipantName && ` · with ${activeThread.otherParticipantName}`}
@@ -276,10 +276,10 @@ export function MessagingPanel({
                 "max-w-[85%] rounded-xl border px-3 py-2",
                 m.isMine
                   ? "ml-auto border-cyan-500/30 bg-cyan-500/10"
-                  : "border-[#243044] bg-[#0f1520]"
+                  : "border-[var(--pv-border)] bg-[var(--pv-panel)]"
               )}
             >
-              <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-[#6b7c93]">
+              <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-[var(--pv-muted)]">
                 <span>{m.senderName}</span>
                 <span>{formatDate(m.createdAt)}</span>
               </div>
@@ -288,7 +288,7 @@ export function MessagingPanel({
           ))}
         </div>
         {canSend ? (
-          <div className="mt-3 flex gap-2 border-t border-[#243044] pt-3">
+          <div className="mt-3 flex gap-2 border-t border-[var(--pv-border)] pt-3">
             <Textarea
               className="min-h-[72px] flex-1"
               placeholder="Reply..."
@@ -300,7 +300,7 @@ export function MessagingPanel({
             </Button>
           </div>
         ) : (
-          <p className="mt-3 text-xs text-[#6b7c93]">Read-only — you cannot reply.</p>
+          <p className="mt-3 text-xs text-[var(--pv-muted)]">Read-only — you cannot reply.</p>
         )}
       </div>
     );
@@ -330,15 +330,15 @@ export function MessagingPanel({
         )}
       </div>
 
-      <p className="mb-4 text-xs text-[#6b7c93]">
+      <p className="mb-4 text-xs text-[var(--pv-muted)]">
         Internal staff inbox for refills, callbacks, lab results, referrals, and chart questions.
         Patient portal messaging can be added later.
       </p>
 
-      {loading && <p className="text-sm text-[#6b7c93]">Loading messages...</p>}
+      {loading && <p className="text-sm text-[var(--pv-muted)]">Loading messages...</p>}
 
       {!loading && threads.length === 0 && (
-        <p className="rounded-xl border border-dashed border-[#243044] px-4 py-8 text-center text-sm text-[#6b7c93]">
+        <p className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center text-sm text-[var(--pv-muted)]">
           No messages in {folder}.
         </p>
       )}
@@ -350,8 +350,8 @@ export function MessagingPanel({
             type="button"
             onClick={() => openThread(t.id)}
             className={cn(
-              "w-full rounded-xl border px-4 py-3 text-left transition hover:bg-[#1a2330]",
-              t.unread ? "border-cyan-500/40 bg-cyan-500/5" : "border-[#243044] bg-[#0f1520]"
+              "w-full rounded-xl border px-4 py-3 text-left transition hover:bg-[var(--pv-btn)]",
+              t.unread ? "border-cyan-500/40 bg-cyan-500/5" : "border-[var(--pv-border)] bg-[var(--pv-panel)]"
             )}
           >
             <div className="flex items-start gap-2">
@@ -371,15 +371,15 @@ export function MessagingPanel({
                     {t.subject}
                   </span>
                 </div>
-                <p className="mt-0.5 text-xs text-[#6b7c93]">
+                <p className="mt-0.5 text-xs text-[var(--pv-muted)]">
                   {getMessageCategoryLabel(t.category)}
                   {t.patientName && ` · ${t.patientName}`}
                   {t.otherParticipantName && folder === "inbox" && ` · from ${t.otherParticipantName}`}
                   {t.otherParticipantName && folder === "sent" && ` · to ${t.otherParticipantName}`}
                 </p>
-                <p className="mt-1 line-clamp-1 text-xs text-[#8b9cb3]">{t.lastMessagePreview}</p>
+                <p className="mt-1 line-clamp-1 text-xs text-[var(--pv-muted-2)]">{t.lastMessagePreview}</p>
               </div>
-              <span className="shrink-0 text-[10px] text-[#6b7c93]">{formatDate(t.lastMessageAt)}</span>
+              <span className="shrink-0 text-[10px] text-[var(--pv-muted)]">{formatDate(t.lastMessageAt)}</span>
             </div>
           </button>
         ))}

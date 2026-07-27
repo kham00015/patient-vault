@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+storage
+*.tar.gz
+.env.local
+.env*.local
+data
+**/_zippeek
+**/*.csv
+**/*.zip
+coverage
+docs
+*.md
+.build-bust

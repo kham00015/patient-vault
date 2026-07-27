@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { APP_TAGLINE, CLINIC_NAME } from "@/lib/branding";
@@ -29,6 +29,15 @@ export default function LoginPage() {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "idle") {
+      setError("Signed out after 5 minutes of inactivity.");
+    } else if (reason === "expired") {
+      setError("Your session expired. Please sign in again.");
+    }
+  }, []);
 
   async function parseLoginResponse(res: Response): Promise<LoginResponse> {
     const data = (await res.json().catch(() => ({}))) as LoginResponse & { error?: string };
@@ -93,13 +102,13 @@ export default function LoginPage() {
             <Stethoscope className="text-cyan-400" size={28} />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">{CLINIC_NAME}</h1>
-          <p className="mt-2 text-sm text-[#8b9cb3]">{APP_TAGLINE}</p>
+          <p className="mt-2 text-sm text-[var(--pv-muted-2)]">{APP_TAGLINE}</p>
         </div>
 
         {!mfaToken ? (
           <form
             onSubmit={handleLogin}
-            className="rounded-2xl border border-[#243044] bg-[#121820]/90 p-6 shadow-xl backdrop-blur"
+            className="rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-card)]/90 p-6 shadow-xl backdrop-blur"
           >
             <Input
               type="email"
@@ -126,9 +135,9 @@ export default function LoginPage() {
         ) : (
           <form
             onSubmit={handleMfaVerify}
-            className="rounded-2xl border border-[#243044] bg-[#121820]/90 p-6 shadow-xl backdrop-blur"
+            className="rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-card)]/90 p-6 shadow-xl backdrop-blur"
           >
-            <p className="mb-3 text-sm text-[#8b9cb3]">
+            <p className="mb-3 text-sm text-[var(--pv-muted-2)]">
               Enter the 6-digit code from your authenticator app.
             </p>
             <Input
@@ -157,7 +166,7 @@ export default function LoginPage() {
           </form>
         )}
 
-        <div className="mt-6 flex items-start gap-2 rounded-xl border border-[#243044] bg-[#0f1520] p-4 text-xs text-[#8b9cb3]">
+        <div className="mt-6 flex items-start gap-2 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4 text-xs text-[var(--pv-muted-2)]">
           <Shield size={16} className="mt-0.5 shrink-0 text-cyan-500" />
           <p>
             Accounts lock after 5 failed sign-in attempts. Contact your clinic administrator to reset your password.

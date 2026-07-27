@@ -48,7 +48,7 @@ export function AutoSaveStatus({
   dirty?: boolean;
 }) {
   return (
-    <span className="text-xs text-[#6b7c93]">
+    <span className="text-xs text-[var(--pv-muted)]">
       {saving ? "Saving..." : dirty ? "Unsaved changes" : "Auto-save on"}
     </span>
   );

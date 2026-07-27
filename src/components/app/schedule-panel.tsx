@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/roles";
 import { canWrite } from "@/lib/roles";
 import { api } from "@/lib/api-client";
@@ -14,16 +14,22 @@ import {
   DEFAULT_VISIT_CATEGORY,
   type VisitCategory,
 } from "@/lib/encounters";
+import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
-import { cn, toDateInputValue } from "@/lib/utils";
+import { cn, toClinicDateInputValue } from "@/lib/utils";
 import {
   DEFAULT_SCHEDULE_PROVIDER,
   SCHEDULE_PROVIDERS,
   type ScheduleProviderKey,
 } from "@/lib/schedule-providers";
-import { Check, Stethoscope } from "lucide-react";
+import { CalendarDays, Check, Stethoscope } from "lucide-react";
 
 type PatientOption = { id: string; name: string };
+
+type SelectPatientFromSchedule = (
+  patient: PatientOption,
+  options: Pick<ChartNavigationIntent, "fromSchedule" | "scheduleDate" | "visitCategory">
+) => void;
 
 const SCHEDULE_TOOLBAR_HEIGHT = "h-10";
 const SCHEDULE_TOOLBAR_TEXT = "text-sm font-medium";
@@ -33,7 +39,7 @@ function getDocNotesButtonStyles(entry: ScheduleEntryDTO) {
   const acknowledged = Boolean(entry.docNotesAcknowledgedAt);
 
   if (!hasNotes) {
-    return "!border-[#3d4f67] !bg-[#1a2330] !text-[#b8c5d6] hover:!bg-[#243044]";
+    return "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]";
   }
   if (acknowledged) {
     return "!border-emerald-500/50 !bg-emerald-700/80 !text-emerald-50 hover:!bg-emerald-600";
@@ -59,7 +65,7 @@ function VisitTypeToggle({
   return (
     <div
       className={cn(
-        "flex shrink-0 overflow-hidden rounded-lg border border-[#243044]",
+        "flex shrink-0 overflow-hidden rounded-lg border border-[var(--pv-border)]",
         isToolbar ? cn(SCHEDULE_TOOLBAR_HEIGHT, "min-w-[11rem]", SCHEDULE_TOOLBAR_TEXT) : "h-8 min-w-[9.5rem] text-xs font-medium"
       )}
       role="group"
@@ -100,9 +106,9 @@ export function SchedulePanel({
 }: {
   user: SessionUser;
   patients: PatientOption[];
-  onSelectPatient: (p: PatientOption) => void;
+  onSelectPatient: SelectPatientFromSchedule | ((p: PatientOption) => void);
 }) {
-  const [date, setDate] = useState(toDateInputValue(new Date()));
+  const [date, setDate] = useState(toClinicDateInputValue(new Date()));
   const [providerKey, setProviderKey] = useState<ScheduleProviderKey>(DEFAULT_SCHEDULE_PROVIDER);
   const [scheduled, setScheduled] = useState<ScheduleEntryDTO[]>([]);
   const [patientId, setPatientId] = useState("");
@@ -115,6 +121,7 @@ export function SchedulePanel({
   const [savingVisitId, setSavingVisitId] = useState<string | null>(null);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const canEdit = canWrite(user.role);
 
@@ -238,15 +245,32 @@ export function SchedulePanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
-          <label className="mb-1 block text-xs text-[#6b7c93]">Date</label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="max-w-[200px]"
-          />
+          <label className="mb-1 block text-xs text-[var(--pv-muted)]">Date</label>
+          <div className="relative max-w-[200px]">
+            <Input
+              ref={dateInputRef}
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="pr-11 [&::-webkit-calendar-picker-indicator]:hidden"
+            />
+            <button
+              type="button"
+              aria-label="Open calendar"
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-cyan-200 transition hover:bg-cyan-500/10 hover:text-cyan-100"
+              onClick={() => {
+                const input = dateInputRef.current;
+                if (!input) return;
+                const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+                pickerInput.showPicker?.();
+                if (!pickerInput.showPicker) pickerInput.focus();
+              }}
+            >
+              <CalendarDays size={17} strokeWidth={2.2} />
+            </button>
+          </div>
         </div>
-        <p className="text-sm text-[#8b9cb3]">
+        <p className="text-sm text-[var(--pv-muted-2)]">
           {scheduled.length} patient{scheduled.length === 1 ? "" : "s"} scheduled
           {scheduled.some((s) => s.readyAt) && (
             <span className="ml-2 text-emerald-400">
@@ -266,7 +290,7 @@ export function SchedulePanel({
               "rounded-lg border px-4 py-2 text-sm font-medium transition",
               providerKey === provider.key
                 ? "border-cyan-500/50 bg-cyan-600/20 text-cyan-100 ring-1 ring-cyan-500/30"
-                : "border-[#243044] bg-[#121820] text-[#8b9cb3] hover:border-[#2d3f57] hover:text-[#c9d5e3]"
+                : "border-[var(--pv-border)] bg-[var(--pv-card)] text-[var(--pv-muted-2)] hover:border-[var(--pv-border-strong)] hover:text-[var(--pv-fg-soft)]"
             )}
           >
             {provider.label}
@@ -284,7 +308,7 @@ export function SchedulePanel({
         <div className="mb-4 flex max-w-3xl flex-wrap items-center gap-2">
           <select
             className={cn(
-              "min-w-[12rem] flex-1 rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 text-sm",
+              "min-w-[12rem] flex-1 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm",
               SCHEDULE_TOOLBAR_HEIGHT
             )}
             value={patientId}
@@ -329,7 +353,7 @@ export function SchedulePanel({
       )}
 
       {canEdit && availablePatients.length === 0 && patients.length > 0 && (
-        <p className="mb-4 text-xs text-[#6b7c93]">
+        <p className="mb-4 text-xs text-[var(--pv-muted)]">
           Every patient is already scheduled for this doctor on this date. Switch doctor or date to add more.
         </p>
       )}
@@ -342,7 +366,7 @@ export function SchedulePanel({
 
       <div className="space-y-2">
         {scheduled.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-[#243044] px-4 py-8 text-center text-sm text-[#6b7c93]">
+          <p className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center text-sm text-[var(--pv-muted)]">
             No patients scheduled for this date
           </p>
         ) : (
@@ -371,7 +395,14 @@ export function SchedulePanel({
                       visitStyles.nameText,
                       visitStyles.nameHover
                     )}
-                    onClick={() => patient && onSelectPatient(patient)}
+                    onClick={() =>
+                      patient &&
+                      onSelectPatient(patient, {
+                        fromSchedule: true,
+                        scheduleDate: date,
+                        visitCategory: entry.visitCategory ?? DEFAULT_VISIT_CATEGORY,
+                      })
+                    }
                   >
                     {entry.name}
                   </button>
@@ -407,7 +438,7 @@ export function SchedulePanel({
                           "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
                           isReady
                             ? "!border-emerald-400/60 !bg-emerald-600 !text-white hover:!bg-emerald-500"
-                            : "!border-[#3d4f67] !bg-[#1a2330] !text-[#b8c5d6] hover:!bg-[#243044]"
+                            : "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]"
                         )}
                         disabled={readyBusy}
                         onClick={() => toggleReady(entry)}
@@ -445,7 +476,7 @@ export function SchedulePanel({
                         {visitStyles.shortLabel}
                       </span>
                       {entry.roomNumber && (
-                        <span className="shrink-0 rounded bg-[#1a2330] px-2 py-1 text-xs text-[#8b9cb3]">
+                        <span className="shrink-0 rounded bg-[var(--pv-btn)] px-2 py-1 text-xs text-[var(--pv-muted-2)]">
                           Room {entry.roomNumber}
                         </span>
                       )}
@@ -454,7 +485,7 @@ export function SchedulePanel({
                           "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide",
                           isReady
                             ? "bg-emerald-600/30 text-emerald-300"
-                            : "bg-[#1a2330] text-[#8b9cb3]"
+                            : "bg-[var(--pv-btn)] text-[var(--pv-muted-2)]"
                         )}
                       >
                         {isReady ? "Ready" : "Not Ready"}
@@ -521,12 +552,12 @@ export function SchedulePanel({
                 {docNotesEntry.docNotes}
               </div>
             ) : (
-              <p className="mb-3 text-sm text-[#6b7c93]">No provider notes yet.</p>
+              <p className="mb-3 text-sm text-[var(--pv-muted)]">No provider notes yet.</p>
             )}
 
             {canEdit && (
               <>
-                <p className="mb-2 text-xs text-[#6b7c93]">
+                <p className="mb-2 text-xs text-[var(--pv-muted)]">
                   {docNotesEntry.docNotes?.trim()
                     ? "Edit instructions for the care team"
                     : "Add instructions for the care team"}

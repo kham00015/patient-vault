@@ -17,7 +17,7 @@ export async function api<T>(
 
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+      window.location.href = "/login?reason=expired";
     }
     throw new Error(data.error ?? `Request failed (${res.status})`);
   }

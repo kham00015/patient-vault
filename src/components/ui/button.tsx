@@ -6,10 +6,11 @@ import { ButtonHTMLAttributes, forwardRef } from "react";
 type Variant = "default" | "primary" | "danger" | "ghost" | "success";
 
 const variants: Record<Variant, string> = {
-  default: "bg-[#1a2330] hover:bg-[#243044] text-white border border-[#2d3f57]",
+  default:
+    "bg-[var(--pv-btn)] hover:bg-[var(--pv-border)] text-[var(--pv-fg)] border border-[var(--pv-border-strong)]",
   primary: "bg-cyan-600 hover:bg-cyan-500 text-white",
   danger: "bg-rose-700 hover:bg-rose-600 text-white",
-  ghost: "bg-transparent hover:bg-white/5 text-[#c9d5e3]",
+  ghost: "bg-transparent hover:bg-[color-mix(in_srgb,var(--pv-fg)_5%,transparent)] text-[var(--pv-fg-soft)]",
   success: "bg-emerald-700 hover:bg-emerald-600 text-white",
 };
 

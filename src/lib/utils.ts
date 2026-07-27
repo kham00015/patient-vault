@@ -34,11 +34,68 @@ export function startOfDay(date: Date | string) {
   return d;
 }
 
-/** UTC calendar-day bounds for schedule entries (YYYY-MM-DD). */
+export const CLINIC_TIME_ZONE = "America/Los_Angeles";
+
+function clinicDateParts(date: Date | string) {
+  const d = new Date(date);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CLINIC_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+  };
+}
+
+export function toClinicDateInputValue(date: Date | string) {
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  const { year, month, day } = clinicDateParts(date);
+  return `${year}-${month}-${day}`;
+}
+
+function clinicLocalDateTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0
+) {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CLINIC_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(utcGuess));
+
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  return new Date(utcGuess - (asUtc - utcGuess));
+}
+
+/** Pacific calendar-day bounds for schedule entries (YYYY-MM-DD). */
 export function scheduleDayRange(dateStr: string) {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const start = new Date(Date.UTC(y, m - 1, d));
-  const end = new Date(Date.UTC(y, m - 1, d + 1));
+  const start = clinicLocalDateTimeToUtc(y, m, d);
+  const end = clinicLocalDateTimeToUtc(y, m, d + 1);
   return { start, end };
 }
 
@@ -66,7 +123,7 @@ export function scheduleDayBounds(dateStr: string) {
   const month = Number(match[2]);
   const day = Number(match[3]);
   return {
-    start: new Date(Date.UTC(year, month - 1, day)),
-    end: new Date(Date.UTC(year, month - 1, day + 1)),
+    start: clinicLocalDateTimeToUtc(year, month, day),
+    end: clinicLocalDateTimeToUtc(year, month, day + 1),
   };
 }

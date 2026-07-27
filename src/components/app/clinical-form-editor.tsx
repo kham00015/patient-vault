@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SignaturePad } from "@/components/app/signature-pad";
+import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import {
   buildFormSummary,
   FORM_META_KEYS,
@@ -61,6 +62,7 @@ export function ClinicalFormEditor({
   const [responses, setResponses] = useState<Record<string, string>>(form.responses ?? {});
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [viewer, setViewer] = useState<{ title: string; url: string; mimeType?: string } | null>(null);
   const responsesRef = useRef(responses);
   const isCompleted = form.status === "COMPLETED";
   const readOnly = isReadOnly || isCompleted;
@@ -137,7 +139,7 @@ export function ClinicalFormEditor({
         <Button className="!w-fit" onClick={onBack}>
           <ArrowLeft size={14} /> Back
         </Button>
-        <p className="text-sm text-[#8b9cb3]">Unknown form template.</p>
+        <p className="text-sm text-[var(--pv-muted-2)]">Unknown form template.</p>
       </div>
     );
   }
@@ -151,17 +153,17 @@ export function ClinicalFormEditor({
   return (
     <div className={cn("flex min-h-0 flex-col", inModal ? "min-h-[50vh]" : "flex-1")}>
       {!inModal && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[#243044] pb-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--pv-border)] pb-3">
           <div className="flex items-center gap-2">
             <Button className="!h-8 !px-2" onClick={onBack}>
               <ArrowLeft size={14} />
             </Button>
             <div>
               <h3 className="text-sm font-medium text-cyan-200">{template.label}</h3>
-              <p className="text-xs text-[#6b7c93]">{template.description}</p>
+              <p className="text-xs text-[var(--pv-muted)]">{template.description}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[#8b9cb3]">
+          <div className="flex items-center gap-2 text-xs text-[var(--pv-muted-2)]">
             {saving && <span>Saving...</span>}
             <span>{answeredCount}/{template.fields.length} answered</span>
             {isCompleted && form.completedAt && (
@@ -172,7 +174,7 @@ export function ClinicalFormEditor({
       )}
 
       {inModal && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#8b9cb3]">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--pv-muted-2)]">
           <p>{template.description}</p>
           <div className="flex items-center gap-2">
             {saving && <span>Saving...</span>}
@@ -188,7 +190,7 @@ export function ClinicalFormEditor({
         <div className="mb-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
           <div className="text-2xl font-bold text-cyan-100">{previewScore.score}</div>
           <div className="text-sm font-medium text-cyan-200">{previewScore.interpretation}</div>
-          <div className="text-xs text-[#8b9cb3]">{previewScore.summary}</div>
+          <div className="text-xs text-[var(--pv-muted-2)]">{previewScore.summary}</div>
         </div>
       )}
 
@@ -205,13 +207,13 @@ export function ClinicalFormEditor({
         ))}
 
         {template.requiresPatientSignature && (
-          <div className="rounded-lg border border-[#243044] bg-[#0f1520] p-3">
+          <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">
             <h4 className="mb-2 text-sm font-medium text-cyan-100">Patient signature</h4>
-            <p className="mb-3 text-xs text-[#6b7c93]">
+            <p className="mb-3 text-xs text-[var(--pv-muted)]">
               Patient signs below to confirm the answers above.
             </p>
             <div className="mb-3">
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Printed name</label>
+              <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">Printed name</label>
               <Input
                 value={responses[FORM_META_KEYS.patientSignerName] ?? ""}
                 disabled={readOnly}
@@ -229,13 +231,13 @@ export function ClinicalFormEditor({
         )}
 
         {template.requiresProviderSignature && (
-          <div className="rounded-lg border border-[#243044] bg-[#0f1520] p-3">
+          <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">
             <h4 className="mb-2 text-sm font-medium text-cyan-100">Referring provider signature</h4>
-            <p className="mb-3 text-xs text-[#6b7c93]">
+            <p className="mb-3 text-xs text-[var(--pv-muted)]">
               Provider signs to authorize this referral for transmission.
             </p>
             <div className="mb-3">
-              <label className="mb-1 block text-xs text-[#8b9cb3]">Provider printed name</label>
+              <label className="mb-1 block text-xs text-[var(--pv-muted-2)]">Provider printed name</label>
               <Input
                 value={responses[FORM_META_KEYS.providerSignerName] ?? ""}
                 disabled={readOnly}
@@ -254,15 +256,19 @@ export function ClinicalFormEditor({
       </div>
 
       {isCompleted && (
-        <div className="mt-3 rounded-lg border border-[#243044] bg-[#0f1520] p-3">
-          <pre className="whitespace-pre-wrap text-xs text-[#8b9cb3]">
+        <div className="mt-3 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">
+          <pre className="whitespace-pre-wrap text-xs text-[var(--pv-muted-2)]">
             {buildFormSummary(form.templateId, responses)}
           </pre>
           <div className="mt-2 flex gap-2">
             <Button
               className="!h-8 !text-xs"
               onClick={() =>
-                window.open(`/api/patients/${patientId}/forms/${form.id}/pdf`, "_blank")
+                setViewer({
+                  title: form.templateLabel,
+                  url: `/api/patients/${patientId}/forms/${form.id}/pdf`,
+                  mimeType: "application/pdf",
+                })
               }
             >
               <FileText size={14} /> View / Print
@@ -271,7 +277,11 @@ export function ClinicalFormEditor({
               <Button
                 className="!h-8 !text-xs"
                 onClick={() =>
-                  window.open(`/api/patients/${patientId}/documents/${form.documentId}`, "_blank")
+                  setViewer({
+                    title: form.document?.name ?? "Attachment",
+                    url: `/api/patients/${patientId}/documents/${form.documentId}`,
+                    mimeType: form.document?.mimeType,
+                  })
                 }
               >
                 Open attachment
@@ -296,7 +306,7 @@ export function ClinicalFormEditor({
       )}
 
       {!readOnly && (
-        <div className="mt-3 flex justify-end border-t border-[#243044] pt-3">
+        <div className="mt-3 flex justify-end border-t border-[var(--pv-border)] pt-3">
           <Button
             variant="success"
             disabled={!canAttach || completing}
@@ -310,6 +320,16 @@ export function ClinicalFormEditor({
                 : "Sign & Attach to Encounter"}
           </Button>
         </div>
+      )}
+
+      {viewer && (
+        <FullPageDocumentViewer
+          title={viewer.title}
+          url={viewer.url}
+          mimeType={viewer.mimeType}
+          onClose={() => setViewer(null)}
+          backLabel="Back to Form"
+        />
       )}
     </div>
   );
@@ -331,12 +351,12 @@ function FormFieldInput({
   const selectedLabel = field.options?.find((o) => o.value === value)?.label;
 
   return (
-    <div className="rounded-lg border border-[#243044] bg-[#0f1520] p-3">
+    <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">
       <label className="mb-2 block text-sm text-cyan-100">
         {index + 1}. {field.label}
         {field.required && <span className="text-amber-400"> *</span>}
       </label>
-      {field.helpText && <p className="mb-2 text-xs text-[#6b7c93]">{field.helpText}</p>}
+      {field.helpText && <p className="mb-2 text-xs text-[var(--pv-muted)]">{field.helpText}</p>}
 
       {field.type === "text" && (
         <Input
@@ -369,7 +389,7 @@ function FormFieldInput({
                   "flex h-11 min-w-[2.75rem] flex-col items-center justify-center rounded-lg border px-3 text-sm font-semibold transition",
                   value === option.value
                     ? "border-cyan-400 bg-cyan-500/20 text-cyan-100 ring-2 ring-cyan-400/40"
-                    : "border-[#243044] bg-[#1a2330] text-[#8b9cb3] hover:border-cyan-500/40 hover:text-cyan-200",
+                    : "border-[var(--pv-border)] bg-[var(--pv-btn)] text-[var(--pv-muted-2)] hover:border-cyan-500/40 hover:text-cyan-200",
                   readOnly && "cursor-default opacity-80"
                 )}
               >
@@ -394,7 +414,7 @@ function FormFieldInput({
                 "flex cursor-pointer items-start gap-2 rounded border px-2 py-1.5 text-xs transition",
                 value === option.value
                   ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-100"
-                  : "border-[#243044] text-[#8b9cb3] hover:border-cyan-500/30",
+                  : "border-[var(--pv-border)] text-[var(--pv-muted-2)] hover:border-cyan-500/30",
                 readOnly && "cursor-default opacity-80"
               )}
             >

@@ -17,6 +17,7 @@ import {
   clearLoginFailures,
   MAX_FAILED_LOGIN_ATTEMPTS,
 } from "@/lib/account-lockout";
+import { checkRateLimit, LOGIN_RATE_LIMIT } from "@/lib/rate-limit";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -43,6 +44,15 @@ function publicUser(user: {
 
 export async function POST(request: Request) {
   const { ipAddress, userAgent } = getClientInfo(request);
+
+  const rateKey = `login:${ipAddress ?? "unknown"}`;
+  const rate = checkRateLimit(rateKey, LOGIN_RATE_LIMIT.maxAttempts, LOGIN_RATE_LIMIT.windowMs);
+  if (!rate.ok) {
+    return NextResponse.json(
+      { error: "Too many login attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } }
+    );
+  }
 
   try {
     const body = loginSchema.parse(await request.json());
@@ -152,7 +162,19 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ user: publicUser(user) });
-  } catch {
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Authentication failed") || message.includes("database server")) {
+        return NextResponse.json(
+          {
+            error:
+              "Database connection failed. Run .\\scripts\\update-rds-password.ps1 with the password from AWS Secrets Manager.",
+          },
+          { status: 503 }
+        );
+      }
+    }
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 }

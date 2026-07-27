@@ -8,12 +8,16 @@ import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { StructuredNoteEditor, type StructuredNoteData } from "@/components/app/structured-note-editor";
 import { FormsBranchPanel } from "@/components/app/forms-branch-panel";
 import { CommsBranchPanel } from "@/components/app/comms-branch-panel";
+import { OrdersPanel } from "@/components/app/orders-panel";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
+import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import type { EncounterFormData } from "@/components/app/clinical-form-editor";
 import type { FaxTransmissionDTO } from "@/lib/fax-transmissions";
+import type { OrderDTO } from "@/lib/orders";
 import {
   ENCOUNTER_MODALITIES,
   VISIT_CATEGORIES,
+  getDefaultNoteTypeForEncounter,
   getEncounterModalityLabel,
   getVisitCategoryLabel,
   getVisitCategoryTimelineStyles,
@@ -21,10 +25,12 @@ import {
   type VisitCategory,
 } from "@/lib/encounters";
 import { getNoteTypeLabel, NOTE_TYPES, type NoteType } from "@/lib/notes";
+import { getNoteAuthorLabel } from "@/lib/note-authors";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
+import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
-import { Calendar, ChevronDown, ChevronRight, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer, Trash2 } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer, Trash2 } from "lucide-react";
 
 type EncounterSummary = {
   id: string;
@@ -38,6 +44,7 @@ type EncounterSummary = {
   documentCount: number;
   formCount: number;
   faxCount: number;
+  orderCount: number;
   deletable?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -49,6 +56,7 @@ type EncounterDocument = {
   id: string;
   name: string;
   fileName: string;
+  mimeType: string;
   fileSize: number;
   uploadedAt: string;
 };
@@ -58,9 +66,10 @@ type EncounterDetail = EncounterSummary & {
   documents: EncounterDocument[];
   forms: EncounterFormData[];
   faxes: FaxTransmissionDTO[];
+  orders: OrderDTO[];
 };
 
-type EncounterBranch = "notes" | "forms" | "attachments" | "comms" | "prescriptions";
+type EncounterBranch = "notes" | "forms" | "orders" | "attachments" | "comms" | "prescriptions";
 
 function formatEncounterTimelineDate(iso: string) {
   const d = new Date(iso);
@@ -76,6 +85,8 @@ export function ChartEncountersPanel({
   patientDiagnosis,
   isReadOnly,
   canRemoveRecords,
+  navigationIntent,
+  onNavigationComplete,
   onPatientDataChange,
 }: {
   patientId: string;
@@ -83,6 +94,8 @@ export function ChartEncountersPanel({
   patientDiagnosis?: string | null;
   isReadOnly: boolean;
   canRemoveRecords: boolean;
+  navigationIntent?: ChartNavigationIntent | null;
+  onNavigationComplete?: () => void;
   onPatientDataChange?: () => Promise<void>;
 }) {
   const [encounters, setEncounters] = useState<EncounterSummary[]>([]);
@@ -103,6 +116,7 @@ export function ChartEncountersPanel({
     toName?: string;
   } | null>(null);
   const [deleteEncounterId, setDeleteEncounterId] = useState<string | null>(null);
+  const navigationHandledRef = useRef(false);
 
   const loadEncounters = useCallback(async () => {
     const data = await api<{ encounters: EncounterSummary[] }>(`/api/patients/${patientId}/encounters`);
@@ -133,10 +147,108 @@ export function ChartEncountersPanel({
       .finally(() => setLoading(false));
   }, [loadEncounters]);
 
+  useEffect(() => {
+    navigationHandledRef.current = false;
+  }, [patientId]);
+
+  useEffect(() => {
+    if (loading || navigationHandledRef.current) return;
+
+    // Open a specific encounter (unsigned-notes alert, deep link, etc.)
+    if (navigationIntent?.encounterId) {
+      async function navigateToEncounter() {
+        const encounterId = navigationIntent!.encounterId!;
+        const exists = encounters.some((e) => e.id === encounterId);
+        if (!exists) {
+          onNavigationComplete?.();
+          return;
+        }
+        navigationHandledRef.current = true;
+        const detail = await ensureEncounterOpen(encounterId);
+        if (navigationIntent!.openNotesBranch) {
+          setActiveBranch({ encounterId, branch: "notes" });
+        }
+        if (navigationIntent!.openNote) {
+          await openPrimaryNote(encounterId, detail);
+        }
+        onNavigationComplete?.();
+      }
+      navigateToEncounter().catch(() => onNavigationComplete?.());
+      return;
+    }
+
+    if (!navigationIntent?.fromSchedule) return;
+
+    async function navigateFromSchedule() {
+      const targetDate = navigationIntent!.scheduleDate;
+      if (!targetDate) {
+        onNavigationComplete?.();
+        return;
+      }
+      const sameDay = encounters.filter((e) => toDateInputValue(e.date) === targetDate);
+      if (sameDay.length === 0) {
+        onNavigationComplete?.();
+        return;
+      }
+
+      const encounter =
+        (navigationIntent!.visitCategory
+          ? sameDay.find((e) => e.visitCategory === navigationIntent!.visitCategory)
+          : undefined) ?? sameDay[0];
+      if (!encounter) {
+        onNavigationComplete?.();
+        return;
+      }
+
+      navigationHandledRef.current = true;
+      const detail = await ensureEncounterOpen(encounter.id);
+      await openPrimaryNote(encounter.id, detail);
+      onNavigationComplete?.();
+    }
+
+    navigateFromSchedule().catch(() => onNavigationComplete?.());
+  }, [navigationIntent, loading, encounters, onNavigationComplete]);
+
   async function ensureEncounterOpen(encounterId: string): Promise<EncounterDetail> {
     setExpandedId(encounterId);
     if (details[encounterId]) return details[encounterId];
     return loadDetail(encounterId);
+  }
+
+  async function createNoteForEncounter(
+    encounterId: string,
+    type: NoteType,
+    encounterDate?: string
+  ): Promise<EncounterNote> {
+    const data = await api<{ note: EncounterNote }>(`/api/patients/${patientId}/notes`, {
+      method: "POST",
+      json: {
+        date: encounterDate ? toDateInputValue(encounterDate) : toDateInputValue(new Date()),
+        type,
+        encounterId,
+      },
+    });
+    return data.note;
+  }
+
+  async function openPrimaryNote(encounterId: string, detail?: EncounterDetail) {
+    const enc = detail ?? (await ensureEncounterOpen(encounterId));
+    setActiveBranch({ encounterId, branch: "notes" });
+
+    let note = enc.notes.find((n) => (n.status ?? "DRAFT") === "DRAFT") ?? enc.notes[0];
+
+    if (!note && !isReadOnly) {
+      const noteType = getDefaultNoteTypeForEncounter(enc.visitCategory, enc.modality);
+      note = await createNoteForEncounter(encounterId, noteType, enc.date);
+      const refreshed = await loadDetail(encounterId);
+      note = refreshed.notes.find((n) => n.id === note!.id) ?? note;
+      await loadEncounters();
+      await onPatientDataChange?.();
+    }
+
+    if (note) {
+      setActiveNote(note);
+    }
   }
 
   async function toggleExpand(encounterId: string) {
@@ -146,12 +258,8 @@ export function ChartEncountersPanel({
       setPickingNoteTypeFor(null);
       return;
     }
-    setExpandedId(encounterId);
-    setActiveBranch(null);
-    setPickingNoteTypeFor(null);
-    if (!details[encounterId]) {
-      await loadDetail(encounterId);
-    }
+    const detail = await ensureEncounterOpen(encounterId);
+    await openPrimaryNote(encounterId, detail);
   }
 
   async function openBranch(encounterId: string, branch: EncounterBranch) {
@@ -174,25 +282,22 @@ export function ChartEncountersPanel({
     setSelectedVisitCategory(null);
     await loadEncounters();
     setExpandedId(data.encounter.id);
+    const detail = await loadDetail(data.encounter.id);
+    const noteType = getDefaultNoteTypeForEncounter(visitCategory, modality);
+    const note = await createNoteForEncounter(data.encounter.id, noteType, detail.date);
     await loadDetail(data.encounter.id);
-    setActiveBranch({ encounterId: data.encounter.id, branch: "notes" });
-    setPickingNoteTypeFor(null);
+    await loadEncounters();
     await onPatientDataChange?.();
+    setActiveNote(note);
   }
 
   async function createNote(encounterId: string, type: NoteType) {
-    await api<{ note: EncounterNote }>(`/api/patients/${patientId}/notes`, {
-      method: "POST",
-      json: {
-        date: toDateInputValue(new Date()),
-        type,
-        encounterId,
-      },
-    });
+    const note = await createNoteForEncounter(encounterId, type);
     setPickingNoteTypeFor(null);
     await loadDetail(encounterId);
     await loadEncounters();
     await onPatientDataChange?.();
+    setActiveNote(note);
   }
 
   async function refreshEncounter(encounterId: string) {
@@ -253,8 +358,12 @@ export function ChartEncountersPanel({
         patientId={patientId}
         note={activeNote}
         chartInsertData={chartInsertData}
+        patientDiagnosis={patientDiagnosis}
         isReadOnly={isReadOnly}
-        onBack={() => setActiveNote(null)}
+        canDeleteNote={canRemoveRecords}
+        onBack={() => {
+          setActiveNote(null);
+        }}
         onSaved={async () => {
           const encId = activeNote.encounterId ?? expandedId;
           if (encId) await refreshEncounter(encId);
@@ -262,6 +371,12 @@ export function ChartEncountersPanel({
         onSigned={async () => {
           const encId = activeNote.encounterId ?? expandedId;
           if (encId) await refreshEncounter(encId);
+        }}
+        onDeleted={async () => {
+          const encId = activeNote.encounterId ?? expandedId;
+          setActiveNote(null);
+          if (encId) await refreshEncounter(encId);
+          await onPatientDataChange?.();
         }}
       />
     );
@@ -284,7 +399,7 @@ export function ChartEncountersPanel({
       </div>
 
       {pickingEncounter && (
-        <div className="rounded-xl border border-[#243044] bg-[#0f1520] p-4">
+        <div className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-medium text-cyan-200">
               {selectedVisitCategory ? "How was the visit conducted?" : "What kind of visit?"}
@@ -312,13 +427,13 @@ export function ChartEncountersPanel({
                   type="button"
                   onClick={() => setSelectedVisitCategory(category.value)}
                   className={cn(
-                    "rounded-xl border bg-[#121820] px-4 py-3 text-left transition hover:bg-[#1a2330]",
+                    "rounded-xl border bg-[var(--pv-card)] px-4 py-3 text-left transition hover:bg-[var(--pv-btn)]",
                     styles.pickerBorder,
                     styles.pickerHoverBorder
                   )}
                 >
                   <div className={cn("text-sm font-medium", styles.pickerTitle)}>{category.label}</div>
-                  <div className="mt-1 text-xs text-[#6b7c93]">{category.description}</div>
+                  <div className="mt-1 text-xs text-[var(--pv-muted)]">{category.description}</div>
                 </button>
               );
               })}
@@ -333,13 +448,13 @@ export function ChartEncountersPanel({
                   type="button"
                   onClick={() => createEncounter(selectedVisitCategory, modality.value)}
                   className={cn(
-                    "rounded-xl border bg-[#121820] px-4 py-3 text-left transition hover:bg-[#1a2330]",
+                    "rounded-xl border bg-[var(--pv-card)] px-4 py-3 text-left transition hover:bg-[var(--pv-btn)]",
                     styles.pickerBorder,
                     styles.pickerHoverBorder
                   )}
                 >
                   <div className={cn("text-sm font-medium", styles.pickerTitle)}>{modality.label}</div>
-                  <div className="mt-1 text-xs text-[#6b7c93]">{modality.description}</div>
+                  <div className="mt-1 text-xs text-[var(--pv-muted)]">{modality.description}</div>
                 </button>
               );
               })}
@@ -348,16 +463,16 @@ export function ChartEncountersPanel({
         </div>
       )}
 
-      {loading && <p className="text-sm text-[#6b7c93]">Loading encounters...</p>}
+      {loading && <p className="text-sm text-[var(--pv-muted)]">Loading encounters...</p>}
       {!loading && loadError && (
         <p className="text-sm text-rose-300">{loadError}</p>
       )}
       {!loading && !loadError && encounters.length === 0 && !pickingEncounter && (
-        <p className="text-sm text-[#6b7c93]">No encounters yet. Create one to document a clinic visit.</p>
+        <p className="text-sm text-[var(--pv-muted)]">No encounters yet. Create one to document a clinic visit.</p>
       )}
 
       <div className="relative pl-6">
-        <div className="absolute bottom-2 left-[11px] top-2 w-px bg-[#2d3f57]/80" />
+        <div className="absolute bottom-2 left-[11px] top-2 w-px bg-[var(--pv-border-strong)]/80" />
 
         <div className="space-y-1">
           {encounters.map((enc) => {
@@ -371,7 +486,7 @@ export function ChartEncountersPanel({
               <div key={enc.id} className="relative">
                 <div
                   className={cn(
-                    "absolute -left-6 top-3.5 z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 bg-[#0a0e14]",
+                    "absolute -left-6 top-3.5 z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border-2 bg-[var(--pv-bg-deep)]",
                     styles.dotBorder,
                     styles.dotBg
                   )}
@@ -386,12 +501,19 @@ export function ChartEncountersPanel({
                     isExpanded ? styles.cardBorderExpanded : cn(styles.cardBorder, styles.cardBorderHover)
                   )}
                 >
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleExpand(enc.id)}
-                    className="flex w-full items-start gap-2 px-3 py-2 text-left"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleExpand(enc.id);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left"
                   >
-                    <span className="mt-0.5 text-[#6b7c93]">
+                    <span className="mt-0.5 text-[var(--pv-muted)]">
                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -408,7 +530,7 @@ export function ChartEncountersPanel({
                         </span>
                       </div>
                       {enc.chiefComplaint && (
-                        <div className="mt-0.5 truncate text-[11px] text-[#8b9cb3]">{enc.chiefComplaint}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-[var(--pv-muted-2)]">{enc.chiefComplaint}</div>
                       )}
                     </div>
                     {!isReadOnly && enc.deletable && (
@@ -424,12 +546,12 @@ export function ChartEncountersPanel({
                         <Trash2 size={12} />
                       </Button>
                     )}
-                  </button>
+                  </div>
 
                   {isExpanded && (
-                    <div className="border-t border-[#243044]/80 px-3 pb-2 pt-1.5">
+                    <div className="border-t border-[var(--pv-border)]/80 px-3 pb-2 pt-1.5">
                       {isLoadingDetail && !detail && (
-                        <p className="py-2 text-xs text-[#6b7c93]">Loading...</p>
+                        <p className="py-2 text-xs text-[var(--pv-muted)]">Loading...</p>
                       )}
 
                       {detail && (
@@ -461,6 +583,15 @@ export function ChartEncountersPanel({
                               ringClass="border-sky-400/70 bg-sky-500/10 text-sky-300"
                               activeRingClass="ring-sky-400/50"
                               onClick={() => openBranch(enc.id, "forms")}
+                            />
+                            <EncounterBranchCircle
+                              icon={ClipboardCheck}
+                              label="Orders"
+                              count={detail.orders?.length ?? 0}
+                              active={branchOpen === "orders"}
+                              ringClass="border-emerald-400/70 bg-emerald-500/10 text-emerald-300"
+                              activeRingClass="ring-emerald-400/50"
+                              onClick={() => openBranch(enc.id, "orders")}
                             />
                             <EncounterBranchCircle
                               icon={Paperclip}
@@ -499,7 +630,9 @@ export function ChartEncountersPanel({
                               onStartNote={() => setPickingNoteTypeFor(enc.id)}
                               onCancelPicker={() => setPickingNoteTypeFor(null)}
                               onPickType={(type) => createNote(enc.id, type)}
-                              onOpenNote={setActiveNote}
+                              onOpenNote={(note) => {
+                                setActiveNote(note);
+                              }}
                             />
                           )}
 
@@ -510,6 +643,18 @@ export function ChartEncountersPanel({
                               forms={detail.forms}
                               isReadOnly={isReadOnly}
                               onRefresh={() => refreshEncounter(enc.id)}
+                            />
+                          )}
+
+                          {branchOpen === "orders" && (
+                            <OrdersPanel
+                              patientId={patientId}
+                              encounterId={enc.id}
+                              initialOrders={detail.orders ?? []}
+                              isReadOnly={isReadOnly}
+                              canRemoveRecords={canRemoveRecords}
+                              compact
+                              onMutate={() => refreshEncounter(enc.id)}
                             />
                           )}
 
@@ -536,8 +681,8 @@ export function ChartEncountersPanel({
                           )}
 
                           {branchOpen === "prescriptions" && (
-                            <div className="mt-1.5 rounded-md border border-dashed border-[#243044] bg-[#121820]/60 px-3 py-2.5">
-                              <p className="text-xs text-[#8b9cb3]">
+                            <div className="mt-1.5 rounded-md border border-dashed border-[var(--pv-border)] bg-[var(--pv-card)]/60 px-3 py-2.5">
+                              <p className="text-xs text-[var(--pv-muted-2)]">
                                 Prescription branch — e-prescribing coming soon.
                               </p>
                             </div>
@@ -633,10 +778,10 @@ function EncounterDateRow({
     toDateInputValue(visitDate) !== toDateInputValue(createdAt);
 
   return (
-    <div className="mb-1.5 rounded-md border border-[#243044] bg-[#121820]/60 px-2.5 py-2">
+    <div className="mb-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/60 px-2.5 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-[#6b7c93]">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--pv-muted)]">
             Visit date
           </span>
           {isReadOnly ? (
@@ -656,7 +801,7 @@ function EncounterDateRow({
           )}
           {!isReadOnly && <AutoSaveStatus saving={saving} dirty={dirty} />}
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-[#6b7c93]">
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--pv-muted)]">
           {canDelete && !isReadOnly && onDelete && (
             <Button
               variant="danger"
@@ -672,7 +817,7 @@ function EncounterDateRow({
           <Lock size={11} className="shrink-0 text-[#4a5568]" />
           <span>
             Chart created{" "}
-            <span className="text-[#8b9cb3]">{formatDate(createdAt)}</span>
+            <span className="text-[var(--pv-muted-2)]">{formatDate(createdAt)}</span>
           </span>
         </div>
       </div>
@@ -709,7 +854,7 @@ function EncounterBranchCircle({
         e.stopPropagation();
         onClick();
       }}
-      className="group flex items-center gap-1.5 rounded-md px-1 py-0.5 transition hover:bg-[#1a2330]"
+      className="group flex items-center gap-1.5 rounded-md px-1 py-0.5 transition hover:bg-[var(--pv-btn)]"
       title={`${label}${count > 0 ? ` (${count})` : ""}`}
     >
       <div
@@ -729,7 +874,7 @@ function EncounterBranchCircle({
       <span
         className={cn(
           "text-[10px] font-medium uppercase tracking-wide",
-          active ? "text-cyan-200" : "text-[#6b7c93] group-hover:text-[#8b9cb3]"
+          active ? "text-cyan-200" : "text-[var(--pv-muted)] group-hover:text-[var(--pv-muted-2)]"
         )}
       >
         {label}
@@ -756,7 +901,7 @@ function NotesBranchPanel({
   onOpenNote: (note: EncounterNote) => void;
 }) {
   return (
-    <div className="mt-1.5 rounded-md border border-[#243044] bg-[#121820]/80 p-2">
+    <div className="mt-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/80 p-2">
       {!isReadOnly && !pickingNoteType && (
         <div className="mb-2 flex justify-end">
           <Button variant="success" className="!h-7 !text-[10px]" onClick={onStartNote}>
@@ -766,7 +911,7 @@ function NotesBranchPanel({
       )}
 
       {pickingNoteType && (
-        <div className={cn("border-[#243044] pb-2", notes.length > 0 && "mb-2 border-b")}>
+        <div className={cn("border-[var(--pv-border)] pb-2", notes.length > 0 && "mb-2 border-b")}>
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-[10px] font-medium uppercase tracking-wide text-cyan-200">Choose note type</span>
             <Button className="!h-6 !px-2 !text-[10px]" onClick={onCancelPicker}>
@@ -779,7 +924,7 @@ function NotesBranchPanel({
                 key={type.value}
                 type="button"
                 onClick={() => onPickType(type.value)}
-                className="rounded border border-[#243044] bg-[#0f1520] px-2 py-1.5 text-left text-[11px] hover:border-cyan-500/40"
+                className="rounded border border-[var(--pv-border)] bg-[var(--pv-panel)] px-2 py-1.5 text-left text-[11px] hover:border-cyan-500/40"
               >
                 <span className="font-medium text-cyan-200">{type.label}</span>
               </button>
@@ -815,17 +960,21 @@ function NoteStatusBadge({ status }: { status: "DRAFT" | "SIGNED" }) {
 
 function EncounterNoteRow({ note, onOpen }: { note: EncounterNote; onOpen: () => void }) {
   const status = note.status ?? "DRAFT";
+  const authorLabel = getNoteAuthorLabel(note);
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center justify-between gap-2 rounded border border-[#243044] bg-[#0f1520] px-2 py-1.5 text-left transition hover:border-cyan-500/30"
+      className="flex w-full items-center justify-between gap-2 rounded border border-[var(--pv-border)] bg-[var(--pv-panel)] px-2 py-1.5 text-left transition hover:border-cyan-500/30"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-[11px] font-medium text-cyan-200">{getNoteTypeLabel(note.type)}</span>
-        <NoteStatusBadge status={status} />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[11px] font-medium text-cyan-200">{getNoteTypeLabel(note.type)}</span>
+          <NoteStatusBadge status={status} />
+        </div>
+        <span className="truncate text-[10px] text-[var(--pv-muted-2)]">Author: {authorLabel}</span>
       </div>
-      <span className="shrink-0 text-[10px] text-[#6b7c93]">{formatDate(note.date)}</span>
+      <span className="shrink-0 text-[10px] text-[var(--pv-muted)]">{formatDate(note.date)}</span>
     </button>
   );
 }
@@ -853,6 +1002,11 @@ function AttachmentsBranchPanel({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState("");
+  const [viewerDoc, setViewerDoc] = useState<EncounterDocument | null>(null);
 
   function onFileSelected(selected: File | null) {
     setFile(selected);
@@ -899,10 +1053,40 @@ function AttachmentsBranchPanel({
     }
   }
 
+  function startRename(doc: EncounterDocument) {
+    setRenamingId(doc.id);
+    setRenameValue(doc.name);
+    setRenameError("");
+  }
+
+  async function saveRename() {
+    if (!renamingId) return;
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      setRenameError("Enter a document name.");
+      return;
+    }
+    setRenaming(true);
+    setRenameError("");
+    try {
+      await api(`/api/patients/${patientId}/documents/${renamingId}`, {
+        method: "PATCH",
+        json: { name: nextName },
+      });
+      setRenamingId(null);
+      setRenameValue("");
+      await onRefresh();
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : "Could not rename document.");
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   return (
-    <div className="mt-1.5 rounded-md border border-[#243044] bg-[#121820]/80 p-2">
+    <div className="mt-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/80 p-2">
       {!isReadOnly && (
-        <div className="mb-2 flex flex-wrap items-end gap-1.5 border-b border-[#243044] pb-2">
+        <div className="mb-2 flex flex-wrap items-end gap-1.5 border-b border-[var(--pv-border)] pb-2">
           <Input
             className="!h-8 min-w-[120px] flex-1 !text-xs"
             placeholder="Document name"
@@ -926,26 +1110,90 @@ function AttachmentsBranchPanel({
         </div>
       )}
       {uploadError && <p className="mb-2 text-xs text-red-400">{uploadError}</p>}
+      {renameError && <p className="mb-2 text-xs text-rose-300">{renameError}</p>}
 
       {documents.length === 0 ? (
-        <p className="py-1 text-xs text-[#6b7c93]">No files attached.</p>
+        <p className="py-1 text-xs text-[var(--pv-muted)]">No files attached.</p>
       ) : (
         <div className="space-y-1">
           {documents.map((d) => (
             <div
               key={d.id}
-              className="flex items-center justify-between gap-2 rounded border border-[#243044] bg-[#0f1520] px-2 py-1.5"
+              role="button"
+              tabIndex={renamingId === d.id ? -1 : 0}
+              onClick={() => {
+                if (renamingId === d.id) return;
+                setViewerDoc(d);
+              }}
+              onKeyDown={(e) => {
+                if (renamingId === d.id) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setViewerDoc(d);
+                }
+              }}
+              className={cn(
+                "flex items-center justify-between gap-2 rounded border border-[var(--pv-border)] bg-[var(--pv-panel)] px-2 py-1.5 transition",
+                renamingId === d.id
+                  ? "cursor-default"
+                  : "cursor-pointer hover:border-cyan-500/35 hover:bg-[color-mix(in_srgb,var(--pv-hover)_70%,transparent)]"
+              )}
             >
-              <div className="min-w-0">
-                <div className="truncate text-[11px] font-medium text-cyan-200">{d.name}</div>
-                <div className="truncate text-[10px] text-[#6b7c93]">
-                  {d.fileName} · {(d.fileSize / 1024).toFixed(1)} KB
-                </div>
+              <div className="min-w-0 flex-1">
+                {renamingId === d.id ? (
+                  <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <Input
+                      className="!h-7 min-w-[120px] flex-1 !text-[11px]"
+                      value={renameValue}
+                      autoFocus
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveRename();
+                        }
+                        if (e.key === "Escape") {
+                          setRenamingId(null);
+                          setRenameError("");
+                        }
+                      }}
+                    />
+                    <Button
+                      className="!h-7 !px-2 !text-[10px]"
+                      disabled={renaming || !renameValue.trim()}
+                      onClick={saveRename}
+                    >
+                      {renaming ? "..." : "Save"}
+                    </Button>
+                    <Button
+                      className="!h-7 !px-2 !text-[10px]"
+                      disabled={renaming}
+                      onClick={() => {
+                        setRenamingId(null);
+                        setRenameError("");
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="truncate text-[11px] font-medium text-cyan-200">{d.name}</div>
+                    <div className="truncate text-[10px] text-[var(--pv-muted)]">
+                      {d.fileName} · {(d.fileSize / 1024).toFixed(1)} KB
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="flex shrink-0 gap-1">
+              <div className="flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
+                {!isReadOnly && renamingId !== d.id && (
+                  <Button className="!h-7 !px-2 !text-[10px]" onClick={() => startRename(d)}>
+                    Rename
+                  </Button>
+                )}
                 <Button
                   className="!h-7 !px-2 !text-[10px]"
-                  onClick={() => window.open(`/api/patients/${patientId}/documents/${d.id}`, "_blank")}
+                  onClick={() => setViewerDoc(d)}
                 >
                   Open
                 </Button>
@@ -988,6 +1236,16 @@ function AttachmentsBranchPanel({
           await onRefresh();
         }}
       />
+
+      {viewerDoc && (
+        <FullPageDocumentViewer
+          title={viewerDoc.name}
+          url={`/api/patients/${patientId}/documents/${viewerDoc.id}`}
+          mimeType={viewerDoc.mimeType}
+          onClose={() => setViewerDoc(null)}
+          backLabel="Back to Attachments"
+        />
+      )}
     </div>
   );
 }

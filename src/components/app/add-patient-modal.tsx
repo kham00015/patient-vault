@@ -23,7 +23,7 @@ function Field({
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-xs font-medium text-[#8b9cb3]">
+      <span className="text-xs font-medium text-[var(--pv-muted-2)]">
         {label}
         {required && <span className="text-rose-400"> *</span>}
       </span>
@@ -35,7 +35,7 @@ function Field({
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h3 className="border-b border-[#243044] pb-2 text-sm font-semibold text-cyan-300">{title}</h3>
+      <h3 className="border-b border-[var(--pv-border)] pb-2 text-sm font-semibold text-cyan-300">{title}</h3>
       {children}
     </section>
   );
@@ -84,11 +84,11 @@ export function AddPatientModal({
   }
 
   const selectClass =
-    "w-full rounded-lg border border-[#2d3f57] bg-[#0d1219] px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20";
+    "w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2.5 text-sm text-white outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20";
 
   return (
     <Modal open={open} onClose={handleClose} title="Register New Patient" wide>
-      <p className="mb-4 text-sm text-[#8b9cb3]">
+      <p className="mb-4 text-sm text-[var(--pv-muted-2)]">
         Standard intake for a new patient chart. MRN is assigned automatically. Clinical sections are completed on the chart after registration.
       </p>
 
@@ -234,7 +234,7 @@ export function AddPatientModal({
 
       {error && <p className="mt-4 text-sm text-rose-400">{error}</p>}
 
-      <div className="mt-6 flex justify-end gap-2 border-t border-[#243044] pt-4">
+      <div className="mt-6 flex justify-end gap-2 border-t border-[var(--pv-border)] pt-4">
         <Button onClick={handleClose} disabled={saving}>
           Cancel
         </Button>

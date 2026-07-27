@@ -20,7 +20,7 @@ function getJwtSecret() {
 }
 
 function getSessionTimeoutMs() {
-  const minutes = parseInt(process.env.SESSION_TIMEOUT_MINUTES ?? "30", 10);
+  const minutes = parseInt(process.env.SESSION_TIMEOUT_MINUTES ?? "5", 10);
   return minutes * 60 * 1000;
 }
 

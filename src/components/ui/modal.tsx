@@ -35,18 +35,19 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+      style={{ background: "var(--pv-overlay)" }}
       onClick={onClose}
     >
       <div
         className={cn(
-          "animate-fade-in max-h-[90vh] w-full overflow-hidden rounded-2xl border border-[#2d3f57] bg-[#121820] shadow-2xl",
+          "animate-fade-in max-h-[90vh] w-full overflow-hidden rounded-2xl border border-[var(--pv-border-strong)] bg-[var(--pv-card)] shadow-2xl",
           wide ? "max-w-4xl" : xl ? "max-w-5xl" : "max-w-2xl",
           className
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[#243044] px-5 py-4">
+        <div className="flex items-center justify-between border-b border-[var(--pv-border)] px-5 py-4">
           <h2 className="text-lg font-semibold text-cyan-300">{title}</h2>
           <Button variant="ghost" className="!p-2" onClick={onClose} aria-label="Close">
             <X size={18} />

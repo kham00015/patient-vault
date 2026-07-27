@@ -5,6 +5,8 @@ import {
   encryptNoteContent,
   encryptPatientFields,
 } from "./encryption";
+import type { NoteAuthorUser } from "./note-authors";
+import { formatNoteAuthorName } from "./note-authors";
 
 export type PatientDTO = Omit<Patient, "createdById"> & {
   createdById?: string;
@@ -27,8 +29,13 @@ export function toNoteDTO(
       modality: string;
       date: Date;
     } | null;
+    createdBy?: NoteAuthorUser | null;
+    signedBy?: NoteAuthorUser | null;
   }
 ) {
+  const authorName = formatNoteAuthorName(note.createdBy);
+  const signedByName = formatNoteAuthorName(note.signedBy);
+
   return {
     ...note,
     date: note.date.toISOString(),
@@ -36,6 +43,14 @@ export function toNoteDTO(
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     content: decryptNoteContent(note.content),
+    authorName,
+    signedByName,
+    createdBy: note.createdBy
+      ? { id: note.createdBy.id, name: note.createdBy.name, email: note.createdBy.email }
+      : null,
+    signedBy: note.signedBy
+      ? { id: note.signedBy.id, name: note.signedBy.name, email: note.signedBy.email }
+      : null,
     encounter: note.encounter
       ? {
           id: note.encounter.id,

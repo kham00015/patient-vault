@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-:root {
+:root,
+html[data-theme="dark"] {
   --background: #0b0f14;
   --foreground: #e8edf4;
   --card: #121820;
@@ -13,6 +14,66 @@
   --danger: #f87171;
   --warning: #fbbf24;
   --muted: #8b9cb3;
+
+  --pv-bg: #0b0f14;
+  --pv-bg-deep: #0a0e14;
+  --pv-bg-grad: #111827;
+  --pv-surface: #101722;
+  --pv-panel: #0f1520;
+  --pv-panel-deep: #0a1018;
+  --pv-input: #0d1219;
+  --pv-card: #121820;
+  --pv-hover: #151d29;
+  --pv-btn: #1a2330;
+  --pv-border: #243044;
+  --pv-border-strong: #2d3f57;
+  --pv-muted: #6b7c93;
+  --pv-muted-2: #8b9cb3;
+  --pv-fg: #e8edf4;
+  --pv-fg-soft: #c9d5e3;
+  --pv-accent: #67e8f9;
+  --pv-accent-strong: #22d3ee;
+  --pv-overlay: rgba(0, 0, 0, 0.7);
+  --pv-selection: rgba(34, 211, 238, 0.25);
+  --pv-scroll: #334155;
+}
+
+html[data-theme="light"] {
+  /* Cool blue clinical light theme — sharp borders & type for WCAG AA */
+  --background: #e8eef6;
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --card-hover: #f1f5fb;
+  --border: #64748b;
+  --primary: #1d4ed8;
+  --primary-dim: #1e40af;
+  --accent: #1e40af;
+  --success: #047857;
+  --danger: #b91c1c;
+  --warning: #b45309;
+  --muted: #334155;
+
+  --pv-bg: #e8eef6;
+  --pv-bg-deep: #d7e0ec;
+  --pv-bg-grad: #ffffff;
+  --pv-surface: #ffffff;
+  --pv-panel: #ffffff;
+  --pv-panel-deep: #f1f5fb;
+  --pv-input: #ffffff;
+  --pv-card: #ffffff;
+  --pv-hover: #e4ebf5;
+  --pv-btn: #dbe4f0;
+  --pv-border: #64748b;
+  --pv-border-strong: #475569;
+  --pv-muted: #334155;
+  --pv-muted-2: #1e293b;
+  --pv-fg: #0b1220;
+  --pv-fg-soft: #0f172a;
+  --pv-accent: #1d4ed8;
+  --pv-accent-strong: #1e40af;
+  --pv-overlay: rgba(15, 23, 42, 0.5);
+  --pv-selection: rgba(29, 78, 216, 0.22);
+  --pv-scroll: #64748b;
 }
 
 @theme inline {
@@ -35,13 +96,18 @@ body {
 }
 
 body {
-  background: radial-gradient(ellipse at top, #111827 0%, var(--background) 55%);
-  color: var(--foreground);
+  background: radial-gradient(ellipse at top, var(--pv-bg-grad) 0%, var(--pv-bg) 55%);
+  color: var(--pv-fg);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  transition: background 0.25s ease, color 0.2s ease;
+}
+
+html[data-theme="light"] body {
+  background: linear-gradient(180deg, #ffffff 0%, #eef3fa 48%, #e2eaf4 100%);
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.25);
+  background: var(--pv-selection);
 }
 
 ::-webkit-scrollbar {
@@ -50,7 +116,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--pv-scroll);
   border-radius: 4px;
 }
 
@@ -59,6 +125,192 @@ input,
 select,
 button {
   font: inherit;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] input[type="date"] {
+  color-scheme: light;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(1) brightness(1.35) saturate(0.8);
+  opacity: 0.9;
+}
+
+html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.8;
+}
+
+/*
+ * Light mode: map dark-theme pastel utilities to a sharp blue palette.
+ * Attribute substring match covers opacity + !important variants.
+ */
+html[data-theme="light"] [class*="text-cyan-"],
+html[data-theme="light"] [class*="text-sky-"],
+html[data-theme="light"] [class*="text-teal-"],
+html[data-theme="light"] [class*="text-blue-"] {
+  color: #1e40af !important;
+}
+
+html[data-theme="light"] [class*="text-emerald-"] {
+  color: #047857 !important;
+}
+
+html[data-theme="light"] [class*="text-rose-"],
+html[data-theme="light"] [class*="text-red-"] {
+  color: #b91c1c !important;
+}
+
+html[data-theme="light"] [class*="text-amber-"],
+html[data-theme="light"] [class*="text-yellow-"] {
+  color: #92400e !important;
+}
+
+html[data-theme="light"] [class*="text-orange-"] {
+  color: #c2410c !important;
+}
+
+html[data-theme="light"] [class*="text-violet-"],
+html[data-theme="light"] [class*="text-purple-"],
+html[data-theme="light"] [class*="text-fuchsia-"] {
+  color: #5b21b6 !important;
+}
+
+/* Solid primary / status buttons keep white label text */
+html[data-theme="light"] :is(
+  button.bg-cyan-600,
+  a.bg-cyan-600,
+  button.bg-blue-600,
+  a.bg-blue-600,
+  button.bg-emerald-700,
+  button.bg-rose-700
+) {
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] .hover\:bg-cyan-500:hover,
+html[data-theme="light"] .hover\:bg-blue-500:hover {
+  background-color: #1d4ed8 !important;
+}
+
+html[data-theme="light"] .bg-cyan-600,
+html[data-theme="light"] .bg-blue-600 {
+  background-color: #1d4ed8 !important;
+}
+
+/* Blue-tinted fills & borders (cyan utilities → blue in light mode) */
+html[data-theme="light"] :is(
+  [class^="bg-cyan-500/"],
+  [class*=" bg-cyan-500/"],
+  [class*="!bg-cyan-500/"],
+  [class^="bg-blue-500/"],
+  [class*=" bg-blue-500/"],
+  [class*="!bg-blue-500/"]
+) {
+  background-color: rgba(29, 78, 216, 0.1) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-cyan-600/"],
+  [class*=" bg-cyan-600/"],
+  [class*="!bg-cyan-600/"],
+  [class^="bg-blue-600/"],
+  [class*=" bg-blue-600/"],
+  [class*="!bg-blue-600/"]
+) {
+  background-color: rgba(29, 78, 216, 0.14) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="border-cyan-"],
+  [class*=" border-cyan-"],
+  [class*="!border-cyan-"],
+  [class^="border-blue-"],
+  [class*=" border-blue-"],
+  [class*="!border-blue-"]
+) {
+  border-color: rgba(30, 64, 175, 0.55) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-emerald-500/"],
+  [class*=" bg-emerald-500/"]
+) {
+  background-color: rgba(4, 120, 87, 0.14) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-rose-500/"],
+  [class*=" bg-rose-500/"]
+) {
+  background-color: rgba(185, 28, 28, 0.12) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-amber-500/"],
+  [class*=" bg-amber-500/"],
+  [class^="bg-amber-600/"],
+  [class*=" bg-amber-600/"],
+  [class*="!bg-amber-500/"],
+  [class*="!bg-amber-600/"]
+) {
+  background-color: rgba(146, 64, 14, 0.12) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="border-amber-"],
+  [class*=" border-amber-"],
+  [class*="!border-amber-"]
+) {
+  border-color: rgba(146, 64, 14, 0.5) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-violet-500/"],
+  [class*=" bg-violet-500/"]
+) {
+  background-color: rgba(91, 33, 182, 0.1) !important;
+}
+
+html[data-theme="light"] :is(
+  [class^="bg-orange-500/"],
+  [class*=" bg-orange-500/"]
+) {
+  background-color: rgba(194, 65, 12, 0.12) !important;
+}
+
+html[data-theme="light"] :is(
+  [class*="hover:bg-cyan-500/"]:hover,
+  [class*="hover:bg-cyan-500\/"]:hover,
+  [class*="hover:bg-blue-500/"]:hover
+) {
+  background-color: rgba(29, 78, 216, 0.16) !important;
+}
+
+/* Sharper chrome edges on white */
+html[data-theme="light"] header.rounded-2xl,
+html[data-theme="light"] main.rounded-2xl {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.1);
+  border-color: #64748b !important;
+}
+
+html[data-theme="light"] .shadow-xl,
+html[data-theme="light"] .shadow-2xl {
+  box-shadow:
+    0 10px 15px -3px rgba(15, 23, 42, 0.12),
+    0 4px 6px -4px rgba(15, 23, 42, 0.1) !important;
+}
+
+/* Crisper default control borders in light mode */
+html[data-theme="light"] input,
+html[data-theme="light"] textarea,
+html[data-theme="light"] select {
+  border-color: var(--pv-border-strong);
 }
 
 @keyframes fade-in {

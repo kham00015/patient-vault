@@ -113,7 +113,7 @@ export function FormsBranchPanel({
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-medium text-cyan-200">Encounter Forms</h3>
-          <p className="text-xs text-[#6b7c93]">
+          <p className="text-xs text-[var(--pv-muted)]">
             Forms attached to this visit
           </p>
         </div>
@@ -130,9 +130,9 @@ export function FormsBranchPanel({
       )}
 
       {forms.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[#243044] p-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--pv-border)] p-6 text-center">
           <FileText className="text-[#4a5a70]" size={28} />
-          <p className="text-sm text-[#8b9cb3]">No forms on this encounter yet</p>
+          <p className="text-sm text-[var(--pv-muted-2)]">No forms on this encounter yet</p>
           {!isReadOnly && (
             <Button className="mt-1 !h-8 gap-1.5" onClick={openLibrary}>
               <Plus size={14} />
@@ -147,7 +147,7 @@ export function FormsBranchPanel({
               <button
                 type="button"
                 onClick={() => openEditor(form)}
-                className="flex w-full items-center gap-3 rounded-lg border border-[#243044] bg-[#0f1520] px-3 py-2.5 text-left transition-colors hover:border-cyan-900/60 hover:bg-[#141c28]"
+                className="flex w-full items-center gap-3 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2.5 text-left transition-colors hover:border-cyan-900/60 hover:bg-[#141c28]"
               >
                 <FileText
                   size={16}
@@ -161,7 +161,7 @@ export function FormsBranchPanel({
                   <p className="truncate text-sm text-[#d4dce8]">
                     {form.templateLabel}
                   </p>
-                  <p className="text-xs text-[#6b7c93]">
+                  <p className="text-xs text-[var(--pv-muted)]">
                     {form.status === "COMPLETED" && form.completedAt
                       ? `Attached ${formatDate(form.completedAt)}`
                       : "Draft"}
@@ -192,7 +192,7 @@ export function FormsBranchPanel({
       >
         {workspace?.type === "library" && (
           <div className="space-y-3">
-            <p className="text-sm text-[#8b9cb3]">
+            <p className="text-sm text-[var(--pv-muted-2)]">
               Choose a template to start a new form for this encounter.
             </p>
             <ul className="grid gap-2 sm:grid-cols-2">
@@ -202,12 +202,12 @@ export function FormsBranchPanel({
                     type="button"
                     disabled={creating !== null}
                     onClick={() => handlePickTemplate(template.id)}
-                    className="flex h-full w-full flex-col gap-1 rounded-lg border border-[#243044] bg-[#0f1520] p-4 text-left transition-colors hover:border-violet-700/50 hover:bg-[#141c28] disabled:opacity-50"
+                    className="flex h-full w-full flex-col gap-1 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4 text-left transition-colors hover:border-violet-700/50 hover:bg-[#141c28] disabled:opacity-50"
                   >
                     <span className="text-sm font-medium text-violet-200">
                       {template.label}
                     </span>
-                    <span className="text-xs text-[#6b7c93]">
+                    <span className="text-xs text-[var(--pv-muted)]">
                       {template.description}
                     </span>
                     {creating === template.id && (
@@ -224,7 +224,7 @@ export function FormsBranchPanel({
         )}
 
         {workspace?.type === "editor" && workspace.loading && (
-          <div className="flex min-h-[40vh] items-center justify-center text-[#6b7c93]">
+          <div className="flex min-h-[40vh] items-center justify-center text-[var(--pv-muted)]">
             <Loader2 className="animate-spin" size={24} />
           </div>
         )}

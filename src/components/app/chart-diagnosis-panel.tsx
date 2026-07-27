@@ -138,14 +138,14 @@ export function ChartDiagnosisPanel({
       </div>
 
       {!isReadOnly && (
-        <div className="mb-3 rounded-xl border border-[#243044] bg-[#121820] p-3">
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#6b7c93]">
+        <div className="mb-3 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-card)] p-3">
+          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[var(--pv-muted)]">
             ICD-10 search
           </label>
           <div className="relative">
             <Search
               size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#6b7c93]"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--pv-muted)]"
             />
             <Input
               className="!pl-9"
@@ -159,16 +159,16 @@ export function ChartDiagnosisPanel({
               “{query.trim()}” expanded to: {expandedQuery}
             </p>
           )}
-          <p className="mt-1 text-[10px] text-[#6b7c93]">
+          <p className="mt-1 text-[10px] text-[var(--pv-muted)]">
             NIH/NLM ICD-10-CM. Abbreviations like COPD, CHF, HTN expand automatically.
           </p>
 
           {(searching || searchError || results.length > 0 || (query.trim().length >= 2 && !searching)) && (
-            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[#243044] bg-[#0f1520]">
-              {searching && <p className="px-3 py-2 text-xs text-[#6b7c93]">Searching...</p>}
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)]">
+              {searching && <p className="px-3 py-2 text-xs text-[var(--pv-muted)]">Searching...</p>}
               {searchError && <p className="px-3 py-2 text-xs text-rose-400">{searchError}</p>}
               {!searching && !searchError && query.trim().length >= 2 && results.length === 0 && (
-                <p className="px-3 py-2 text-xs text-[#6b7c93]">
+                <p className="px-3 py-2 text-xs text-[var(--pv-muted)]">
                   No matches. Try a code (J44.1), full name, or common abbreviation (COPD, CHF).
                 </p>
               )}
@@ -182,23 +182,23 @@ export function ChartDiagnosisPanel({
                       disabled={alreadyAdded}
                       onClick={() => addDiagnosis(item)}
                       className={cn(
-                        "flex w-full items-start gap-2 border-b border-[#243044]/80 px-3 py-2 text-left transition last:border-b-0",
+                        "flex w-full items-start gap-2 border-b border-[var(--pv-border)]/80 px-3 py-2 text-left transition last:border-b-0",
                         alreadyAdded
                           ? "cursor-default opacity-50"
-                          : "hover:bg-[#1a2330] hover:text-cyan-100"
+                          : "hover:bg-[var(--pv-btn)] hover:text-cyan-100"
                       )}
                     >
                       <span className="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-cyan-300">
                         {item.code}
                       </span>
-                      <span className="min-w-0 flex-1 text-xs leading-relaxed text-[#c9d5e3]">
+                      <span className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--pv-fg-soft)]">
                         {item.description}
                       </span>
                       {!alreadyAdded && (
                         <Plus size={14} className="mt-0.5 shrink-0 text-emerald-400" />
                       )}
                       {alreadyAdded && (
-                        <span className="shrink-0 text-[10px] uppercase text-[#6b7c93]">Added</span>
+                        <span className="shrink-0 text-[10px] uppercase text-[var(--pv-muted)]">Added</span>
                       )}
                     </button>
                   );
@@ -206,14 +206,14 @@ export function ChartDiagnosisPanel({
             </div>
           )}
           {total > results.length && results.length > 0 && (
-            <p className="mt-1 text-[10px] text-[#6b7c93]">
+            <p className="mt-1 text-[10px] text-[var(--pv-muted)]">
               Showing {results.length} of {total} matches — refine search to narrow results.
             </p>
           )}
         </div>
       )}
 
-      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#6b7c93]">
+      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[var(--pv-muted)]">
         Problem list
       </label>
       <Textarea

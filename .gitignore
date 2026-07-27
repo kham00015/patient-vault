@@ -43,6 +43,11 @@ staging.env
 /prisma/dev.db
 /prisma/dev.db-journal
 
+# LOINC redistributed terminology (keep local; see data/orders/README.md)
+/data/orders/*.csv
+/data/orders/_loinc_extract/
+/data/orders/_zippeek/
+
 # vercel
 .vercel
 

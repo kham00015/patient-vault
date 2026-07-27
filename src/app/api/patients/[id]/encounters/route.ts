@@ -49,6 +49,7 @@ function toEncounterSummary(
       documents: number;
       forms: number;
       faxTransmissions: number;
+      orders: number;
     };
   }
 ) {
@@ -67,6 +68,7 @@ function toEncounterSummary(
     documentCount: encounter._count.documents,
     formCount: encounter._count.forms,
     faxCount: encounter._count.faxTransmissions,
+    orderCount: encounter._count.orders,
     deletable: isEncounterDeletable({
       status: encounter.status,
       signedNoteCount: encounter.notes.length,
@@ -99,6 +101,7 @@ export async function GET(request: Request, { params }: Params) {
           documents: true,
           forms: true,
           faxTransmissions: true,
+          orders: true,
         },
       },
     },
@@ -155,6 +158,7 @@ export async function POST(request: Request, { params }: Params) {
             documents: true,
             forms: true,
             faxTransmissions: true,
+            orders: true,
           },
         },
       },

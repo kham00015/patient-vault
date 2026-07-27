@@ -56,14 +56,6 @@ const CLINICAL_TABS: NoteTabDef[] = [
     fields: [{ key: "currentMedications", label: "Current Medications", placeholder: "Medications and doses...", size: "lg" }],
   },
   {
-    id: "studies",
-    label: "Studies",
-    fields: [
-      { key: "labs", label: "Labs", placeholder: "Lab results...", size: "md" },
-      { key: "imaging", label: "Imaging", placeholder: "Imaging results...", size: "md" },
-    ],
-  },
-  {
     id: "assessment_plan",
     label: "Assessment & Plan",
     fields: [

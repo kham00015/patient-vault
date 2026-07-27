@@ -6,7 +6,8 @@ export type PatientChartInsertKey =
   | "social"
   | "medications"
   | "labs"
-  | "imaging";
+  | "imaging"
+  | "diagnosis";
 
 export const NOTE_TO_CHART_MAP: Partial<Record<NoteSectionKey, PatientChartInsertKey>> = {
   pastMedicalHistory: "pmh",

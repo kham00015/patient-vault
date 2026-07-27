@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AuditAction, type Document, type Encounter, type EncounterForm, type FaxTransmission, type Note, type User } from "@prisma/client";
+import { AuditAction, type Document, type Encounter, type EncounterForm, type FaxTransmission, type Note, type Order, type User } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
@@ -11,6 +11,8 @@ import { toFormDTO } from "@/lib/forms";
 import { toFaxDTO } from "@/lib/fax-transmissions";
 import { deleteDocument } from "@/lib/storage";
 import { ENCOUNTER_MODALITIES, ENCOUNTER_STATUSES, getEncounterDeleteBlockReason, VISIT_CATEGORIES } from "@/lib/encounters";
+import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
+import { toOrderDTO } from "@/lib/orders";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -30,7 +32,10 @@ const updateSchema = z.object({
 function toEncounterDetail(
   encounter: Encounter & {
     provider: { name: string | null; email: string } | null;
-    notes: Note[];
+    notes: (Note & {
+      createdBy?: { id: string; name: string | null; email: string } | null;
+      signedBy?: { id: string; name: string | null; email: string } | null;
+    })[];
     documents: Document[];
     forms: (EncounterForm & {
       document: Pick<Document, "id" | "name" | "fileName" | "mimeType" | "fileSize"> | null;
@@ -38,6 +43,11 @@ function toEncounterDetail(
     faxTransmissions: (FaxTransmission & {
       document: Pick<Document, "id" | "name" | "fileName" | "mimeType" | "fileSize">;
       sentBy: Pick<User, "id" | "name" | "email">;
+    })[];
+    orders: (Order & {
+      createdBy: Pick<User, "name" | "email">;
+      reviewedBy: Pick<User, "name" | "email"> | null;
+      encounter: Pick<Encounter, "id" | "visitCategory" | "modality" | "date"> | null;
     })[];
   }
 ) {
@@ -61,6 +71,7 @@ function toEncounterDetail(
     })),
     forms: encounter.forms.map(toFormDTO),
     faxes: encounter.faxTransmissions.map(toFaxDTO),
+    orders: encounter.orders.map(toOrderDTO),
   };
 }
 
@@ -73,7 +84,13 @@ export async function GET(request: Request, { params }: Params) {
     where: { id: encounterId, patientId },
     include: {
       provider: { select: { name: true, email: true } },
-      notes: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
+      notes: {
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+          signedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
       documents: { orderBy: { uploadedAt: "desc" } },
       forms: {
         orderBy: { updatedAt: "desc" },
@@ -86,6 +103,14 @@ export async function GET(request: Request, { params }: Params) {
         include: {
           document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
           sentBy: { select: { id: true, name: true, email: true } },
+        },
+      },
+      orders: {
+        orderBy: [{ status: "asc" }, { orderedAt: "desc" }],
+        include: {
+          createdBy: { select: { name: true, email: true } },
+          reviewedBy: { select: { name: true, email: true } },
+          encounter: { select: { id: true, visitCategory: true, modality: true, date: true } },
         },
       },
     },
@@ -146,7 +171,13 @@ export async function PATCH(request: Request, { params }: Params) {
       data,
       include: {
         provider: { select: { name: true, email: true } },
-        notes: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
+        notes: {
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+          signedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
         documents: { orderBy: { uploadedAt: "desc" } },
         forms: {
           orderBy: { updatedAt: "desc" },
@@ -159,6 +190,14 @@ export async function PATCH(request: Request, { params }: Params) {
           include: {
             document: { select: { id: true, name: true, fileName: true, mimeType: true, fileSize: true } },
             sentBy: { select: { id: true, name: true, email: true } },
+          },
+        },
+        orders: {
+          orderBy: [{ status: "asc" }, { orderedAt: "desc" }],
+          include: {
+            createdBy: { select: { name: true, email: true } },
+            reviewedBy: { select: { name: true, email: true } },
+            encounter: { select: { id: true, visitCategory: true, modality: true, date: true } },
           },
         },
       },
