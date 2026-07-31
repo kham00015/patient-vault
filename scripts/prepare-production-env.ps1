@@ -79,6 +79,11 @@ if ($vars["STORAGE_TYPE"] -eq "s3") {
 if (-not $vars["BEDROCK_MODEL_ID"]) {
   $vars["BEDROCK_MODEL_ID"] = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 }
+# Never redeploy a retired Claude 3.5 Sonnet ID (causes "end of its life" in Ask AI).
+if ($vars["BEDROCK_MODEL_ID"] -match 'claude-3-5-sonnet|claude-3\.5-sonnet') {
+  Write-Host "Replacing retired Bedrock model $($vars['BEDROCK_MODEL_ID']) with Claude Sonnet 4.5" -ForegroundColor Yellow
+  $vars["BEDROCK_MODEL_ID"] = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
 if (-not $vars["AWS_REGION"]) {
   $vars["AWS_REGION"] = "us-east-1"
 }
