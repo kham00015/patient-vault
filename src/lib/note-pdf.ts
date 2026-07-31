@@ -12,6 +12,8 @@ export function buildNotePdfHtml({
   noteDate,
   status,
   signedAt,
+  initiatedAt,
+  revisions,
   sections,
   vitals,
   authorName,
@@ -23,6 +25,8 @@ export function buildNotePdfHtml({
   noteDate: string;
   status: string;
   signedAt?: string | null;
+  initiatedAt?: string | null;
+  revisions?: Array<{ version: number; revisedAt: string; revisedByName?: string | null }>;
   sections: NoteSections;
   vitals?: VitalsData;
   authorName?: string | null;
@@ -64,6 +68,21 @@ export function buildNotePdfHtml({
       ? signedByName || authorName
       : authorName || signedByName;
 
+  const revisionCount = revisions?.length ?? 0;
+  const statusLabel =
+    status === "SIGNED" ? (revisionCount > 0 ? "Revised" : "Signed") : "Draft";
+  const statusClass =
+    status === "SIGNED" ? (revisionCount > 0 ? "revised" : "signed") : "draft";
+
+  const revisionLines = (revisions ?? [])
+    .map(
+      (r) =>
+        `<div><strong>Revised #${r.version}:</strong> ${escapeHtml(r.revisedAt)}${
+          r.revisedByName ? ` by ${escapeHtml(r.revisedByName)}` : ""
+        }</div>`
+    )
+    .join("");
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -78,7 +97,9 @@ export function buildNotePdfHtml({
     .meta { color: #555; font-size: 13px; }
     .status { display: inline-block; margin-top: 8px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
     .signed { background: #dcfce7; color: #166534; }
+    .revised { background: #ffedd5; color: #9a3412; }
     .draft { background: #fee2e2; color: #991b1b; }
+    .stamps { margin-top: 10px; font-size: 12px; line-height: 1.55; }
     .block { margin-bottom: 20px; page-break-inside: avoid; }
     h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #0e7490; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
     pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.55; }
@@ -97,8 +118,12 @@ export function buildNotePdfHtml({
       <div><strong>Patient:</strong> ${escapeHtml(patientName)}${mrn ? ` · MRN ${escapeHtml(mrn)}` : ""}</div>
       <div><strong>Date of Service:</strong> ${escapeHtml(noteDate)}</div>
       ${authorLine ? `<div><strong>Author:</strong> ${escapeHtml(authorLine)}</div>` : ""}
-      <span class="status ${status === "SIGNED" ? "signed" : "draft"}">${status === "SIGNED" ? "Signed" : "Draft"}</span>
-      ${signedAt ? `<div><strong>Signed:</strong> ${escapeHtml(signedAt)}${signedByName ? ` by ${escapeHtml(signedByName)}` : ""}</div>` : ""}
+      <span class="status ${statusClass}">${statusLabel}</span>
+      <div class="stamps">
+        ${initiatedAt ? `<div><strong>Initiated:</strong> ${escapeHtml(initiatedAt)}${authorName ? ` by ${escapeHtml(authorName)}` : ""}</div>` : ""}
+        ${signedAt ? `<div><strong>Signed:</strong> ${escapeHtml(signedAt)}${signedByName ? ` by ${escapeHtml(signedByName)}` : ""}</div>` : ""}
+        ${revisionLines}
+      </div>
     </div>
   </div>
   ${blocks.join("\n")}

@@ -5,7 +5,7 @@ import { requireAuth, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { toNoteDTO } from "@/lib/patients";
 import { buildNotePdfHtml, payloadFromStored } from "@/lib/note-pdf";
-import { formatDateOnly } from "@/lib/utils";
+import { formatDate, formatDateOnly } from "@/lib/utils";
 import type { NoteType } from "@/lib/notes";
 
 type Params = { params: Promise<{ id: string; noteId: string }> };
@@ -21,6 +21,15 @@ export async function GET(request: Request, { params }: Params) {
       patient: { select: { name: true, mrn: true } },
       createdBy: { select: { id: true, name: true, email: true } },
       signedBy: { select: { id: true, name: true, email: true } },
+      lastRevisedBy: { select: { id: true, name: true, email: true } },
+      revisions: {
+        orderBy: { version: "asc" },
+        select: {
+          version: true,
+          revisedAt: true,
+          revisedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
     },
   });
   if (!note) return notFound();
@@ -33,7 +42,13 @@ export async function GET(request: Request, { params }: Params) {
     noteType: note.type as NoteType,
     noteDate: formatDateOnly(dto.date),
     status: dto.status,
-    signedAt: dto.signedAt ? formatDateOnly(dto.signedAt) : null,
+    signedAt: dto.signedAt ? formatDate(dto.signedAt) : null,
+    initiatedAt: dto.createdAt ? formatDate(dto.createdAt) : null,
+    revisions: (dto.revisions ?? []).map((r) => ({
+      version: r.version,
+      revisedAt: formatDate(r.revisedAt),
+      revisedByName: r.revisedByName,
+    })),
     sections,
     vitals,
     authorName: dto.authorName,

@@ -31,26 +31,48 @@ export function toNoteDTO(
     } | null;
     createdBy?: NoteAuthorUser | null;
     signedBy?: NoteAuthorUser | null;
+    lastRevisedBy?: NoteAuthorUser | null;
+    revisions?: Array<{
+      version: number;
+      revisedAt: Date;
+      revisedBy?: NoteAuthorUser | null;
+    }>;
   }
 ) {
   const authorName = formatNoteAuthorName(note.createdBy);
   const signedByName = formatNoteAuthorName(note.signedBy);
+  const lastRevisedByName = formatNoteAuthorName(note.lastRevisedBy);
 
   return {
     ...note,
     date: note.date.toISOString(),
     signedAt: note.signedAt?.toISOString() ?? null,
+    lastRevisedAt: note.lastRevisedAt?.toISOString() ?? null,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     content: decryptNoteContent(note.content),
+    revisionCount: note.revisionCount ?? 0,
     authorName,
     signedByName,
+    lastRevisedByName,
     createdBy: note.createdBy
       ? { id: note.createdBy.id, name: note.createdBy.name, email: note.createdBy.email }
       : null,
     signedBy: note.signedBy
       ? { id: note.signedBy.id, name: note.signedBy.name, email: note.signedBy.email }
       : null,
+    lastRevisedBy: note.lastRevisedBy
+      ? {
+          id: note.lastRevisedBy.id,
+          name: note.lastRevisedBy.name,
+          email: note.lastRevisedBy.email,
+        }
+      : null,
+    revisions: (note.revisions ?? []).map((r) => ({
+      version: r.version,
+      revisedAt: r.revisedAt.toISOString(),
+      revisedByName: formatNoteAuthorName(r.revisedBy),
+    })),
     encounter: note.encounter
       ? {
           id: note.encounter.id,

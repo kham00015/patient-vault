@@ -74,6 +74,8 @@ model User {
   contactsCreated Contact[] @relation("CreatedContacts")
   notesCreated Note[] @relation("CreatedNotes")
   notesSigned Note[] @relation("SignedNotes")
+  notesRevised Note[] @relation("RevisedNotes")
+  noteRevisions NoteRevision[] @relation("NoteRevisionAuthors")
   ordersCreated Order[] @relation("CreatedOrders")
   ordersReviewed Order[] @relation("ReviewedOrders")
   personalNotes PatientPersonalNote[]
@@ -298,23 +300,28 @@ model Order {
 }
 
 model Note {
-  id          String     @id @default(cuid())
-  patientId   String
-  encounterId String?
-  type        NoteType   @default(PROGRESS_NOTE)
-  status      NoteStatus @default(DRAFT)
-  signedAt    DateTime?
-  date        DateTime
-  content     String
-  createdById String?
-  signedById  String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  encounter   Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
-  createdBy   User?      @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: SetNull)
-  signedBy    User?      @relation("SignedNotes", fields: [signedById], references: [id], onDelete: SetNull)
-  documents   Document[]
+  id              String     @id @default(cuid())
+  patientId       String
+  encounterId     String?
+  type            NoteType   @default(PROGRESS_NOTE)
+  status          NoteStatus @default(DRAFT)
+  signedAt        DateTime?
+  date            DateTime
+  content         String
+  createdById     String?
+  signedById      String?
+  revisionCount   Int        @default(0)
+  lastRevisedAt   DateTime?
+  lastRevisedById String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  patient         Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter       Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  createdBy       User?      @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: SetNull)
+  signedBy        User?      @relation("SignedNotes", fields: [signedById], references: [id], onDelete: SetNull)
+  lastRevisedBy   User?      @relation("RevisedNotes", fields: [lastRevisedById], references: [id], onDelete: SetNull)
+  documents       Document[]
+  revisions       NoteRevision[]
 
   @@index([patientId])
   @@index([encounterId])
@@ -323,6 +330,24 @@ model Note {
   @@index([status])
   @@index([createdById])
   @@index([signedById])
+  @@index([lastRevisedById])
+}
+
+model NoteRevision {
+  id          String   @id @default(cuid())
+  noteId      String
+  version     Int
+  /** Encrypted snapshot of note content before this revision was applied. */
+  content     String
+  revisedAt   DateTime @default(now())
+  revisedById String
+  note        Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  revisedBy   User     @relation("NoteRevisionAuthors", fields: [revisedById], references: [id], onDelete: Restrict)
+
+  @@unique([noteId, version])
+  @@index([noteId])
+  @@index([revisedById])
+  @@index([revisedAt])
 }
 
 model Document {

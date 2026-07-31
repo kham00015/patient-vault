@@ -25,7 +25,7 @@ import {
   type VisitCategory,
 } from "@/lib/encounters";
 import { getNoteTypeLabel, NOTE_TYPES, type NoteType } from "@/lib/notes";
-import { getNoteAuthorLabel } from "@/lib/note-authors";
+import { getNoteAuthorLabel, getNoteStatusLabel } from "@/lib/note-authors";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
@@ -945,16 +945,28 @@ function NotesBranchPanel({
   );
 }
 
-function NoteStatusBadge({ status }: { status: "DRAFT" | "SIGNED" }) {
+function NoteStatusBadge({
+  status,
+  revisionCount = 0,
+}: {
+  status: "DRAFT" | "SIGNED";
+  revisionCount?: number | null;
+}) {
+  const label = getNoteStatusLabel({ status, revisionCount });
   const isSigned = status === "SIGNED";
+  const isRevised = isSigned && (revisionCount ?? 0) > 0;
   return (
     <span
       className={cn(
         "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-        isSigned ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+        !isSigned
+          ? "bg-amber-500/15 text-amber-300"
+          : isRevised
+            ? "bg-orange-500/15 text-orange-300"
+            : "bg-emerald-500/15 text-emerald-300"
       )}
     >
-      {isSigned ? "Signed" : "Draft"}
+      {label}
     </span>
   );
 }
@@ -971,7 +983,7 @@ function EncounterNoteRow({ note, onOpen }: { note: EncounterNote; onOpen: () =>
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[11px] font-medium text-cyan-200">{getNoteTypeLabel(note.type)}</span>
-          <NoteStatusBadge status={status} />
+          <NoteStatusBadge status={status} revisionCount={note.revisionCount} />
         </div>
         <span className="truncate text-[10px] text-[var(--pv-muted-2)]">Author: {authorLabel}</span>
       </div>

@@ -4,6 +4,12 @@ export type NoteAuthorUser = {
   email: string;
 };
 
+export type NoteRevisionStamp = {
+  version: number;
+  revisedAt: string;
+  revisedByName: string | null;
+};
+
 export const NOTE_AUTHOR_SELECT = {
   id: true,
   name: true,
@@ -14,6 +20,15 @@ export const NOTE_WITH_AUTHORS_INCLUDE = {
   encounter: { select: { id: true, visitCategory: true, modality: true, date: true } },
   createdBy: { select: NOTE_AUTHOR_SELECT },
   signedBy: { select: NOTE_AUTHOR_SELECT },
+  lastRevisedBy: { select: NOTE_AUTHOR_SELECT },
+  revisions: {
+    orderBy: { version: "asc" as const },
+    select: {
+      version: true,
+      revisedAt: true,
+      revisedBy: { select: NOTE_AUTHOR_SELECT },
+    },
+  },
 } as const;
 
 export function formatNoteAuthorName(user?: NoteAuthorUser | null) {
@@ -36,4 +51,13 @@ export function getNoteAuthorLabel(note: {
   }
 
   return createdName || signedName || "Unknown author";
+}
+
+export function getNoteStatusLabel(note: {
+  status?: string | null;
+  revisionCount?: number | null;
+}) {
+  if (note.status !== "SIGNED") return "Draft";
+  if ((note.revisionCount ?? 0) > 0) return "Revised";
+  return "Signed";
 }

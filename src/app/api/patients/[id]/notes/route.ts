@@ -90,10 +90,10 @@ export async function POST(request: Request, { params }: Params) {
     if (body.noteId) {
       existingNote = await prisma.note.findFirst({ where: { id: body.noteId, patientId } });
       if (!existingNote) return notFound();
-      if (existingNote.status === "SIGNED") return badRequest("Signed notes cannot be edited");
     }
 
     const isUpdate = Boolean(body.noteId);
+    const revisingSigned = Boolean(isUpdate && existingNote?.status === "SIGNED");
 
     let sections: Record<string, string>;
     let vitals: VitalsData = createEmptyVitals();
@@ -124,37 +124,79 @@ export async function POST(request: Request, { params }: Params) {
       serializeNoteContent(noteType, sections, vitals);
     const content = prepareNoteContent(serialized || "{}");
 
-    const note = body.noteId
-      ? await prisma.note.update({
+    let note;
+    let revisionVersion: number | null = null;
+
+    if (body.noteId && existingNote) {
+      const priorPlain = decryptNoteContent(existingNote.content);
+      const nextPlain = serialized || "{}";
+      const contentChanged = priorPlain !== nextPlain;
+
+      if (revisingSigned && contentChanged) {
+        revisionVersion = (existingNote.revisionCount ?? 0) + 1;
+        note = await prisma.$transaction(async (tx) => {
+          await tx.noteRevision.create({
+            data: {
+              noteId: existingNote.id,
+              version: revisionVersion!,
+              // Keep prior signed/revised body for compliance history.
+              content: existingNote.content,
+              revisedById: auth.user.id,
+            },
+          });
+          return tx.note.update({
+            where: { id: body.noteId },
+            data: {
+              date,
+              content,
+              revisionCount: revisionVersion!,
+              lastRevisedAt: new Date(),
+              lastRevisedBy: { connect: { id: auth.user.id } },
+              ...(body.type ? { type: body.type as NoteType } : {}),
+              ...(existingNote.createdById
+                ? {}
+                : { createdBy: { connect: { id: auth.user.id } } }),
+              ...(body.encounterId !== undefined
+                ? body.encounterId
+                  ? { encounter: { connect: { id: body.encounterId } } }
+                  : { encounter: { disconnect: true } }
+                : {}),
+            },
+          });
+        });
+      } else {
+        note = await prisma.note.update({
           where: { id: body.noteId },
           data: {
             date,
             content,
             ...(body.type ? { type: body.type as NoteType } : {}),
-            // Backfill author if an older note was created without createdById
-            ...(existingNote && !existingNote.createdById
-              ? { createdBy: { connect: { id: auth.user.id } } }
-              : {}),
+            ...(existingNote.createdById
+              ? {}
+              : { createdBy: { connect: { id: auth.user.id } } }),
             ...(body.encounterId !== undefined
               ? body.encounterId
                 ? { encounter: { connect: { id: body.encounterId } } }
                 : { encounter: { disconnect: true } }
               : {}),
           },
-        })
-      : await prisma.note.create({
-          data: {
-            patientId,
-            date,
-            content,
-            type: noteType,
-            encounterId: body.encounterId ?? null,
-            status: "DRAFT",
-            createdById: auth.user.id,
-          },
         });
+      }
+    } else {
+      note = await prisma.note.create({
+        data: {
+          patientId,
+          date,
+          content,
+          type: noteType,
+          encounterId: body.encounterId ?? null,
+          status: "DRAFT",
+          createdById: auth.user.id,
+        },
+      });
+    }
 
-    // Keep chart diagnosis/PMH and medications in sync when draft note sections change.
+    // Keep chart diagnosis/PMH and medications in sync when note sections change.
     if (isUpdate && body.sections) {
       await syncPatientFromNoteSections(patientId, body.sections);
     }
@@ -168,16 +210,25 @@ export async function POST(request: Request, { params }: Params) {
     await createAuditLog({
       userId: auth.user.id,
       action: body.noteId ? AuditAction.PHI_UPDATE : AuditAction.PHI_CREATE,
-      resource: "note",
+      resource: revisionVersion ? "note_revise" : "note",
       resourceId: note.id,
       patientId,
       ipAddress,
       userAgent,
-      metadata: body.encounterId ? { encounterId: body.encounterId } : undefined,
+      metadata: {
+        ...(body.encounterId ? { encounterId: body.encounterId } : {}),
+        ...(revisionVersion
+          ? {
+              revisionVersion,
+              signedAt: existingNote?.signedAt?.toISOString() ?? null,
+            }
+          : {}),
+      },
     });
 
     return NextResponse.json({ note: toNoteDTO(withEncounter!) });
-  } catch {
+  } catch (error) {
+    console.error("[notes POST]", error);
     return badRequest("Invalid request");
   }
 }

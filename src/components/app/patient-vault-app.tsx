@@ -16,7 +16,7 @@ import {
   NOTE_TYPES,
   type NoteType,
 } from "@/lib/notes";
-import { getNoteAuthorLabel } from "@/lib/note-authors";
+import { getNoteAuthorLabel, getNoteStatusLabel } from "@/lib/note-authors";
 import { flattenNoteForDisplay, parseNoteContent } from "@/lib/note-content";
 import { AddPatientModal } from "@/components/app/add-patient-modal";
 import { ArchivePatientModal, HardDeletePatientModal } from "@/components/app/archive-patient-modal";
@@ -141,12 +141,22 @@ type Note = {
   type: NoteType;
   status?: "DRAFT" | "SIGNED";
   signedAt?: string | null;
+  createdAt?: string | null;
+  revisionCount?: number | null;
+  lastRevisedAt?: string | null;
+  lastRevisedByName?: string | null;
   encounterId?: string | null;
   encounter?: { id: string; visitCategory: string; modality: string; date: string } | null;
   authorName?: string | null;
   signedByName?: string | null;
   createdBy?: { id: string; name: string | null; email: string } | null;
   signedBy?: { id: string; name: string | null; email: string } | null;
+  lastRevisedBy?: { id: string; name: string | null; email: string } | null;
+  revisions?: Array<{
+    version: number;
+    revisedAt: string;
+    revisedByName?: string | null;
+  }>;
 };
 type PatientList = { id: string; name: string; patients: { id: string; name: string }[] };
 type DocumentItem = {
@@ -190,7 +200,7 @@ function buildChartCopyText(patient: Patient, clinicalNotes: Note[]) {
         ? ` · ${formatEncounterLabel(note.encounter.visitCategory, note.encounter.modality)} ${formatDateOnly(note.encounter.date)}`
         : "";
       const authorLabel = getNoteAuthorLabel(note);
-      const signLabel = note.status === "SIGNED" ? " [Signed]" : " [Draft]";
+      const signLabel = ` [${getNoteStatusLabel(note)}]`;
       lines.push(
         `${formatDate(note.date)} · ${getNoteTypeLabel(note.type)} · ${authorLabel}${encounterLabel}${signLabel}:`,
         preview || "(empty)",
@@ -1430,6 +1440,7 @@ function ChartNotesPanel({
             notes.map((n) => {
               const status = n.status ?? "DRAFT";
               const isSigned = status === "SIGNED";
+              const isRevised = isSigned && (n.revisionCount ?? 0) > 0;
               const selected = n.id === activeNoteId;
               return (
                 <button
@@ -1450,10 +1461,14 @@ function ChartNotesPanel({
                     <span
                       className={cn(
                         "shrink-0 rounded px-[0.3em] py-[0.1em] text-[0.8em] font-semibold uppercase tracking-wide",
-                        isSigned ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"
+                        !isSigned
+                          ? "bg-amber-500/15 text-amber-300"
+                          : isRevised
+                            ? "bg-orange-500/15 text-orange-300"
+                            : "bg-emerald-500/15 text-emerald-300"
                       )}
                     >
-                      {isSigned ? "Signed" : "Draft"}
+                      {getNoteStatusLabel(n)}
                     </span>
                   </div>
                   <span className="truncate text-[0.9em] text-[var(--pv-muted-2)]">
@@ -1533,11 +1548,17 @@ function ChartNotesPanel({
               date: activeNote.date,
               content: activeNote.content,
               signedAt: activeNote.signedAt,
+              createdAt: activeNote.createdAt,
+              revisionCount: activeNote.revisionCount,
+              lastRevisedAt: activeNote.lastRevisedAt,
+              lastRevisedByName: activeNote.lastRevisedByName,
               encounterId: activeNote.encounterId,
               authorName: activeNote.authorName,
               signedByName: activeNote.signedByName,
               createdBy: activeNote.createdBy,
               signedBy: activeNote.signedBy,
+              lastRevisedBy: activeNote.lastRevisedBy,
+              revisions: activeNote.revisions,
             }}
             chartInsertData={chartInsertData}
             patientDiagnosis={patientDiagnosis}

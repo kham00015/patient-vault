@@ -22,7 +22,7 @@ import { getNoteTabs, type NoteFieldDef, usesStructuredNote } from "@/lib/note-t
 import { getNormalNoteText } from "@/lib/normal-note-text";
 import { parseFixedNoteSections, type FixedNoteSections } from "@/lib/fixed-note-sections";
 import { getNoteTypeLabel, type NoteType } from "@/lib/notes";
-import { getNoteAuthorLabel } from "@/lib/note-authors";
+import { getNoteAuthorLabel, getNoteStatusLabel } from "@/lib/note-authors";
 import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
@@ -55,11 +55,21 @@ export type StructuredNoteData = {
   date: string;
   content: string;
   signedAt?: string | null;
+  createdAt?: string | null;
+  revisionCount?: number | null;
+  lastRevisedAt?: string | null;
+  lastRevisedByName?: string | null;
   encounterId?: string | null;
   authorName?: string | null;
   signedByName?: string | null;
   createdBy?: { id: string; name: string | null; email: string } | null;
   signedBy?: { id: string; name: string | null; email: string } | null;
+  lastRevisedBy?: { id: string; name: string | null; email: string } | null;
+  revisions?: Array<{
+    version: number;
+    revisedAt: string;
+    revisedByName?: string | null;
+  }>;
 };
 
 type BoxField = NoteFieldDef & {
@@ -314,7 +324,9 @@ export function StructuredNoteEditor({
     () => new Set()
   );
   const isSigned = note.status === "SIGNED";
-  const readOnly = isReadOnly || isSigned;
+  const isRevised = isSigned && (note.revisionCount ?? 0) > 0;
+  const statusLabel = getNoteStatusLabel(note);
+  const readOnly = isReadOnly;
   const sectionsRef = useRef(sections);
   const vitalsRef = useRef(vitals);
   const dateRef = useRef(date);
@@ -472,7 +484,7 @@ export function StructuredNoteEditor({
   }
 
   async function signNote() {
-    if (readOnly) return;
+    if (readOnly || isSigned) return;
     setSigning(true);
     try {
       await persist();
@@ -697,10 +709,14 @@ export function StructuredNoteEditor({
           <span
             className={cn(
               "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              isSigned ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"
+              !isSigned
+                ? "bg-rose-500/15 text-rose-300"
+                : isRevised
+                  ? "bg-amber-500/15 text-amber-300"
+                  : "bg-emerald-500/15 text-emerald-300"
             )}
           >
-            {isSigned ? "Signed" : "Draft"}
+            {statusLabel}
           </span>
           <span className="text-sm font-semibold text-cyan-200">{getNoteTypeLabel(note.type)}</span>
           <span className="text-xs text-[var(--pv-muted)]">
@@ -732,12 +748,49 @@ export function StructuredNoteEditor({
               <Trash2 size={14} /> Delete Note
             </Button>
           )}
-          {!readOnly && (
+          {!readOnly && !isSigned && (
             <Button variant="success" className="!text-xs" disabled={signing} onClick={signNote}>
               <PenLine size={14} /> Sign Note
             </Button>
           )}
         </div>
+      </div>
+
+      <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2 text-xs text-[var(--pv-fg-soft)]">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
+          Compliance stamps
+        </p>
+        <div className="mt-1 space-y-0.5">
+          <p>
+            <span className="text-[var(--pv-muted)]">Initiated:</span>{" "}
+            {note.createdAt ? formatDate(note.createdAt) : "—"}
+            {note.authorName ? ` by ${note.authorName}` : ""}
+          </p>
+          <p>
+            <span className="text-[var(--pv-muted)]">Signed:</span>{" "}
+            {note.signedAt ? formatDate(note.signedAt) : "Not signed"}
+            {note.signedByName ? ` by ${note.signedByName}` : ""}
+          </p>
+          {(note.revisions?.length ?? 0) === 0 ? (
+            <p>
+              <span className="text-[var(--pv-muted)]">Revised:</span> —
+            </p>
+          ) : (
+            note.revisions!.map((r) => (
+              <p key={r.version}>
+                <span className="text-[var(--pv-muted)]">Revised #{r.version}:</span>{" "}
+                {formatDate(r.revisedAt)}
+                {r.revisedByName ? ` by ${r.revisedByName}` : ""}
+              </p>
+            ))
+          )}
+        </div>
+        {isSigned && !readOnly && (
+          <p className="mt-2 text-[11px] text-amber-300/90">
+            This note is signed. Saving changes will mark it as Revised and keep a compliance
+            history of each edit.
+          </p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
