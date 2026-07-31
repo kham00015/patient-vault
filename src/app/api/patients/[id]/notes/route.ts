@@ -5,11 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
-import { prepareNoteContent, toNoteDTO, isPatientChartWritable } from "@/lib/patients";
+import { prepareNoteContent, toNoteDTO, toPatientDTO, isPatientChartWritable } from "@/lib/patients";
 import { decryptNoteContent } from "@/lib/encryption";
 import { NOTE_TYPES, DEFAULT_NOTE_TYPE } from "@/lib/notes";
 import { serializeNoteContent, createEmptySections, parseNotePayload } from "@/lib/note-content";
 import { buildPropagatedNoteSections } from "@/lib/note-propagation";
+import {
+  applyChartSyncToNoteSections,
+  syncPatientFromNoteSections,
+} from "@/lib/chart-note-sync";
 import { createEmptyVitals, type VitalsData } from "@/lib/vitals";
 import type { NoteType } from "@/lib/notes";
 import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
@@ -107,6 +111,8 @@ export async function POST(request: Request, { params }: Params) {
           if (value?.trim()) sections[key] = value;
         }
       }
+      // New notes always pull diagnosis/PMH and medications from the chart.
+      sections = applyChartSyncToNoteSections(sections, toPatientDTO(patient));
     }
 
     if (body.vitals) {
@@ -147,6 +153,11 @@ export async function POST(request: Request, { params }: Params) {
             createdById: auth.user.id,
           },
         });
+
+    // Keep chart diagnosis/PMH and medications in sync when draft note sections change.
+    if (isUpdate && body.sections) {
+      await syncPatientFromNoteSections(patientId, body.sections);
+    }
 
     const withEncounter = await prisma.note.findUnique({
       where: { id: note.id },

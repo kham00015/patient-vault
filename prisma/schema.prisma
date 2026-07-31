@@ -76,6 +76,7 @@ model User {
   notesSigned Note[] @relation("SignedNotes")
   ordersCreated Order[] @relation("CreatedOrders")
   ordersReviewed Order[] @relation("ReviewedOrders")
+  personalNotes PatientPersonalNote[]
 }
 
 model Session {
@@ -166,6 +167,7 @@ model Patient {
   messageThreads  MessageThread[]
   reminders       Reminder[]
   orders          Order[]
+  personalNotes   PatientPersonalNote[]
 
   @@index([name])
   @@index([lastName, firstName])
@@ -437,6 +439,7 @@ model ScheduleEntry {
   patient                Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   providerKey            String        @default("FIRAS_KHAMIS")
   visitCategory          VisitCategory @default(FOLLOW_UP)
+  checkedInAt            DateTime?
   readyAt                DateTime?
   roomNumber             String?
   docNotes               String?
@@ -556,6 +559,22 @@ model Reminder {
   @@index([patientId])
   @@index([dueDate])
   @@index([status])
+}
+
+/** Private per-user scratchpad — not part of the clinical chart */
+model PatientPersonalNote {
+  id        String   @id @default(cuid())
+  patientId String
+  userId    String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, userId])
+  @@index([userId])
+  @@index([patientId])
 }
 
 enum ContactType {

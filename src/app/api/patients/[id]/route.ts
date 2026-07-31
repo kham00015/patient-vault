@@ -9,6 +9,10 @@ import { preparePatientUpdate, toPatientDTO } from "@/lib/patients";
 import { formatPatientName } from "@/lib/patient-registration";
 import { parseFixedNoteSections, serializeFixedNoteSections } from "@/lib/note-propagation";
 import {
+  expandSyncedPatientFields,
+  syncDraftNotesFromChartFields,
+} from "@/lib/chart-note-sync";
+import {
   CLINICAL_CLEAR_FIELDS,
   deleteRecordReasonSchema,
   hardDeletePatientSchema,
@@ -81,7 +85,7 @@ export async function PATCH(request: Request, { params }: Params) {
   const { id } = await params;
 
   try {
-    const body = updateSchema.parse(await request.json());
+    const body = expandSyncedPatientFields(updateSchema.parse(await request.json()));
     const existing = await prisma.patient.findUnique({ where: { id } });
     if (!existing) return notFound();
     if (existing.status !== "ACTIVE") {
@@ -135,6 +139,26 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const encrypted = preparePatientUpdate(updateData as Record<string, string | undefined>);
     const patient = await prisma.patient.update({ where: { id }, data: encrypted });
+
+    const syncedFields = {
+      ...("diagnosis" in body || "pmh" in body
+        ? {
+            diagnosis: (body.diagnosis ?? body.pmh) as string | undefined,
+            pmh: (body.pmh ?? body.diagnosis) as string | undefined,
+          }
+        : {}),
+      ...("medications" in body || "currentMedications" in body
+        ? {
+            medications: (body.medications ?? body.currentMedications) as string | undefined,
+            currentMedications: (body.currentMedications ?? body.medications) as
+              | string
+              | undefined,
+          }
+        : {}),
+    };
+    if (Object.keys(syncedFields).length > 0) {
+      await syncDraftNotesFromChartFields(id, syncedFields);
+    }
 
     const { ipAddress, userAgent } = getClientInfo(request);
     const auditMeta: Record<string, string | number | boolean | string[] | null | undefined> = {

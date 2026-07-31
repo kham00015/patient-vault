@@ -1,90 +1,393 @@
+import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+  type ContentBlock,
+  type Message,
+  type SystemContentBlock,
+} from "@aws-sdk/client-bedrock-runtime";
+import {
+  AI_ASSESSMENT_RULES,
+  AI_CHART_CHAT_RULES,
+  AI_GUIDELINES_CLINIC_RULES,
+  AI_GUIDELINES_RULES,
+  AI_HPI_FOLLOWUP_RULES,
+  AI_HPI_NEW_RULES,
+  AI_ORGANIZE_RULES,
+  AI_PLAN_RULES,
+} from "@/lib/ai-rules";
+import type { HpiVisitKind } from "@/lib/hpi-visit-context";
+import type { ChartDocumentAttachment } from "@/lib/ai-chart-context";
+
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
+
+const DEFAULT_BEDROCK_MODEL_ID =
+  process.env.BEDROCK_MODEL_ID?.trim() ||
+  "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
+
+function getBedrockRegion() {
+  return (
+    process.env.BEDROCK_REGION?.trim() ||
+    process.env.AWS_REGION?.trim() ||
+    "us-east-1"
+  );
+}
+
+export function isBedrockConfigured() {
+  // IAM role on Lightsail/EC2 is enough; local needs access key or SSO profile.
+  // Treat as configured when model id is present (default always is).
+  // Soft-check: require either explicit keys OR assume role in production.
+  if (process.env.BEDROCK_DISABLED === "1") return false;
+  const hasKeys = Boolean(
+    process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim()
+  );
+  const assumeRoleOk =
+    process.env.NODE_ENV === "production" || process.env.AWS_USE_INSTANCE_ROLE === "1";
+  return hasKeys || assumeRoleOk || Boolean(process.env.AWS_PROFILE?.trim());
+}
+
+function getBedrockClient() {
+  return new BedrockRuntimeClient({ region: getBedrockRegion() });
+}
+
+const CLINICAL_SYSTEM = AI_CHART_CHAT_RULES;
+
+function toBedrockMessages(
+  messages: ChatMessage[],
+  attachments: ChartDocumentAttachment[] = []
+): Message[] {
+  const filtered = messages.filter(
+    (m) => (m.role === "user" || m.role === "assistant") && m.content.trim()
+  );
+
+  const out: Message[] = [];
+  for (let i = 0; i < filtered.length; i++) {
+    const msg = filtered[i]!;
+    const isLastUser =
+      msg.role === "user" && i === filtered.length - 1 && attachments.length > 0;
+
+    if (!isLastUser) {
+      out.push({
+        role: msg.role === "assistant" ? "assistant" : "user",
+        content: [{ text: msg.content }],
+      });
+      continue;
+    }
+
+    const blocks: ContentBlock[] = [];
+    const usedNames = new Set<string>();
+    for (const [index, att] of attachments.entries()) {
+      if (att.kind === "document") {
+        let name = att.name.replace(/\.[^.]+$/, "").trim() || "document";
+        name = name
+          .replace(/[^a-zA-Z0-9 \-()[\]]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 180);
+        if (!name) name = "document";
+        if (usedNames.has(name)) {
+          name = `${name} (${index + 1})`.slice(0, 200);
+        }
+        usedNames.add(name);
+        blocks.push({
+          document: {
+            name,
+            format: att.format,
+            source: { bytes: att.bytes },
+          },
+        });
+      } else {
+        blocks.push({
+          image: {
+            format: att.format,
+            source: { bytes: att.bytes },
+          },
+        });
+      }
+    }
+    blocks.push({ text: msg.content });
+    out.push({ role: "user", content: blocks });
+  }
+
+  return out;
+}
+
+function extractText(content: ContentBlock[] | undefined) {
+  if (!content?.length) return "No response";
+  return content
+    .map((block) => ("text" in block && block.text ? block.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim() || "No response";
+}
 
 export async function chatWithAI(params: {
   messages: ChatMessage[];
   patientData?: string;
+  attachments?: ChartDocumentAttachment[];
   pastConversations?: string;
 }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!isBedrockConfigured()) {
     return {
       response:
-        "AI is not configured. Set OPENAI_API_KEY on the server. " +
-        "For HIPAA production, use Azure OpenAI or AWS Bedrock with a signed BAA.",
+        "AI is not configured for AWS Bedrock. Set AWS credentials (or instance role), AWS_REGION, and optionally BEDROCK_MODEL_ID. Ensure the Bedrock model is enabled in this AWS account/region (BAA already covers Bedrock).",
       configured: false,
+      provider: "bedrock" as const,
     };
   }
 
-  const systemContent = `You are a clinical decision-support assistant for licensed healthcare providers.
-You help analyze patient charts. You do NOT replace clinical judgment.
-Never fabricate medical data. If information is missing, say so.
-${params.patientData ? `\n\n=== PATIENT CHART ===\n${params.patientData}` : ""}
-${params.pastConversations ? `\n\n=== PAST CONVERSATIONS ===\n${params.pastConversations}` : ""}`;
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const systemBlocks: SystemContentBlock[] = [
+    {
+      text: `${CLINICAL_SYSTEM}${
+        params.patientData ? `\n\n=== PATIENT CHART ===\n${params.patientData}` : ""
+      }${
+        params.pastConversations
+          ? `\n\n=== PAST CONVERSATIONS ===\n${params.pastConversations}`
+          : ""
+      }`,
     },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "system", content: systemContent }, ...params.messages],
-      temperature: 0.3,
-      max_tokens: 2000,
-    }),
-  });
+  ];
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} ${err}`);
+  try {
+    const client = getBedrockClient();
+    const response = await client.send(
+      new ConverseCommand({
+        modelId: DEFAULT_BEDROCK_MODEL_ID,
+        system: systemBlocks,
+        messages: toBedrockMessages(params.messages, params.attachments ?? []),
+        inferenceConfig: {
+          temperature: 0.2,
+          maxTokens: 2500,
+        },
+      })
+    );
+
+    return {
+      response: extractText(response.output?.message?.content),
+      configured: true,
+      provider: "bedrock" as const,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const name = error instanceof Error ? error.name : "";
+    if (
+      /AccessDenied|is not authorized|could not resolve|ResourceNotFound|ValidationException|end of its life|ModelNotReady|not enabled|document file name/i.test(
+        `${name} ${message}`
+      )
+    ) {
+      return {
+        response:
+          `Bedrock request failed: ${message}`,
+        configured: false,
+        provider: "bedrock" as const,
+      };
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  return {
-    response: data.choices?.[0]?.message?.content ?? "No response",
-    configured: true,
-  };
 }
 
 export async function organizeChartWithAI(chartText: string) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY not configured");
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID for production AI."
+    );
   }
 
-  const systemPrompt = `Organize patient chart data into JSON sections.
-Return ONLY valid JSON:
-{
-  "pmh": "",
-  "echo": "",
-  "pft": "",
-  "sleep": "",
-  "labs": "",
-  "imaging": "",
-  "medications": "",
-  "social": ""
-}`;
+  const systemPrompt = AI_ORGANIZE_RULES;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: chartText },
+        {
+          role: "user",
+          content: [{ text: chartText }],
+        },
       ],
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-    }),
-  });
+      inferenceConfig: {
+        temperature: 0.1,
+        maxTokens: 3000,
+      },
+    })
+  );
 
-  if (!response.ok) throw new Error("AI organize failed");
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content ?? "{}";
-  return JSON.parse(text) as Record<string, string>;
+  const text = extractText(response.output?.message?.content);
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("AI organize returned no JSON");
+  return JSON.parse(jsonMatch[0]) as Record<string, string>;
 }
+
+export async function draftNoteSectionWithAI(params: {
+  target: "assessment" | "plan";
+  noteContext: string;
+}) {
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID."
+    );
+  }
+
+  const isAssessment = params.target === "assessment";
+  const systemPrompt = isAssessment ? AI_ASSESSMENT_RULES : AI_PLAN_RULES;
+
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              text: `Draft the ${isAssessment ? "Assessment" : "Plan"} for this visit note.\n\n${params.noteContext}`,
+            },
+          ],
+        },
+      ],
+      inferenceConfig: {
+        temperature: 0.25,
+        maxTokens: 1800,
+      },
+    })
+  );
+
+  return {
+    text: normalizeSectionList(extractText(response.output?.message?.content)),
+    provider: "bedrock" as const,
+  };
+}
+
+export async function draftHpiFromTranscript(params: {
+  transcript: string;
+  visitKind: HpiVisitKind;
+  visitReason?: string;
+}) {
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID."
+    );
+  }
+
+  const isNew = params.visitKind === "NEW_PATIENT";
+  const systemPrompt = isNew ? AI_HPI_NEW_RULES : AI_HPI_FOLLOWUP_RULES;
+
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              text: `Visit type for this draft: ${isNew ? "NEW PATIENT (full HPI)" : "FOLLOW-UP (interval HPI)"}${
+                params.visitReason ? `\nDetection note: ${params.visitReason}` : ""
+              }\n\nConversation transcript (Amazon Transcribe Medical):\n\n${params.transcript}`,
+            },
+          ],
+        },
+      ],
+      inferenceConfig: {
+        temperature: 0.25,
+        maxTokens: 2200,
+      },
+    })
+  );
+
+  return {
+    text: extractText(response.output?.message?.content).replace(/^HPI:\s*/i, "").trim(),
+    provider: "bedrock" as const,
+  };
+}
+
+export async function reviewChartGuidelinesWithAI(params: {
+  patientData: string;
+  attachments?: ChartDocumentAttachment[];
+}) {
+  if (!isBedrockConfigured()) {
+    return {
+      response:
+        "AI is not configured for AWS Bedrock. Set AWS credentials (or instance role), AWS_REGION, and optionally BEDROCK_MODEL_ID.",
+      configured: false,
+      provider: "bedrock" as const,
+    };
+  }
+
+  const systemText = `${AI_GUIDELINES_RULES}
+
+=== CLINIC / PERSONAL GUIDELINES (PRIORITY — follow these first when they apply) ===
+${AI_GUIDELINES_CLINIC_RULES.trim() || "(None added yet — use general guidelines.)"}
+
+=== PATIENT CHART ===
+${params.patientData}`;
+
+  try {
+    const client = getBedrockClient();
+    const response = await client.send(
+      new ConverseCommand({
+        modelId: DEFAULT_BEDROCK_MODEL_ID,
+        system: [{ text: systemText }],
+        messages: toBedrockMessages(
+          [
+            {
+              role: "user",
+              content:
+                "Review this patient's chart against clinic guidelines (priority) and general guidelines. Produce the structured care recommendations now.",
+            },
+          ],
+          params.attachments ?? []
+        ),
+        inferenceConfig: {
+          temperature: 0.2,
+          maxTokens: 3000,
+        },
+      })
+    );
+
+    return {
+      response: normalizeGuidelinesText(extractText(response.output?.message?.content)),
+      configured: true,
+      provider: "bedrock" as const,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      response: `Bedrock guidelines review failed: ${message}`,
+      configured: false,
+      provider: "bedrock" as const,
+    };
+  }
+}
+
+/** Prefer plain diagnosis blocks + dash lines; strip markdown bold/headers. */
+function normalizeGuidelinesText(raw: string) {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[*•]\s+/gm, "- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** One item per line, no blank lines, strip leading bullets/numbers. */
+function normalizeSectionList(raw: string) {
+  const lines = raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/^[\s*\-•\d.)]+/, "").trim())
+    .filter(Boolean)
+    .map((line) =>
+      line
+        .replace(/\b6[\s\-]?min(?:ute|tue)?s?\s+walk\b/gi, "6 min walk")
+        .replace(/\b6\s*MWT\b/gi, "6 min walk")
+        .replace(/\bmintue\s+walk\b/gi, "6 min walk")
+        .replace(/\bminute\s+walk\b/gi, "6 min walk")
+    );
+  if (lines.length === 0) return raw.trim();
+  return lines.join("\n");
+}
+

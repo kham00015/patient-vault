@@ -8,6 +8,7 @@ export type ScheduleEntryDTO = {
   name: string;
   providerKey: string;
   visitCategory: ScheduleEntry["visitCategory"];
+  checkedInAt: string | null;
   readyAt: string | null;
   roomNumber: string | null;
   docNotes: string | null;
@@ -23,6 +24,7 @@ export function toScheduleEntryDTO(
     name: entry.patient.name,
     providerKey: entry.providerKey,
     visitCategory: entry.visitCategory,
+    checkedInAt: entry.checkedInAt?.toISOString() ?? null,
     readyAt: entry.readyAt?.toISOString() ?? null,
     roomNumber: entry.roomNumber,
     docNotes: entry.docNotes,

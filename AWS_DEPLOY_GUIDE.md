@@ -121,6 +121,11 @@ AWS_REGION=us-east-1
 AWS_S3_BUCKET=patient-vault-docs-your-suffix
 NODE_ENV=production
 OPENAI_API_KEY=optional
+
+# Bedrock Ask AI (preferred — covered by AWS BAA)
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+# Enable Claude Sonnet 4.5 in Bedrock console; IAM needs bedrock:Converse
+# Do not use retired Claude 3.5 Sonnet 20241022 IDs (EOL)
 ```
 
 Save: `Ctrl+O`, `Enter`, `Ctrl+X`

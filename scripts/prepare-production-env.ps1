@@ -46,9 +46,20 @@ if ($vars["DATABASE_URL"] -match '^postgresql://([^:]+):([^@]+)@(.+)$') {
   $vars["DATABASE_URL"] = "postgresql://${dbUser}:${dbPass}@${dbRest}"
 }
 
-# Keep S3 settings when regenerating after setup-s3-production.ps1
+# Keep S3 + Bedrock settings when regenerating after setup-s3-production.ps1
 if (Test-Path $out) {
-  $preserve = @("STORAGE_TYPE", "AWS_REGION", "AWS_S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+  $preserve = @(
+    "STORAGE_TYPE",
+    "AWS_REGION",
+    "AWS_S3_BUCKET",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_KMS_KEY_ID",
+    "BEDROCK_MODEL_ID",
+    "BEDROCK_REGION",
+    "AWS_USE_INSTANCE_ROLE",
+    "BEDROCK_DISABLED"
+  )
   Get-Content $out | ForEach-Object {
     $line = $_.Trim()
     if ($line -eq "" -or $line.StartsWith("#")) { return }
@@ -63,6 +74,13 @@ if (Test-Path $out) {
 
 if ($vars["STORAGE_TYPE"] -eq "s3") {
   $vars["STORAGE_LOCAL_PATH"] = "/app/storage"
+}
+
+if (-not $vars["BEDROCK_MODEL_ID"]) {
+  $vars["BEDROCK_MODEL_ID"] = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+if (-not $vars["AWS_REGION"]) {
+  $vars["AWS_REGION"] = "us-east-1"
 }
 
 $lines = @(

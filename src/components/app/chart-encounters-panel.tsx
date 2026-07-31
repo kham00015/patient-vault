@@ -355,6 +355,7 @@ export function ChartEncountersPanel({
   if (activeNote) {
     return (
       <StructuredNoteEditor
+        key={activeNote.id}
         patientId={patientId}
         note={activeNote}
         chartInsertData={chartInsertData}

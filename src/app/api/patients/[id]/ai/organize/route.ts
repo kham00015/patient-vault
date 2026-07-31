@@ -4,8 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { organizeChartWithAI } from "@/lib/ai";
-import { toPatientDTO, MEDICAL_SECTIONS, preparePatientUpdate, isPatientChartWritable, toNoteDTO } from "@/lib/patients";
-import { getNoteTypeLabel } from "@/lib/notes";
+import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
+import { preparePatientUpdate, isPatientChartWritable } from "@/lib/patients";
+import {
+  expandSyncedPatientFields,
+  syncDraftNotesFromChartFields,
+} from "@/lib/chart-note-sync";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,30 +24,31 @@ export async function POST(request: Request, { params }: Params) {
     return badRequest("Archived charts are read-only");
   }
 
-  const dto = toPatientDTO(patient);
-  const clinicalNotes = await prisma.note.findMany({
-    where: { patientId },
-    orderBy: { date: "desc" },
-  });
-  let combined = `Patient: ${dto.name}\n\n`;
-  if (clinicalNotes.length > 0) {
-    combined += "=== CLINICAL NOTES ===\n";
-    for (const note of clinicalNotes) {
-      const decrypted = toNoteDTO(note);
-      combined += `${decrypted.date.slice(0, 10)} · ${getNoteTypeLabel(decrypted.type)}:\n${decrypted.content}\n\n`;
-    }
-  }
-  for (const s of MEDICAL_SECTIONS) {
-    const val = dto[s.key as keyof typeof dto];
-    if (typeof val === "string" && val.trim()) {
-      combined += `=== ${s.label.toUpperCase()} ===\n${val}\n\n`;
-    }
-  }
-
   try {
-    const organized = await organizeChartWithAI(combined);
+    const chart = await buildPatientChartAiContext(patientId);
+    const organized = expandSyncedPatientFields(
+      (await organizeChartWithAI(chart.text)) as Record<string, string>
+    );
+    // If AI returned both diagnosis and pmh differently, prefer diagnosis for the pair.
+    if (organized.diagnosis != null) {
+      organized.pmh = organized.diagnosis;
+    } else if (organized.pmh != null) {
+      organized.diagnosis = organized.pmh;
+    }
+    if (organized.medications != null) {
+      organized.currentMedications = organized.medications;
+    } else if (organized.currentMedications != null) {
+      organized.medications = organized.currentMedications;
+    }
+
     const encrypted = preparePatientUpdate(organized as Record<string, string>);
     await prisma.patient.update({ where: { id: patientId }, data: encrypted });
+    await syncDraftNotesFromChartFields(patientId, {
+      diagnosis: organized.diagnosis,
+      pmh: organized.pmh,
+      medications: organized.medications,
+      currentMedications: organized.currentMedications,
+    });
 
     const { ipAddress, userAgent } = getClientInfo(request);
     await createAuditLog({
@@ -53,11 +58,16 @@ export async function POST(request: Request, { params }: Params) {
       patientId,
       ipAddress,
       userAgent,
+      metadata: {
+        provider: "bedrock",
+        attachments: chart.attachmentSummary.length,
+      },
     });
 
     return NextResponse.json({ sections: organized });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI organize failed";
+    console.error("[ai organize]", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

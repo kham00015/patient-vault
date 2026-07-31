@@ -36,8 +36,11 @@ import {
 import {
   ArrowDownToLine,
   ArrowLeft,
+  Bot,
+  Check,
   ChevronDown,
   ChevronUp,
+  Copy,
   Expand,
   FileText,
   PenLine,
@@ -272,7 +275,23 @@ export function StructuredNoteEditor({
   const noteGroups = useMemo(() => getNoteGroups(note.type), [note.type]);
   const boxFields = useMemo(() => flattenGroupFields(noteGroups), [noteGroups]);
   const showVitals = usesStructuredNote(note.type);
-  const [sections, setSections] = useState<NoteSections>(() => initial.sections);
+  const [sections, setSections] = useState<NoteSections>(() => {
+    const problem =
+      (patientDiagnosis ?? "").trim() ||
+      (chartInsertData.diagnosis ?? "").trim() ||
+      (chartInsertData.pmh ?? "").trim() ||
+      initial.sections.pastMedicalHistory ||
+      "";
+    const meds =
+      (chartInsertData.medications ?? "").trim() ||
+      initial.sections.currentMedications ||
+      "";
+    return {
+      ...initial.sections,
+      pastMedicalHistory: problem,
+      currentMedications: meds,
+    };
+  });
   const [vitals, setVitals] = useState<VitalsData>(() => initial.vitals);
   const [date, setDate] = useState(toDateInputValue(note.date));
   const [saving, setSaving] = useState(false);
@@ -286,6 +305,11 @@ export function StructuredNoteEditor({
   const [expandedSection, setExpandedSection] = useState<NoteSectionKey | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
+  const [aiTarget, setAiTarget] = useState<"assessment" | "plan" | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiDraft, setAiDraft] = useState("");
+  const [aiError, setAiError] = useState("");
+  const [aiCopied, setAiCopied] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<CollapsibleNotePanelKey>>(
     () => new Set()
   );
@@ -328,6 +352,34 @@ export function StructuredNoteEditor({
       })
       .catch(() => undefined);
   }, [patientId]);
+
+  // Keep note PMH / medications mirrored with chart diagnosis+PMH / medications.
+  useEffect(() => {
+    if (readOnly) return;
+    const problem =
+      (chartInsertData.diagnosis ?? "").trim() || (chartInsertData.pmh ?? "").trim();
+    const meds = (chartInsertData.medications ?? "").trim();
+    setSections((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      if ((prev.pastMedicalHistory ?? "") !== problem) {
+        next.pastMedicalHistory = problem;
+        changed = true;
+      }
+      if ((prev.currentMedications ?? "") !== meds) {
+        next.currentMedications = meds;
+        changed = true;
+      }
+      if (!changed) return prev;
+      sectionsRef.current = next;
+      return next;
+    });
+  }, [
+    chartInsertData.diagnosis,
+    chartInsertData.pmh,
+    chartInsertData.medications,
+    readOnly,
+  ]);
 
   const persist = useCallback(async () => {
     if (readOnly) return;
@@ -442,6 +494,93 @@ export function StructuredNoteEditor({
     onBack();
   }
 
+  function buildAiNoteContext(target: "assessment" | "plan") {
+    const s = sectionsRef.current;
+    const parts: string[] = [];
+    if (s.chiefComplaint?.trim()) parts.push(`=== CHIEF COMPLAINT ===\n${s.chiefComplaint.trim()}`);
+    if (s.hpi?.trim()) parts.push(`=== HPI ===\n${s.hpi.trim()}`);
+    if (s.reviewOfSystems?.trim()) parts.push(`=== ROS ===\n${s.reviewOfSystems.trim()}`);
+    if (s.physicalExam?.trim()) parts.push(`=== EXAM ===\n${s.physicalExam.trim()}`);
+    if (s.pastMedicalHistory?.trim()) parts.push(`=== NOTE PMH ===\n${s.pastMedicalHistory.trim()}`);
+    if (target === "plan") {
+      if (s.assessment?.trim()) parts.push(`=== ASSESSMENT ===\n${s.assessment.trim()}`);
+    } else if (s.assessment?.trim()) {
+      parts.push(`=== CURRENT ASSESSMENT DRAFT (optional reference) ===\n${s.assessment.trim()}`);
+    }
+    if (target === "plan" && s.plan?.trim()) {
+      parts.push(`=== CURRENT PLAN DRAFT (optional reference) ===\n${s.plan.trim()}`);
+    }
+    if (diagnosisText) parts.push(`=== CHART DIAGNOSES ===\n${diagnosisText}`);
+    // Chart context helps Plan rules (prior PFTs / 6MWT / asthma-COPD history).
+    if (target === "plan") {
+      const chartPmh = chartInsertData.pmh?.trim();
+      const chartMeds = chartInsertData.medications?.trim();
+      const chartLabs = chartInsertData.labs?.trim();
+      const chartPft = chartInsertData.pft?.trim();
+      if (chartPmh) parts.push(`=== CHART PMH ===\n${chartPmh}`);
+      if (chartPft) parts.push(`=== CHART PFT SECTION ===\n${chartPft}`);
+      if (chartMeds) parts.push(`=== CHART MEDICATIONS ===\n${chartMeds}`);
+      if (chartLabs) parts.push(`=== CHART LABS ===\n${chartLabs}`);
+      if (!chartPft) {
+        parts.push("=== CHART PFT SECTION ===\n(no prior PFT documentation on chart)");
+      }
+      parts.push(
+        "=== PRIOR TESTING HINTS ===\nUse chart/note text to decide if PFTs or 6 min walk were already done. If asthma/COPD and no prior PFTs documented, include exactly: PFTs today. If no prior 6 min walk documented, include exactly: 6 min walk today."
+      );
+    }
+    return parts.join("\n\n");
+  }
+
+  async function runSectionAi(target: "assessment" | "plan") {
+    const noteContext = buildAiNoteContext(target);
+    if (!noteContext.trim() || (!sectionsRef.current.hpi?.trim() && target === "assessment")) {
+      setAiTarget(target);
+      setAiDraft("");
+      setAiError(
+        target === "assessment"
+          ? "Add HPI first so AI can draft an Assessment."
+          : "Add HPI (and ideally Assessment) first so AI can draft a Plan."
+      );
+      setAiCopied(false);
+      return;
+    }
+    if (target === "plan" && !sectionsRef.current.hpi?.trim() && !sectionsRef.current.assessment?.trim()) {
+      setAiTarget(target);
+      setAiDraft("");
+      setAiError("Add HPI or Assessment first so AI can draft a Plan.");
+      setAiCopied(false);
+      return;
+    }
+
+    setAiTarget(target);
+    setAiLoading(true);
+    setAiDraft("");
+    setAiError("");
+    setAiCopied(false);
+    try {
+      const res = await api<{ text: string }>(`/api/patients/${patientId}/ai/draft-section`, {
+        method: "POST",
+        json: { target, noteContext },
+      });
+      setAiDraft(res.text ?? "");
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "AI draft failed");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function copyAiDraft() {
+    if (!aiDraft.trim()) return;
+    try {
+      await navigator.clipboard.writeText(aiDraft);
+      setAiCopied(true);
+      window.setTimeout(() => setAiCopied(false), 1500);
+    } catch {
+      setAiError("Could not copy to clipboard");
+    }
+  }
+
   function renderSectionActions(
     fieldKey: NoteSectionKey,
     options?: { includeExpand?: boolean; includeCollapse?: boolean }
@@ -452,6 +591,7 @@ export function StructuredNoteEditor({
     const includeExpand = options?.includeExpand !== false;
     const includeCollapse = options?.includeCollapse !== false;
     const showDiagnosis = fieldKey === "assessment";
+    const showAi = fieldKey === "assessment" || fieldKey === "plan";
 
     return (
       <div className="flex flex-wrap items-center gap-1">
@@ -510,6 +650,21 @@ export function StructuredNoteEditor({
             onClick={() => setExpandedSection(fieldKey)}
           >
             <Expand size={12} /> Pop out
+          </Button>
+        )}
+        {!readOnly && showAi && (
+          <Button
+            className="!h-7 !gap-1 !px-2 !text-[11px] !border-violet-500/45 !bg-violet-500/15 !text-violet-200 hover:!bg-violet-500/25"
+            title={
+              fieldKey === "assessment"
+                ? "Draft Assessment from HPI with AI"
+                : "Draft Plan from HPI/Assessment with AI"
+            }
+            disabled={aiLoading && aiTarget === fieldKey}
+            onClick={() => runSectionAi(fieldKey as "assessment" | "plan")}
+          >
+            <Bot size={12} />
+            {aiLoading && aiTarget === fieldKey ? "..." : "AI"}
           </Button>
         )}
       </div>
@@ -791,6 +946,63 @@ export function StructuredNoteEditor({
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={aiTarget !== null}
+        onClose={() => {
+          if (aiLoading) return;
+          setAiTarget(null);
+          setAiDraft("");
+          setAiError("");
+          setAiCopied(false);
+        }}
+        title={aiTarget === "plan" ? "AI Plan draft" : "AI Assessment draft"}
+        wide
+      >
+        <p className="mb-3 text-sm text-[var(--pv-muted)]">
+          {aiTarget === "assessment"
+            ? "Generated from HPI using clinical judgment. Review before pasting into the note."
+            : "Generated from HPI/Assessment using clinical judgment. Review before pasting into the note."}
+        </p>
+        {aiError && (
+          <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            {aiError}
+          </p>
+        )}
+        {aiLoading ? (
+          <p className="py-10 text-center text-sm text-cyan-300">Drafting with Bedrock...</p>
+        ) : (
+          <Textarea
+            value={aiDraft}
+            readOnly
+            className="!min-h-[40vh] !text-sm leading-relaxed"
+            placeholder="AI draft will appear here..."
+          />
+        )}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button
+            variant="ghost"
+            className="!gap-1.5"
+            disabled={aiLoading || !aiDraft.trim()}
+            onClick={() => copyAiDraft()}
+          >
+            {aiCopied ? <Check size={14} /> : <Copy size={14} />}
+            {aiCopied ? "Copied" : "Copy"}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={aiLoading}
+            onClick={() => {
+              setAiTarget(null);
+              setAiDraft("");
+              setAiError("");
+              setAiCopied(false);
+            }}
+          >
+            Close
+          </Button>
+        </div>
       </Modal>
 
       <DeleteReasonModal

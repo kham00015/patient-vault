@@ -7,7 +7,8 @@ export type PatientChartInsertKey =
   | "medications"
   | "labs"
   | "imaging"
-  | "diagnosis";
+  | "diagnosis"
+  | "pft";
 
 export const NOTE_TO_CHART_MAP: Partial<Record<NoteSectionKey, PatientChartInsertKey>> = {
   pastMedicalHistory: "pmh",
@@ -28,6 +29,12 @@ export function getChartInsertText(
   sectionKey: NoteSectionKey
 ): string {
   if (!canInsertFromChart(sectionKey)) return "";
+  if (sectionKey === "pastMedicalHistory") {
+    return (snapshot.diagnosis?.trim() || snapshot.pmh?.trim() || "");
+  }
+  if (sectionKey === "currentMedications") {
+    return snapshot.medications?.trim() ?? "";
+  }
   const chartKey = NOTE_TO_CHART_MAP[sectionKey];
   if (!chartKey) return "";
   return snapshot[chartKey]?.trim() ?? "";

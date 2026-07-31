@@ -153,6 +153,7 @@ const patchSchema = z.object({
   patientId: z.string(),
   providerKey: providerKeySchema,
   visitCategory: z.enum(["NEW_PATIENT", "FOLLOW_UP"]).optional(),
+  checkedIn: z.boolean().optional(),
   ready: z.boolean().optional(),
   roomNumber: z.string().max(20).nullable().optional(),
   docNotes: z.string().max(2000).nullable().optional(),
@@ -168,15 +169,24 @@ export async function PATCH(request: Request) {
     const body = patchSchema.parse(await request.json());
 
     const hasVisitCategory = body.visitCategory !== undefined;
+    const hasCheckedIn = body.checkedIn !== undefined;
     const hasReady = body.ready !== undefined;
     const hasRoom = body.roomNumber !== undefined;
     const hasDocNotes = body.docNotes !== undefined;
     const hasAcknowledge = body.acknowledgeDocNotes !== undefined;
 
-    if (!hasVisitCategory && !hasReady && !hasRoom && !hasDocNotes && !hasAcknowledge) {
+    if (
+      !hasVisitCategory &&
+      !hasCheckedIn &&
+      !hasReady &&
+      !hasRoom &&
+      !hasDocNotes &&
+      !hasAcknowledge
+    ) {
       return badRequest("No fields to update");
     }
 
+    if (hasCheckedIn && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasReady && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasRoom && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasDocNotes && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
@@ -191,6 +201,7 @@ export async function PATCH(request: Request) {
 
     const data: {
       visitCategory?: VisitCategory;
+      checkedInAt?: Date | null;
       readyAt?: Date | null;
       roomNumber?: string | null;
       docNotes?: string | null;
@@ -201,6 +212,9 @@ export async function PATCH(request: Request) {
       data.visitCategory = body.visitCategory;
     }
 
+    if (hasCheckedIn) {
+      data.checkedInAt = body.checkedIn ? new Date() : null;
+    }
     if (hasReady) {
       data.readyAt = body.ready ? new Date() : null;
     }
@@ -233,6 +247,7 @@ export async function PATCH(request: Request) {
       providerKey: body.providerKey,
     };
     if (hasVisitCategory) auditMeta.visitCategory = body.visitCategory ?? "FOLLOW_UP";
+    if (hasCheckedIn) auditMeta.checkedIn = body.checkedIn ?? false;
     if (hasReady) auditMeta.ready = body.ready ?? false;
     if (hasRoom) auditMeta.roomSet = Boolean(data.roomNumber);
     if (hasDocNotes) auditMeta.hasDocNotes = Boolean(data.docNotes);

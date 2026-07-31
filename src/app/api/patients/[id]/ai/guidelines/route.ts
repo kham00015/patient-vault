@@ -1,28 +1,15 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
-import { chatWithAI } from "@/lib/ai";
+import { reviewChartGuidelinesWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
 import { isPatientChartWritable } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
 
-const chatSchema = z.object({
-  message: z.string().min(1).max(4000),
-});
-
-export async function GET(request: Request, { params }: Params) {
-  const auth = await requireAuth(request);
-  if (auth instanceof NextResponse) return auth;
-  const { id: patientId } = await params;
-
-  const conv = await prisma.aIConversation.findUnique({ where: { patientId } });
-  const messages = conv ? JSON.parse(conv.messages) : [];
-  return NextResponse.json({ messages });
-}
+export const maxDuration = 120;
 
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
@@ -36,23 +23,23 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const body = chatSchema.parse(await request.json());
     const chart = await buildPatientChartAiContext(patientId);
+    const result = await reviewChartGuidelinesWithAI({
+      patientData: chart.text,
+      attachments: chart.attachments,
+    });
 
     const existing = await prisma.aIConversation.findUnique({ where: { patientId } });
     const history: { role: string; content: string }[] = existing
       ? JSON.parse(existing.messages)
       : [];
 
-    const messages = [...history, { role: "user", content: body.message }];
-
-    const result = await chatWithAI({
-      messages: messages as { role: "user" | "assistant" | "system"; content: string }[],
-      patientData: chart.text,
-      attachments: chart.attachments,
-    });
-
-    const updated = [...messages, { role: "assistant", content: result.response }];
+    const userMsg = {
+      role: "user",
+      content: "Guidelines review — continue / stop / start, labs, imaging, testing, vaccines, treatments.",
+    };
+    const assistantMsg = { role: "assistant", content: result.response };
+    const updated = [...history, userMsg, assistantMsg];
 
     await prisma.aIConversation.upsert({
       where: { patientId },
@@ -64,7 +51,7 @@ export async function POST(request: Request, { params }: Params) {
     await createAuditLog({
       userId: auth.user.id,
       action: AuditAction.AI_QUERY,
-      resource: "ai_chat",
+      resource: "ai_guidelines",
       patientId,
       ipAddress,
       userAgent,
@@ -80,24 +67,10 @@ export async function POST(request: Request, { params }: Params) {
       response: result.response,
       configured: result.configured,
       provider: result.provider,
-      context: {
-        attachments: chart.attachmentSummary.length,
-        skipped: chart.skipped.length,
-      },
     });
   } catch (error) {
-    console.error("[ai chat]", error);
-    if (error instanceof z.ZodError) return badRequest("Invalid request");
-    const message = error instanceof Error ? error.message : "AI request failed";
+    console.error("[ai guidelines]", error);
+    const message = error instanceof Error ? error.message : "Guidelines review failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-export async function DELETE(request: Request, { params }: Params) {
-  const auth = await requireAuth(request);
-  if (auth instanceof NextResponse) return auth;
-  const { id: patientId } = await params;
-
-  await prisma.aIConversation.deleteMany({ where: { patientId } });
-  return NextResponse.json({ ok: true });
 }

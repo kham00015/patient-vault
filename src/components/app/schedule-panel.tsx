@@ -116,6 +116,7 @@ export function SchedulePanel({
   const [docNotesTarget, setDocNotesTarget] = useState<ScheduleEntryDTO | null>(null);
   const [docNotesDraft, setDocNotesDraft] = useState("");
   const [savingDocNotes, setSavingDocNotes] = useState(false);
+  const [savingCheckedInId, setSavingCheckedInId] = useState<string | null>(null);
   const [savingReadyId, setSavingReadyId] = useState<string | null>(null);
   const [savingRoomId, setSavingRoomId] = useState<string | null>(null);
   const [savingVisitId, setSavingVisitId] = useState<string | null>(null);
@@ -140,6 +141,7 @@ export function SchedulePanel({
   async function patchEntry(
     entryPatientId: string,
     patch: {
+      checkedIn?: boolean;
       ready?: boolean;
       roomNumber?: string | null;
       docNotes?: string | null;
@@ -152,6 +154,19 @@ export function SchedulePanel({
       json: { date, patientId: entryPatientId, providerKey, ...patch },
     });
     await load();
+  }
+
+  async function toggleCheckedIn(entry: ScheduleEntryDTO) {
+    const isCheckedIn = Boolean(entry.checkedInAt);
+    setSavingCheckedInId(entry.id);
+    setError("");
+    try {
+      await patchEntry(entry.id, { checkedIn: !isCheckedIn });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update check-in status.");
+    } finally {
+      setSavingCheckedInId(null);
+    }
   }
 
   async function toggleReady(entry: ScheduleEntryDTO) {
@@ -272,6 +287,11 @@ export function SchedulePanel({
         </div>
         <p className="text-sm text-[var(--pv-muted-2)]">
           {scheduled.length} patient{scheduled.length === 1 ? "" : "s"} scheduled
+          {scheduled.some((s) => s.checkedInAt) && (
+            <span className="ml-2 text-sky-400">
+              · {scheduled.filter((s) => s.checkedInAt).length} checked in
+            </span>
+          )}
           {scheduled.some((s) => s.readyAt) && (
             <span className="ml-2 text-emerald-400">
               · {scheduled.filter((s) => s.readyAt).length} ready
@@ -371,8 +391,10 @@ export function SchedulePanel({
           </p>
         ) : (
           scheduled.map((entry) => {
+            const isCheckedIn = Boolean(entry.checkedInAt);
             const isReady = Boolean(entry.readyAt);
             const patient = patients.find((x) => x.id === entry.id);
+            const checkedInBusy = savingCheckedInId === entry.id;
             const readyBusy = savingReadyId === entry.id;
             const visitStyles = getScheduleVisitStyles(entry.visitCategory ?? "FOLLOW_UP");
             const hasDocNotes = Boolean(entry.docNotes?.trim());
@@ -384,7 +406,9 @@ export function SchedulePanel({
                   "rounded-xl border px-4 py-3 transition-colors",
                   isReady
                     ? "border-emerald-500/50 bg-emerald-950/30 ring-1 ring-emerald-500/20"
-                    : cn(visitStyles.rowBorder, visitStyles.rowBg)
+                    : isCheckedIn
+                      ? "border-sky-500/45 bg-sky-950/25 ring-1 ring-sky-500/15"
+                      : cn(visitStyles.rowBorder, visitStyles.rowBg)
                 )}
               >
                 <div className="flex items-center gap-2 overflow-x-auto">
@@ -417,21 +441,27 @@ export function SchedulePanel({
                           saveVisitCategory(entry, visitCategory).catch(() => undefined)
                         }
                       />
-                      <Input
-                        placeholder="Room #"
-                        defaultValue={entry.roomNumber ?? ""}
-                        disabled={savingRoomId === entry.id}
-                        className="!h-8 !w-20 shrink-0 !px-2 !text-xs"
-                        onBlur={(e) => {
-                          const next = e.target.value.trim();
-                          if (next !== (entry.roomNumber ?? "")) {
-                            saveRoom(entry, next).catch(() => undefined);
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                        }}
-                      />
+                      <Button
+                        type="button"
+                        className={cn(
+                          "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
+                          isCheckedIn
+                            ? "!border-sky-400/60 !bg-sky-600 !text-white hover:!bg-sky-500"
+                            : "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]"
+                        )}
+                        disabled={checkedInBusy}
+                        onClick={() => toggleCheckedIn(entry)}
+                      >
+                        {checkedInBusy ? (
+                          "..."
+                        ) : isCheckedIn ? (
+                          <>
+                            <Check size={14} /> Checked in
+                          </>
+                        ) : (
+                          "Check in"
+                        )}
+                      </Button>
                       <Button
                         type="button"
                         className={cn(
@@ -453,6 +483,21 @@ export function SchedulePanel({
                           "Not Ready"
                         )}
                       </Button>
+                      <Input
+                        placeholder="Room #"
+                        defaultValue={entry.roomNumber ?? ""}
+                        disabled={savingRoomId === entry.id}
+                        className="!h-8 !w-20 shrink-0 !px-2 !text-xs"
+                        onBlur={(e) => {
+                          const next = e.target.value.trim();
+                          if (next !== (entry.roomNumber ?? "")) {
+                            saveRoom(entry, next).catch(() => undefined);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                        }}
+                      />
                       <Button
                         type="button"
                         className={cn(
@@ -475,11 +520,16 @@ export function SchedulePanel({
                       >
                         {visitStyles.shortLabel}
                       </span>
-                      {entry.roomNumber && (
-                        <span className="shrink-0 rounded bg-[var(--pv-btn)] px-2 py-1 text-xs text-[var(--pv-muted-2)]">
-                          Room {entry.roomNumber}
-                        </span>
-                      )}
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide",
+                          isCheckedIn
+                            ? "bg-sky-600/30 text-sky-300"
+                            : "bg-[var(--pv-btn)] text-[var(--pv-muted-2)]"
+                        )}
+                      >
+                        {isCheckedIn ? "Checked in" : "Not checked in"}
+                      </span>
                       <span
                         className={cn(
                           "shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide",
@@ -490,6 +540,11 @@ export function SchedulePanel({
                       >
                         {isReady ? "Ready" : "Not Ready"}
                       </span>
+                      {entry.roomNumber && (
+                        <span className="shrink-0 rounded bg-[var(--pv-btn)] px-2 py-1 text-xs text-[var(--pv-muted-2)]">
+                          Room {entry.roomNumber}
+                        </span>
+                      )}
                       {hasDocNotes && (
                         <Button
                           type="button"

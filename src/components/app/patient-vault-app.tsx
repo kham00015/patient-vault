@@ -25,6 +25,8 @@ import { ChartEncountersPanel } from "@/components/app/chart-encounters-panel";
 import { ChartDiagnosisPanel } from "@/components/app/chart-diagnosis-panel";
 import { MessagingPanel } from "@/components/app/messaging-panel";
 import { PatientRemindersModal } from "@/components/app/patient-reminders-modal";
+import { PatientPersonalNoteModal } from "@/components/app/patient-personal-note-modal";
+import { AiListenModal } from "@/components/app/ai-listen-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
 import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
@@ -70,6 +72,7 @@ import { cn, formatDate, formatDateOnly, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import {
   Archive,
+  ArrowLeft,
   Bot,
   Calendar,
   ClipboardList,
@@ -80,6 +83,7 @@ import {
   MessageSquare,
   Bell,
   BookUser,
+  Mic,
   Plus,
   Search,
   Stethoscope,
@@ -244,6 +248,16 @@ function loadChartTabOrder(): ChartTab[] {
 
 type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes";
 
+const MAIN_VIEW_LABELS: Record<MainView, string> = {
+  chart: "Patient Chart",
+  schedule: "Clinic Schedule",
+  lists: "Patient Lists",
+  messages: "Messages",
+  reminders: "Reminders",
+  contacts: "Contacts",
+  unsignedNotes: "Notes to Sign",
+};
+
 type ModalType =
   | "patients"
   | "add"
@@ -255,6 +269,8 @@ type ModalType =
   | "users"
   | "security"
   | "reminders"
+  | "personalNote"
+  | "aiListen"
   | null;
 
 type SelectPatientOptions = {
@@ -282,6 +298,9 @@ export default function PatientVaultApp({
   const [notes, setNotes] = useState<Note[]>([]);
   const [modal, setModal] = useState<ModalType>(null);
   const [mainView, setMainView] = useState<MainView>("schedule");
+  const [viewHistory, setViewHistory] = useState<MainView[]>([]);
+  const mainViewRef = useRef<MainView>(mainView);
+  mainViewRef.current = mainView;
   const [chartTab, setChartTab] = useState<ChartTab>("encounters");
   const [chartTabOrder, setChartTabOrder] = useState<ChartTab[]>(getDefaultChartTabOrder);
   const [draggingChartTab, setDraggingChartTab] = useState<ChartTab | null>(null);
@@ -308,6 +327,31 @@ export default function PatientVaultApp({
     setPatients(data.patients);
   }, [includeArchived, user.role]);
 
+  const pushViewHistory = useCallback((from: MainView) => {
+    setViewHistory((h) => (h[h.length - 1] === from ? h : [...h, from].slice(-20)));
+  }, []);
+
+  const goToView = useCallback(
+    (view: MainView) => {
+      const from = mainViewRef.current;
+      if (from !== view) {
+        pushViewHistory(from);
+        setMainView(view);
+      }
+      setModal(null);
+    },
+    [pushViewHistory]
+  );
+
+  const goBack = useCallback(() => {
+    setViewHistory((h) => {
+      if (h.length === 0) return h;
+      const prev = h[h.length - 1]!;
+      setMainView(prev);
+      return h.slice(0, -1);
+    });
+  }, []);
+
   const selectPatient = useCallback(async (patient: Pick<Patient, "id">, options?: SelectPatientOptions) => {
     try {
       const data = await api<{ patient: Patient }>(`/api/patients/${patient.id}`);
@@ -315,6 +359,9 @@ export default function PatientVaultApp({
       setCurrent(data.patient);
       setNotes(notesData.notes);
       setChartTab("encounters");
+      if (mainViewRef.current !== "chart") {
+        pushViewHistory(mainViewRef.current);
+      }
       setMainView("chart");
       setModal(null);
       if (options?.fromSchedule && options.scheduleDate) {
@@ -337,7 +384,7 @@ export default function PatientVaultApp({
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed to open patient chart", "error");
     }
-  }, []);
+  }, [pushViewHistory]);
 
   useEffect(() => {
     loadPatients().catch((e) => notify(e.message, "error"));
@@ -490,6 +537,13 @@ export default function PatientVaultApp({
         json: { [chartTab]: value, ...(reason ? { reason } : {}) },
       });
       setCurrent(data.patient);
+      if (
+        chartTab === "diagnosis" ||
+        chartTab === "pmh" ||
+        chartTab === "medications"
+      ) {
+        await refreshNotes();
+      }
       if (!silent) notify(value.trim() ? "Saved" : "Section cleared", "success");
     } catch (e) {
       notify(e instanceof Error ? e.message : "Save failed", "error");
@@ -498,8 +552,12 @@ export default function PatientVaultApp({
 
   async function refreshNotes() {
     if (!current) return;
-    const data = await api<{ notes: Note[] }>(`/api/patients/${current.id}/notes`);
-    setNotes(data.notes);
+    const [notesData, patientData] = await Promise.all([
+      api<{ notes: Note[] }>(`/api/patients/${current.id}/notes`),
+      api<{ patient: Patient }>(`/api/patients/${current.id}`),
+    ]);
+    setNotes(notesData.notes);
+    setCurrent(patientData.patient);
     refreshUnsignedNotesSummary().catch(() => undefined);
   }
 
@@ -516,8 +574,9 @@ export default function PatientVaultApp({
       labs: current?.labs,
       imaging: current?.imaging,
       diagnosis: current?.diagnosis,
+      pft: current?.pft,
     }),
-    [current?.pmh, current?.social, current?.medications, current?.labs, current?.imaging, current?.diagnosis]
+    [current?.pmh, current?.social, current?.medications, current?.labs, current?.imaging, current?.diagnosis, current?.pft]
   );
 
   const menuItems = [
@@ -556,38 +615,34 @@ export default function PatientVaultApp({
 
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
     if (id === "schedule") {
-      setMainView("schedule");
-      setModal(null);
+      goToView("schedule");
       return;
     }
     if (id === "lists") {
-      setMainView("lists");
-      setModal(null);
+      goToView("lists");
       return;
     }
     if (id === "messages") {
-      setMainView("messages");
-      setModal(null);
+      goToView("messages");
       return;
     }
     if (id === "reminders") {
-      setMainView("reminders");
-      setModal(null);
+      goToView("reminders");
       return;
     }
     if (id === "unsignedNotes") {
-      setMainView("unsignedNotes");
-      setModal(null);
+      goToView("unsignedNotes");
       bumpUnsignedNotes();
       return;
     }
     if (id === "contacts") {
-      setMainView("contacts");
-      setModal(null);
+      goToView("contacts");
       return;
     }
     setModal(id as ModalType);
   }
+
+  const previousView = viewHistory[viewHistory.length - 1];
 
   return (
     <>
@@ -686,6 +741,17 @@ export default function PatientVaultApp({
         <header className="border-b border-[var(--pv-border)] px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
+              {previousView && (
+                <Button
+                  variant="ghost"
+                  className="!h-9 !gap-1.5 !px-2 !py-1.5 !text-sm text-[var(--pv-muted-2)] hover:text-[var(--pv-text)]"
+                  title={`Back to ${MAIN_VIEW_LABELS[previousView]}`}
+                  onClick={goBack}
+                >
+                  <ArrowLeft size={18} />
+                  <span className="hidden sm:inline">Back</span>
+                </Button>
+              )}
               {mainView === "schedule" ? (
                 <>
                   <Calendar className="text-amber-400" size={20} />
@@ -719,9 +785,31 @@ export default function PatientVaultApp({
               ) : (
                 <>
                   <Stethoscope className="text-cyan-400" size={20} />
-                  <h1 className="text-lg font-semibold">
-                    {current ? formatDisplayName(current) : "Select a patient"}
-                  </h1>
+                  {current ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        title="Open my private notes for this patient"
+                        className="text-left text-lg font-semibold text-[var(--pv-fg)] hover:text-cyan-300 hover:underline"
+                        onClick={() => setModal("personalNote")}
+                      >
+                        {formatDisplayName(current)}
+                      </button>
+                      {!isChartReadOnly && user.role !== "READONLY" && (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          className="!py-1.5 !text-xs"
+                          title="Listen with Amazon Transcribe Medical and draft HPI"
+                          onClick={() => setModal("aiListen")}
+                        >
+                          <Mic size={14} /> AI Listen
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <h1 className="text-lg font-semibold">Select a patient</h1>
+                  )}
                 </>
               )}
             </div>
@@ -732,7 +820,7 @@ export default function PatientVaultApp({
               mainView === "unsignedNotes" ||
               mainView === "contacts") &&
               current && (
-              <Button className="!py-2 !text-xs" onClick={() => setMainView("chart")}>
+              <Button className="!py-2 !text-xs" onClick={() => goToView("chart")}>
                 Open {formatDisplayName(current)}&apos;s Chart
               </Button>
             )}
@@ -1055,6 +1143,23 @@ export default function PatientVaultApp({
           refreshKey={remindersRefreshKey}
           onMutate={bumpReminders}
           canEdit={user.role !== "READONLY" && !isChartReadOnly}
+        />
+      )}
+
+      {current && (
+        <PatientPersonalNoteModal
+          open={modal === "personalNote"}
+          onClose={() => setModal(null)}
+          patient={current}
+        />
+      )}
+
+      {current && (
+        <AiListenModal
+          open={modal === "aiListen"}
+          onClose={() => setModal(null)}
+          patientId={current.id}
+          patientName={formatDisplayName(current)}
         />
       )}
 
@@ -1419,6 +1524,7 @@ function ChartNotesPanel({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-1">
         {activeNote ? (
           <StructuredNoteEditor
+            key={activeNote.id}
             patientId={patientId}
             note={{
               id: activeNote.id,
@@ -2126,7 +2232,7 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
   }, [open, patientId]);
 
   async function send() {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
     const q = input.trim();
     setInput("");
     setMessages((m) => [...m, { role: "user", content: q }]);
@@ -2145,25 +2251,96 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={`AI Assistant — ${patientName}`} wide>
-      <div className="mb-3 max-h-[50vh] space-y-3 overflow-y-auto rounded-xl border border-[var(--pv-border)] bg-[#0b1018] p-3">
+    <Modal open={open} onClose={onClose} title={`Ask AI — ${patientName}`} xl className="max-w-4xl">
+      <p className="mb-3 text-sm text-[var(--pv-muted)]">
+        Powered by AWS Bedrock (HIPAA BAA). Uses this patient&apos;s chart text, notes, forms, orders, and attached PDFs/images.
+        Queries are audit-logged.
+      </p>
+      <div className="mb-3 max-h-[55vh] min-h-[280px] space-y-3 overflow-y-auto rounded-xl border border-[var(--pv-border)] bg-[var(--pv-bg-deep)] p-3">
         {messages.length === 0 && (
-          <p className="text-sm text-[var(--pv-muted-2)]">Ask about this patient&apos;s chart. All queries are audit-logged. Use Azure OpenAI with BAA in production.</p>
+          <div className="space-y-2 text-sm text-[var(--pv-muted-2)]">
+            <p>Try questions like:</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Has this patient had PFTs before?</li>
+              <li>Summarize recent imaging findings</li>
+              <li>What medications are documented?</li>
+              <li>Or tap <span className="text-cyan-300">Guidelines</span> for continue / stop / labs / imaging / vaccines</li>
+            </ul>
+          </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={cn("rounded-lg px-3 py-2 text-sm whitespace-pre-wrap", m.role === "user" ? "ml-8 bg-sky-900/50" : "mr-8 bg-[var(--pv-btn)]")}>{m.content}</div>
+          <div
+            key={i}
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
+              m.role === "user" ? "ml-8 bg-sky-900/50" : "mr-8 bg-[var(--pv-btn)]"
+            )}
+          >
+            {m.content}
+          </div>
         ))}
-        {loading && <p className="text-center text-sm text-cyan-400">Thinking...</p>}
+        {loading && <p className="text-center text-sm text-cyan-400">Reading chart &amp; documents...</p>}
       </div>
       <div className="flex gap-2">
-        <Input placeholder="Ask about this patient..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
-        <Button variant="primary" onClick={send}>Send</Button>
+        <Input
+          placeholder="Ask about this patient chart..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+          disabled={loading}
+        />
+        <Button variant="primary" onClick={send} disabled={loading || !input.trim()}>
+          {loading ? "..." : "Send"}
+        </Button>
       </div>
-      <div className="mt-3 flex justify-end">
-        <Button variant="danger" className="!text-xs" onClick={async () => {
-          await api(`/api/patients/${patientId}/ai`, { method: "DELETE" });
-          setMessages([]);
-        }}>Clear History</Button>
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button
+          variant="primary"
+          className="!text-xs"
+          disabled={loading}
+          onClick={async () => {
+            if (loading) return;
+            setMessages((m) => [
+              ...m,
+              {
+                role: "user",
+                content:
+                  "Guidelines review — continue / stop / start, labs, imaging, testing, vaccines, treatments.",
+              },
+            ]);
+            setLoading(true);
+            try {
+              const res = await api<{ response: string }>(
+                `/api/patients/${patientId}/ai/guidelines`,
+                { method: "POST" }
+              );
+              setMessages((m) => [...m, { role: "assistant", content: res.response }]);
+            } catch (e) {
+              setMessages((m) => [
+                ...m,
+                {
+                  role: "assistant",
+                  content: `Error: ${e instanceof Error ? e.message : "failed"}`,
+                },
+              ]);
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          Guidelines
+        </Button>
+        <Button
+          variant="danger"
+          className="!text-xs"
+          disabled={loading}
+          onClick={async () => {
+            await api(`/api/patients/${patientId}/ai`, { method: "DELETE" });
+            setMessages([]);
+          }}
+        >
+          Clear History
+        </Button>
       </div>
     </Modal>
   );

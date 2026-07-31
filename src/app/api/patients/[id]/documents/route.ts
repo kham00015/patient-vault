@@ -135,6 +135,8 @@ export async function GET(request: Request, { params }: Params) {
   for (const d of documents) {
     const isForm = Boolean(d.encounterForm);
     const isReport = !isForm && isTextReportDocument(d);
+    const isHtmlFormSnapshot =
+      Boolean(d.encounterForm) && d.mimeType.startsWith("text/html");
     items.push({
       id: d.id,
       kind: isForm ? "form" : isReport ? "report" : "upload",
@@ -154,7 +156,10 @@ export async function GET(request: Request, { params }: Params) {
       canDelete: true,
       canRename: true,
       canFax: !isReport,
-      openUrl: `/api/patients/${patientId}/documents/${d.id}`,
+      openUrl:
+        isHtmlFormSnapshot && d.encounterForm
+          ? `/api/patients/${patientId}/forms/${d.encounterForm.id}/pdf`
+          : `/api/patients/${patientId}/documents/${d.id}`,
     });
   }
 
