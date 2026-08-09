@@ -700,15 +700,15 @@ export function StructuredNoteEditor({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button className="!text-xs" onClick={onBack}>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <div className="flex min-w-0 shrink-0 items-center gap-2 overflow-x-auto">
+        <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
+          <Button className="!h-8 !shrink-0 !text-xs" onClick={onBack}>
             <ArrowLeft size={14} /> {backLabel}
           </Button>
           <span
             className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
               !isSigned
                 ? "bg-rose-500/15 text-rose-300"
                 : isRevised
@@ -718,14 +718,13 @@ export function StructuredNoteEditor({
           >
             {statusLabel}
           </span>
-          <span className="text-sm font-semibold text-cyan-200">{getNoteTypeLabel(note.type)}</span>
-          <span className="text-xs text-[var(--pv-muted)]">
-            {formatDate(note.date)} · {getNoteAuthorLabel(note)}
+          <span className="shrink-0 text-sm font-semibold text-cyan-200">
+            {getNoteTypeLabel(note.type)}
           </span>
-          {!readOnly && (
+          {!readOnly ? (
             <Input
               type="date"
-              className="max-w-[150px] !h-8 !text-xs"
+              className="!h-8 w-[9.5rem] !max-w-none shrink-0 !px-2 !text-xs"
               value={date}
               onChange={(e) => {
                 setDate(e.target.value);
@@ -734,14 +733,19 @@ export function StructuredNoteEditor({
                 debouncedPersist();
               }}
             />
+          ) : (
+            <span className="shrink-0 text-xs text-[var(--pv-muted)]">{formatDate(note.date)}</span>
           )}
+          <span className="min-w-0 truncate text-xs text-[var(--pv-muted)]">
+            {getNoteAuthorLabel(note)}
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <AutoSaveStatus saving={saving} dirty={dirty} />
           {!isSigned && canDeleteNote && !isReadOnly && (
             <Button
               variant="danger"
-              className="!text-xs"
+              className="!h-8 !text-xs"
               disabled={signing}
               onClick={() => setShowDeleteConfirm(true)}
             >
@@ -749,49 +753,18 @@ export function StructuredNoteEditor({
             </Button>
           )}
           {!readOnly && !isSigned && (
-            <Button variant="success" className="!text-xs" disabled={signing} onClick={signNote}>
+            <Button variant="success" className="!h-8 !text-xs" disabled={signing} onClick={signNote}>
               <PenLine size={14} /> Sign Note
             </Button>
           )}
         </div>
       </div>
 
-      <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2 text-xs text-[var(--pv-fg-soft)]">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
-          Compliance stamps
+      {isSigned && !readOnly && (
+        <p className="shrink-0 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200/90">
+          This note is signed. Saving changes will mark it as Revised and keep a history of each edit.
         </p>
-        <div className="mt-1 space-y-0.5">
-          <p>
-            <span className="text-[var(--pv-muted)]">Initiated:</span>{" "}
-            {note.createdAt ? formatDate(note.createdAt) : "—"}
-            {note.authorName ? ` by ${note.authorName}` : ""}
-          </p>
-          <p>
-            <span className="text-[var(--pv-muted)]">Signed:</span>{" "}
-            {note.signedAt ? formatDate(note.signedAt) : "Not signed"}
-            {note.signedByName ? ` by ${note.signedByName}` : ""}
-          </p>
-          {(note.revisions?.length ?? 0) === 0 ? (
-            <p>
-              <span className="text-[var(--pv-muted)]">Revised:</span> —
-            </p>
-          ) : (
-            note.revisions!.map((r) => (
-              <p key={r.version}>
-                <span className="text-[var(--pv-muted)]">Revised #{r.version}:</span>{" "}
-                {formatDate(r.revisedAt)}
-                {r.revisedByName ? ` by ${r.revisedByName}` : ""}
-              </p>
-            ))
-          )}
-        </div>
-        {isSigned && !readOnly && (
-          <p className="mt-2 text-[11px] text-amber-300/90">
-            This note is signed. Saving changes will mark it as Revised and keep a compliance
-            history of each edit.
-          </p>
-        )}
-      </div>
+      )}
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
         {showVitals && (
@@ -823,19 +796,15 @@ export function StructuredNoteEditor({
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--pv-muted)]">
-                    Vitals
-                  </h3>
-                  <Button
-                    className="!h-7 !px-2 !text-[11px] !border-[color-mix(in_srgb,var(--pv-accent-strong)_45%,transparent)] !bg-[color-mix(in_srgb,var(--pv-accent-strong)_12%,transparent)] !text-[var(--pv-accent-strong)] hover:!bg-[color-mix(in_srgb,var(--pv-accent-strong)_20%,transparent)]"
-                    title="Collapse vitals in the note"
-                    onClick={() => togglePanel("vitals")}
-                  >
-                    <ChevronUp size={12} /> Collapse
-                  </Button>
-                </div>
-                <VitalsPanel compact vitals={vitals} readOnly={readOnly} onChange={updateVitals} />
+                <VitalsPanel
+                  compact
+                  hideTitle
+                  sectionLabel="Vitals"
+                  onCollapse={() => togglePanel("vitals")}
+                  vitals={vitals}
+                  readOnly={readOnly}
+                  onChange={updateVitals}
+                />
               </div>
             )}
           </section>

@@ -125,12 +125,19 @@ export function VitalsPanel({
   readOnly,
   onChange,
   compact = false,
+  hideTitle = false,
+  sectionLabel = "Vitals",
+  onCollapse,
 }: {
   vitals: VitalsData;
   readOnly: boolean;
   onChange: (vitals: VitalsData) => void;
   /** When true, show core vitals only; expand for weight/BP/etc. */
   compact?: boolean;
+  /** Use a single shared header row (avoids duplicate "Vitals" titles). */
+  hideTitle?: boolean;
+  sectionLabel?: string;
+  onCollapse?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -138,6 +145,17 @@ export function VitalsPanel({
     const next = { ...vitals, ...partial };
     onChange(recalc ? applyVitalCalculations(next) : next);
   }
+
+  const moreToggle = (
+    <Button
+      type="button"
+      className="!h-7 !gap-1 !px-2 !text-[11px]"
+      onClick={() => setExpanded((v) => !v)}
+    >
+      {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      {expanded ? "Less" : "More vitals"}
+    </Button>
+  );
 
   const coreRow = (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
@@ -309,16 +327,30 @@ export function VitalsPanel({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300/90">Vitals</h3>
-        <Button
-          type="button"
-          className="!h-7 !gap-1 !px-2 !text-[11px]"
-          onClick={() => setExpanded((v) => !v)}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3
+          className={cn(
+            "font-semibold uppercase tracking-[0.12em]",
+            hideTitle
+              ? "text-[10px] text-[var(--pv-muted)]"
+              : "text-[11px] tracking-wide text-cyan-300/90"
+          )}
         >
-          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          {expanded ? "Less" : "More vitals"}
-        </Button>
+          {sectionLabel}
+        </h3>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {moreToggle}
+          {onCollapse && (
+            <Button
+              type="button"
+              className="!h-7 !px-2 !text-[11px] !border-[color-mix(in_srgb,var(--pv-accent-strong)_45%,transparent)] !bg-[color-mix(in_srgb,var(--pv-accent-strong)_12%,transparent)] !text-[var(--pv-accent-strong)] hover:!bg-[color-mix(in_srgb,var(--pv-accent-strong)_20%,transparent)]"
+              title="Collapse vitals in the note"
+              onClick={onCollapse}
+            >
+              <ChevronUp size={12} /> Collapse
+            </Button>
+          )}
+        </div>
       </div>
       {coreRow}
       {expanded && moreFields}

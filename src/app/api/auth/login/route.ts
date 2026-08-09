@@ -163,17 +163,31 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ user: publicUser(user) });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    const dbAuthFailed =
+      message.includes("Authentication failed") ||
+      message.includes("credentials for") ||
+      message.includes("database server") ||
+      message.includes("P1000") ||
+      message.includes("Can't reach database");
+
+    if (dbAuthFailed) {
+      console.error("[login] database unavailable:", message);
+      return NextResponse.json(
+        {
+          error:
+            "Patient Vault is temporarily unavailable (database connection). This is not a wrong password. Contact your administrator or run the production health fix.",
+          systemDown: true,
+        },
+        { status: 503 }
+      );
+    }
+
     if (process.env.NODE_ENV === "development") {
-      const message = err instanceof Error ? err.message : "";
-      if (message.includes("Authentication failed") || message.includes("database server")) {
-        return NextResponse.json(
-          {
-            error:
-              "Database connection failed. Run .\\scripts\\update-rds-password.ps1 with the password from AWS Secrets Manager.",
-          },
-          { status: 503 }
-        );
-      }
+      return NextResponse.json(
+        { error: message || "Invalid request" },
+        { status: 400 }
+      );
     }
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }

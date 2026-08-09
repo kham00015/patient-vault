@@ -11,7 +11,7 @@ export type PatientChartInsertKey =
   | "pft";
 
 export const NOTE_TO_CHART_MAP: Partial<Record<NoteSectionKey, PatientChartInsertKey>> = {
-  pastMedicalHistory: "pmh",
+  pastMedicalHistory: "diagnosis",
   socialHistory: "social",
   currentMedications: "medications",
   labs: "labs",

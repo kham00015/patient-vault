@@ -96,16 +96,22 @@ sudo docker compose -f docker-compose.production.yml -f docker-compose.override.
 sudo docker compose -f docker-compose.production.yml -f docker-compose.override.yml ps
 echo "=== Health check ==="
 sleep 12
-curl -sS --max-time 15 http://localhost/api/health || true
-echo ""
-curl -sS --max-time 20 https://app.patientvault.care/api/health || true
-echo ""
+HEALTH_LOCAL="$(curl -sS --max-time 15 http://localhost/api/health || true)"
+echo "$HEALTH_LOCAL"
+echo "$HEALTH_LOCAL" | grep -q '"ok":true' || { echo "LOCAL HEALTH CHECK FAILED"; exit 1; }
+HEALTH_PUBLIC="$(curl -sS --max-time 20 https://app.patientvault.care/api/health || true)"
+echo "$HEALTH_PUBLIC"
+echo "$HEALTH_PUBLIC" | grep -q '"ok":true' || { echo "PUBLIC HEALTH CHECK FAILED"; exit 1; }
 '@
 
 Write-Host "Deploying on server..." -ForegroundColor Cyan
 # PowerShell here-strings use CRLF; bash on Linux treats `\r` as part of paths/commands.
 $remoteScriptUnix = ($remoteScript -replace "`r`n", "`n") -replace "`r", "`n"
 $remoteScriptUnix | ssh -i $key -o StrictHostKeyChecking=no $sshHost "bash -s"
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "Deploy finished but health check failed. Do not assume clinic login works."
+}
 
 Write-Host ""
 Write-Host "Done. Open https://app.patientvault.care" -ForegroundColor Green
+Write-Host "Reliability checks: CLINIC_RELIABILITY.md" -ForegroundColor Cyan

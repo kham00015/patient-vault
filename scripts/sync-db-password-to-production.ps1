@@ -15,20 +15,26 @@ Write-Host "Uploading .env.production..." -ForegroundColor Cyan
 scp -i $key -o StrictHostKeyChecking=no $envFile "${sshHost}:/tmp/pv-env.production"
 
 $remote = @'
-set -e
+set -euo pipefail
 sudo cp /tmp/pv-env.production /opt/patient-vault/.env.production
 sudo chmod 600 /opt/patient-vault/.env.production
 cd /opt/patient-vault
 sudo docker compose -f docker-compose.production.yml -f docker-compose.override.yml up -d --force-recreate app
-sleep 8
+sleep 10
 sudo docker compose -f docker-compose.production.yml -f docker-compose.override.yml ps
-curl -sS --max-time 15 http://localhost/api/health || true
-echo
+echo "=== health ==="
+HEALTH="$(curl -sS --max-time 15 http://localhost/api/health || true)"
+echo "$HEALTH"
+echo "$HEALTH" | grep -q '"ok":true' || { echo "HEALTH CHECK FAILED"; exit 1; }
 '@
 $remoteUnix = ($remote -replace "`r`n", "`n") -replace "`r", "`n"
 Write-Host "Restarting production app..." -ForegroundColor Cyan
 $remoteUnix | ssh -i $key -o StrictHostKeyChecking=no $sshHost "bash -s"
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "Production health check failed after credential sync. Login will not work until DATABASE_URL is correct."
+}
 
 Write-Host ""
 Write-Host "Done. Try login at https://app.patientvault.care" -ForegroundColor Green
-Write-Host "To prevent this recurring: Secrets Manager > rds!db-... > disable automatic rotation." -ForegroundColor Yellow
+Write-Host "Verify monthly: .\scripts\assert-rds-password-stable.ps1" -ForegroundColor Cyan
+Write-Host "See CLINIC_RELIABILITY.md for uptime alerts (UptimeRobot / Healthchecks)." -ForegroundColor Yellow

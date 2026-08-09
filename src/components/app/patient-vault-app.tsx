@@ -23,6 +23,7 @@ import { ArchivePatientModal, HardDeletePatientModal } from "@/components/app/ar
 import { StructuredNoteEditor } from "@/components/app/structured-note-editor";
 import { ChartEncountersPanel } from "@/components/app/chart-encounters-panel";
 import { ChartDiagnosisPanel } from "@/components/app/chart-diagnosis-panel";
+import { ChartStudiesPanel } from "@/components/app/chart-studies-panel";
 import { MessagingPanel } from "@/components/app/messaging-panel";
 import { PatientRemindersModal } from "@/components/app/patient-reminders-modal";
 import { PatientPersonalNoteModal } from "@/components/app/patient-personal-note-modal";
@@ -30,6 +31,7 @@ import { AiListenModal } from "@/components/app/ai-listen-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
 import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
+import { PotentialsPanel } from "@/components/app/potentials-panel";
 import { SchedulePanel } from "@/components/app/schedule-panel";
 import { OrdersPanel } from "@/components/app/orders-panel";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
@@ -92,8 +94,12 @@ import {
   Upload,
   User,
   UserCog,
+  UserRoundSearch,
   Users,
   GripVertical,
+  Check,
+  ChevronDown,
+  X,
 } from "lucide-react";
 
 type Patient = {
@@ -181,7 +187,16 @@ type DocumentItem = {
   openUrl?: string;
 };
 
-type ChartTab = "encounters" | "notes" | "orders" | "documents" | MedicalSectionKey;
+type ChartTab = "encounters" | "notes" | "orders" | "documents" | "studies" | MedicalSectionKey;
+
+const MAX_OPEN_CHARTS = 4;
+
+type OpenChart = {
+  patient: Patient;
+  notes: Note[];
+  chartTab: ChartTab;
+  chartNavigationIntent: ChartNavigationIntent | null;
+};
 
 function buildChartCopyText(patient: Patient, clinicalNotes: Note[]) {
   const lines: string[] = [formatDisplayName(patient)];
@@ -215,32 +230,61 @@ const CHART_TABS: { id: ChartTab; label: string; shortLabel: string }[] = [
   { id: "encounters", label: "Encounters", shortLabel: "Encounters" },
   { id: "documents", label: "Documents", shortLabel: "Documents" },
   { id: "notes", label: "Notes", shortLabel: "Notes" },
-  ...MEDICAL_SECTIONS.flatMap((s) => [
-    {
-      id: s.key as ChartTab,
-      label: s.label,
-      shortLabel: s.label.split(" ")[0],
-    },
-    ...(s.key === "diagnosis"
-      ? [{ id: "orders" as ChartTab, label: "Orders", shortLabel: "Orders" }]
-      : []),
-  ]),
+  { id: "diagnosis", label: "Diagnosis", shortLabel: "Diagnosis" },
+  { id: "studies", label: "Studies", shortLabel: "Studies" },
+  ...MEDICAL_SECTIONS.filter((s) => s.key !== "diagnosis").map((s) => ({
+    id: s.key as ChartTab,
+    label: s.label,
+    shortLabel: s.label.split(" ")[0],
+  })),
+  { id: "orders", label: "Orders", shortLabel: "Orders" },
 ];
 
-/** v2 default: Documents sits directly under Encounters. */
-const CHART_TAB_ORDER_KEY = "pv-chart-tab-order-v2";
+/** v3: Diagnosis replaces sidebar PMH; Orders stays at end of medical tabs. */
+const CHART_TAB_ORDER_KEY = "pv-chart-tab-order-v3";
+const CHART_TAB_VISIBLE_KEY = "pv-chart-tab-visible-v1";
+/** Encounters stays on the sidebar so a chart always has a home tab. */
+const ALWAYS_VISIBLE_CHART_TABS: ChartTab[] = ["encounters"];
 
 function getDefaultChartTabOrder(): ChartTab[] {
   return CHART_TABS.map((t) => t.id);
 }
 
+function getDefaultChartTabVisibility(): Record<ChartTab, boolean> {
+  return Object.fromEntries(CHART_TABS.map((t) => [t.id, true])) as Record<ChartTab, boolean>;
+}
+
 function normalizeChartTabOrder(ids: string[]): ChartTab[] {
+  // Migrate saved orders that still point at removed sidebar PMH.
+  const migrated = ids.map((id) => (id === "pmh" ? "diagnosis" : id));
   const known = new Set(CHART_TABS.map((t) => t.id));
-  const ordered = ids.filter((id): id is ChartTab => known.has(id as ChartTab));
+  const ordered = migrated.filter((id): id is ChartTab => known.has(id as ChartTab));
   for (const tab of CHART_TABS) {
-    if (!ordered.includes(tab.id)) ordered.push(tab.id);
+    if (!ordered.includes(tab.id)) {
+      if (tab.id === "studies") {
+        const echoIdx = ordered.indexOf("echo");
+        const diagnosisIdx = ordered.indexOf("diagnosis");
+        const insertAt =
+          echoIdx >= 0 ? echoIdx : diagnosisIdx >= 0 ? diagnosisIdx + 1 : ordered.length;
+        ordered.splice(insertAt, 0, "studies");
+      } else {
+        ordered.push(tab.id);
+      }
+    }
   }
   return ordered;
+}
+
+function normalizeChartTabVisibility(raw: unknown): Record<ChartTab, boolean> {
+  const defaults = getDefaultChartTabVisibility();
+  if (!raw || typeof raw !== "object") return defaults;
+  const input = raw as Record<string, unknown>;
+  const next = { ...defaults };
+  for (const tab of CHART_TABS) {
+    if (typeof input[tab.id] === "boolean") next[tab.id] = input[tab.id] as boolean;
+  }
+  for (const id of ALWAYS_VISIBLE_CHART_TABS) next[id] = true;
+  return next;
 }
 
 function loadChartTabOrder(): ChartTab[] {
@@ -256,7 +300,18 @@ function loadChartTabOrder(): ChartTab[] {
   }
 }
 
-type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes";
+function loadChartTabVisibility(): Record<ChartTab, boolean> {
+  if (typeof window === "undefined") return getDefaultChartTabVisibility();
+  try {
+    const raw = window.localStorage.getItem(CHART_TAB_VISIBLE_KEY);
+    if (!raw) return getDefaultChartTabVisibility();
+    return normalizeChartTabVisibility(JSON.parse(raw));
+  } catch {
+    return getDefaultChartTabVisibility();
+  }
+}
+
+type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes" | "potentials";
 
 const MAIN_VIEW_LABELS: Record<MainView, string> = {
   chart: "Patient Chart",
@@ -266,6 +321,7 @@ const MAIN_VIEW_LABELS: Record<MainView, string> = {
   reminders: "Reminders",
   contacts: "Contacts",
   unsignedNotes: "Notes to Sign",
+  potentials: "Potentials",
 };
 
 type ModalType =
@@ -302,17 +358,20 @@ export default function PatientVaultApp({
   const router = useRouter();
   const [user, setUser] = useState(initialUser);
   const [mustChangePassword, setMustChangePassword] = useState(!!initialUser.mustChangePassword);
-  const [chartNavigationIntent, setChartNavigationIntent] = useState<ChartNavigationIntent | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [current, setCurrent] = useState<Patient | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [openCharts, setOpenCharts] = useState<OpenChart[]>([]);
+  const [activePatientId, setActivePatientId] = useState<string | null>(null);
+  const openChartsRef = useRef<OpenChart[]>([]);
+  openChartsRef.current = openCharts;
+  const openingPatientIdsRef = useRef(new Set<string>());
   const [modal, setModal] = useState<ModalType>(null);
   const [mainView, setMainView] = useState<MainView>("schedule");
   const [viewHistory, setViewHistory] = useState<MainView[]>([]);
   const mainViewRef = useRef<MainView>(mainView);
   mainViewRef.current = mainView;
-  const [chartTab, setChartTab] = useState<ChartTab>("encounters");
   const [chartTabOrder, setChartTabOrder] = useState<ChartTab[]>(getDefaultChartTabOrder);
+  const [chartTabVisible, setChartTabVisible] = useState<Record<ChartTab, boolean>>(getDefaultChartTabVisibility);
+  const [chartSectionsSettingsOpen, setChartSectionsSettingsOpen] = useState(false);
   const [draggingChartTab, setDraggingChartTab] = useState<ChartTab | null>(null);
   const [dragOverChartTab, setDragOverChartTab] = useState<ChartTab | null>(null);
   const chartTabDragMovedRef = useRef(false);
@@ -324,6 +383,113 @@ export default function PatientVaultApp({
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [unsignedNotesCount, setUnsignedNotesCount] = useState(0);
   const [unsignedNotesRefreshKey, setUnsignedNotesRefreshKey] = useState(0);
+
+  const activeChart = useMemo(
+    () => openCharts.find((c) => c.patient.id === activePatientId) ?? null,
+    [openCharts, activePatientId]
+  );
+  const current = activeChart?.patient ?? null;
+  const notes = activeChart?.notes ?? [];
+  const chartTab = activeChart?.chartTab ?? "encounters";
+  const chartNavigationIntent = activeChart?.chartNavigationIntent ?? null;
+
+  const setCurrent = useCallback(
+    (next: Patient | null) => {
+      if (next === null) {
+        if (!activePatientId) return;
+        setOpenCharts((prev) => {
+          const remaining = prev.filter((c) => c.patient.id !== activePatientId);
+          setActivePatientId(remaining[0]?.patient.id ?? null);
+          return remaining;
+        });
+        return;
+      }
+      setOpenCharts((prev) => {
+        const exists = prev.some((c) => c.patient.id === next.id);
+        if (!exists) return prev;
+        return prev.map((c) => (c.patient.id === next.id ? { ...c, patient: next } : c));
+      });
+    },
+    [activePatientId]
+  );
+
+  const setNotes = useCallback(
+    (next: Note[] | ((prev: Note[]) => Note[])) => {
+      if (!activePatientId) return;
+      setOpenCharts((prev) =>
+        prev.map((c) => {
+          if (c.patient.id !== activePatientId) return c;
+          const notesNext = typeof next === "function" ? next(c.notes) : next;
+          return { ...c, notes: notesNext };
+        })
+      );
+    },
+    [activePatientId]
+  );
+
+  const setChartTab = useCallback(
+    (next: ChartTab | ((prev: ChartTab) => ChartTab)) => {
+      if (!activePatientId) return;
+      setOpenCharts((prev) =>
+        prev.map((c) => {
+          if (c.patient.id !== activePatientId) return c;
+          const tabNext = typeof next === "function" ? next(c.chartTab) : next;
+          return { ...c, chartTab: tabNext };
+        })
+      );
+    },
+    [activePatientId]
+  );
+
+  const setChartNavigationIntent = useCallback(
+    (
+      next:
+        | ChartNavigationIntent
+        | null
+        | ((prev: ChartNavigationIntent | null) => ChartNavigationIntent | null)
+    ) => {
+      if (!activePatientId) return;
+      setOpenCharts((prev) =>
+        prev.map((c) => {
+          if (c.patient.id !== activePatientId) return c;
+          const intentNext = typeof next === "function" ? next(c.chartNavigationIntent) : next;
+          return { ...c, chartNavigationIntent: intentNext };
+        })
+      );
+    },
+    [activePatientId]
+  );
+
+  const closeOpenChart = useCallback((patientId: string) => {
+    setOpenCharts((prev) => {
+      const remaining = prev.filter((c) => c.patient.id !== patientId);
+      setActivePatientId((active) => {
+        if (active !== patientId) return active;
+        return remaining[0]?.patient.id ?? null;
+      });
+      return remaining;
+    });
+  }, []);
+
+  const activateOpenChart = useCallback((patientId: string) => {
+    setActivePatientId(patientId);
+    setMainView("chart");
+    setModal(null);
+  }, []);
+
+  // Never keep the same patient open in two tabs.
+  useEffect(() => {
+    const ids = openCharts.map((c) => c.patient.id);
+    if (new Set(ids).size === ids.length) return;
+    setOpenCharts((prev) => {
+      const seen = new Set<string>();
+      return prev.filter((c) => {
+        if (seen.has(c.patient.id)) return false;
+        seen.add(c.patient.id);
+        return true;
+      });
+    });
+  }, [openCharts]);
 
   const notify = (message: string, type: "info" | "success" | "error" = "info") =>
     setToast({ message, type });
@@ -364,34 +530,121 @@ export default function PatientVaultApp({
 
   const selectPatient = useCallback(async (patient: Pick<Patient, "id">, options?: SelectPatientOptions) => {
     try {
-      const data = await api<{ patient: Patient }>(`/api/patients/${patient.id}`);
-      const notesData = await api<{ notes: Note[] }>(`/api/patients/${patient.id}/notes`);
-      setCurrent(data.patient);
-      setNotes(notesData.notes);
-      setChartTab("encounters");
-      if (mainViewRef.current !== "chart") {
-        pushViewHistory(mainViewRef.current);
+      if (openingPatientIdsRef.current.has(patient.id)) return;
+
+      const existing = openChartsRef.current.find((c) => c.patient.id === patient.id);
+      if (existing) {
+        setActivePatientId(existing.patient.id);
+        if (mainViewRef.current !== "chart") {
+          pushViewHistory(mainViewRef.current);
+        }
+        setMainView("chart");
+        setModal(null);
+        if (options?.fromSchedule && options.scheduleDate) {
+          setOpenCharts((prev) =>
+            prev.map((c) =>
+              c.patient.id === patient.id
+                ? {
+                    ...c,
+                    chartNavigationIntent: {
+                      fromSchedule: true,
+                      scheduleDate: options.scheduleDate!,
+                      visitCategory: options.visitCategory,
+                      openNote: true,
+                    },
+                  }
+                : c
+            )
+          );
+        } else if (options?.encounterId) {
+          setOpenCharts((prev) =>
+            prev.map((c) =>
+              c.patient.id === patient.id
+                ? {
+                    ...c,
+                    chartNavigationIntent: {
+                      encounterId: options.encounterId,
+                      openNotesBranch: options.openNotesBranch ?? true,
+                      openNote: options.openNote ?? false,
+                    },
+                  }
+                : c
+            )
+          );
+        }
+        notify(`Switched to ${formatDisplayName(existing.patient)}`, "success");
+        return;
       }
-      setMainView("chart");
-      setModal(null);
-      if (options?.fromSchedule && options.scheduleDate) {
-        setChartNavigationIntent({
-          fromSchedule: true,
-          scheduleDate: options.scheduleDate,
-          visitCategory: options.visitCategory,
-          openNote: true,
-        });
-      } else if (options?.encounterId) {
-        setChartNavigationIntent({
-          encounterId: options.encounterId,
-          openNotesBranch: options.openNotesBranch ?? true,
-          openNote: options.openNote ?? false,
-        });
-      } else {
-        setChartNavigationIntent(null);
+
+      if (openChartsRef.current.length >= MAX_OPEN_CHARTS) {
+        notify(`You can open up to ${MAX_OPEN_CHARTS} patient charts. Close one first.`, "error");
+        return;
       }
-      notify(`Opened ${formatDisplayName(data.patient)}`, "success");
+
+      openingPatientIdsRef.current.add(patient.id);
+      try {
+        const data = await api<{ patient: Patient }>(`/api/patients/${patient.id}`);
+        const notesData = await api<{ notes: Note[] }>(`/api/patients/${patient.id}/notes`);
+
+        let intent: ChartNavigationIntent | null = null;
+        if (options?.fromSchedule && options.scheduleDate) {
+          intent = {
+            fromSchedule: true,
+            scheduleDate: options.scheduleDate,
+            visitCategory: options.visitCategory,
+            openNote: true,
+          };
+        } else if (options?.encounterId) {
+          intent = {
+            encounterId: options.encounterId,
+            openNotesBranch: options.openNotesBranch ?? true,
+            openNote: options.openNote ?? false,
+          };
+        }
+
+        const nextChart: OpenChart = {
+          patient: data.patient,
+          notes: notesData.notes,
+          chartTab: "encounters",
+          chartNavigationIntent: intent,
+        };
+
+        let opened = false;
+        let blocked = false;
+        setOpenCharts((prev) => {
+          if (prev.some((c) => c.patient.id === patient.id)) {
+            return prev;
+          }
+          if (prev.length >= MAX_OPEN_CHARTS) {
+            blocked = true;
+            return prev;
+          }
+          opened = true;
+          return [...prev, nextChart];
+        });
+
+        if (blocked) {
+          notify(`You can open up to ${MAX_OPEN_CHARTS} patient charts. Close one first.`, "error");
+          return;
+        }
+
+        setActivePatientId(data.patient.id);
+        if (mainViewRef.current !== "chart") {
+          pushViewHistory(mainViewRef.current);
+        }
+        setMainView("chart");
+        setModal(null);
+        notify(
+          opened
+            ? `Opened ${formatDisplayName(data.patient)}`
+            : `Switched to ${formatDisplayName(data.patient)}`,
+          "success"
+        );
+      } finally {
+        openingPatientIdsRef.current.delete(patient.id);
+      }
     } catch (e) {
+      openingPatientIdsRef.current.delete(patient.id);
       notify(e instanceof Error ? e.message : "Failed to open patient chart", "error");
     }
   }, [pushViewHistory]);
@@ -455,12 +708,25 @@ export default function PatientVaultApp({
 
   useEffect(() => {
     setChartTabOrder(loadChartTabOrder());
+    setChartTabVisible(loadChartTabVisibility());
   }, []);
 
   const orderedChartTabs = useMemo(() => {
     const byId = new Map(CHART_TABS.map((tab) => [tab.id, tab]));
     return chartTabOrder.map((id) => byId.get(id)).filter(Boolean) as typeof CHART_TABS;
   }, [chartTabOrder]);
+
+  const visibleChartTabs = useMemo(
+    () => orderedChartTabs.filter((tab) => chartTabVisible[tab.id] !== false),
+    [orderedChartTabs, chartTabVisible]
+  );
+
+  useEffect(() => {
+    if (!current) return;
+    if (chartTabVisible[chartTab] === false) {
+      setChartTab("encounters");
+    }
+  }, [chartTab, chartTabVisible, current, setChartTab]);
 
   const reorderChartTab = useCallback((fromId: ChartTab, toId: ChartTab) => {
     if (fromId === toId) return;
@@ -473,6 +739,19 @@ export default function PatientVaultApp({
       next.splice(toIndex, 0, fromId);
       try {
         window.localStorage.setItem(CHART_TAB_ORDER_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleChartTabVisible = useCallback((id: ChartTab) => {
+    if (ALWAYS_VISIBLE_CHART_TABS.includes(id)) return;
+    setChartTabVisible((prev) => {
+      const next = { ...prev, [id]: prev[id] === false };
+      try {
+        window.localStorage.setItem(CHART_TAB_VISIBLE_KEY, JSON.stringify(next));
       } catch {
         // ignore storage errors
       }
@@ -508,9 +787,9 @@ export default function PatientVaultApp({
 
   async function archivePatient(data: ArchivePatientInput) {
     if (!current) return;
-    await api(`/api/patients/${current.id}/archive`, { method: "POST", json: data });
-    setCurrent(null);
-    setNotes([]);
+    const id = current.id;
+    await api(`/api/patients/${id}/archive`, { method: "POST", json: data });
+    closeOpenChart(id);
     await loadPatients(search);
     setModal(null);
     notify("Patient chart archived — data retained for compliance", "success");
@@ -518,9 +797,9 @@ export default function PatientVaultApp({
 
   async function hardDeletePatient(data: { reason: string; mrnConfirm: string }) {
     if (!current) return;
-    await api(`/api/patients/${current.id}`, { method: "DELETE", json: data });
-    setCurrent(null);
-    setNotes([]);
+    const id = current.id;
+    await api(`/api/patients/${id}`, { method: "DELETE", json: data });
+    closeOpenChart(id);
     await loadPatients(search);
     setModal(null);
     notify("Patient chart permanently deleted", "success");
@@ -540,7 +819,7 @@ export default function PatientVaultApp({
 
 
   async function saveSection(value: string, reason?: string, silent = false) {
-    if (!current || chartTab === "encounters" || chartTab === "notes" || chartTab === "orders" || chartTab === "documents") return;
+    if (!current || chartTab === "encounters" || chartTab === "notes" || chartTab === "orders" || chartTab === "documents" || chartTab === "studies") return;
     try {
       const data = await api<{ patient: Patient }>(`/api/patients/${current.id}`, {
         method: "PATCH",
@@ -549,7 +828,6 @@ export default function PatientVaultApp({
       setCurrent(data.patient);
       if (
         chartTab === "diagnosis" ||
-        chartTab === "pmh" ||
         chartTab === "medications"
       ) {
         await refreshNotes();
@@ -591,6 +869,7 @@ export default function PatientVaultApp({
 
   const menuItems = [
     { id: "patients", label: "Patient List", icon: Users, color: "text-sky-400" },
+    { id: "schedule", label: "Clinic Schedule", icon: Calendar, color: "text-amber-400" },
     { id: "add", label: "Add Patient", icon: Plus, color: "text-emerald-400" },
     {
       id: "archive",
@@ -609,7 +888,6 @@ export default function PatientVaultApp({
       hidden: user.role !== "ADMIN",
     },
     { id: "ai", label: "Ask AI", icon: Bot, color: "text-violet-400", disabled: !current },
-    { id: "schedule", label: "Clinic Schedule", icon: Calendar, color: "text-amber-400" },
     { id: "lists", label: "Lists", icon: List, color: "text-fuchsia-400" },
     { id: "messages", label: "Messages", icon: MessageSquare, color: "text-sky-300" },
     { id: "reminders", label: "Reminders", icon: Bell, color: "text-orange-300" },
@@ -620,10 +898,15 @@ export default function PatientVaultApp({
       color: "text-amber-300",
       hidden: user.role !== "ADMIN" && user.role !== "CLINICIAN",
     },
+    { id: "potentials", label: "Potentials", icon: UserRoundSearch, color: "text-teal-300" },
     { id: "contacts", label: "Contacts", icon: BookUser, color: "text-lime-300" },
   ] as const;
 
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
+    if (id === "potentials") {
+      goToView("potentials");
+      return;
+    }
     if (id === "schedule") {
       goToView("schedule");
       return;
@@ -679,7 +962,8 @@ export default function PatientVaultApp({
                   (item.id === "messages" && mainView === "messages") ||
                   (item.id === "reminders" && mainView === "reminders") ||
                   (item.id === "unsignedNotes" && mainView === "unsignedNotes") ||
-                  (item.id === "contacts" && mainView === "contacts"))
+                  (item.id === "contacts" && mainView === "contacts") ||
+                  (item.id === "potentials" && mainView === "potentials"))
                   ? "border-cyan-500/40 bg-cyan-500/10"
                   : "border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
               )}
@@ -750,11 +1034,11 @@ export default function PatientVaultApp({
       <main className="flex min-h-0 min-w-0 flex-1 flex-col rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-surface)]">
         <header className="border-b border-[var(--pv-border)] px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               {previousView && (
                 <Button
                   variant="ghost"
-                  className="!h-9 !gap-1.5 !px-2 !py-1.5 !text-sm text-[var(--pv-muted-2)] hover:text-[var(--pv-text)]"
+                  className="!h-9 !shrink-0 !gap-1.5 !px-2 !py-1.5 !text-sm text-[var(--pv-muted-2)] hover:text-[var(--pv-text)]"
                   title={`Back to ${MAIN_VIEW_LABELS[previousView]}`}
                   onClick={goBack}
                 >
@@ -792,30 +1076,107 @@ export default function PatientVaultApp({
                   <BookUser className="text-lime-300" size={20} />
                   <h1 className="text-lg font-semibold">Contacts</h1>
                 </>
+              ) : mainView === "potentials" ? (
+                <>
+                  <UserRoundSearch className="text-teal-300" size={20} />
+                  <h1 className="text-lg font-semibold">Potentials</h1>
+                </>
               ) : (
                 <>
-                  <Stethoscope className="text-cyan-400" size={20} />
-                  {current ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        title="Open my private notes for this patient"
-                        className="text-left text-lg font-semibold text-[var(--pv-fg)] hover:text-cyan-300 hover:underline"
-                        onClick={() => setModal("personalNote")}
-                      >
-                        {formatDisplayName(current)}
-                      </button>
-                      {!isChartReadOnly && user.role !== "READONLY" && (
-                        <Button
-                          type="button"
-                          variant="primary"
-                          className="!py-1.5 !text-xs"
-                          title="Listen with Amazon Transcribe Medical and draft HPI"
-                          onClick={() => setModal("aiListen")}
-                        >
-                          <Mic size={14} /> AI Listen
-                        </Button>
-                      )}
+                  <Stethoscope className="shrink-0 text-cyan-400" size={20} />
+                  {openCharts.length > 0 ? (
+                    <div className="flex min-w-0 flex-1 items-center overflow-visible">
+                      {openCharts.map((chart, index) => {
+                        const isActive = chart.patient.id === activePatientId;
+                        const label = formatDisplayName(chart.patient);
+                        const age = calculateAge(chart.patient.dateOfBirth);
+                        const hoverBits = [
+                          chart.patient.mrn ? `MRN ${chart.patient.mrn}` : null,
+                          chart.patient.dateOfBirth
+                            ? `DOB ${formatDateOnly(chart.patient.dateOfBirth)}${age != null ? ` (${age}y)` : ""}`
+                            : null,
+                          chart.patient.sexAtBirth
+                            ? `Sex ${formatSexAtBirth(chart.patient.sexAtBirth)}`
+                            : null,
+                          chart.patient.phone ? `Phone ${chart.patient.phone}` : null,
+                        ].filter(Boolean) as string[];
+                        return (
+                          <div key={chart.patient.id} className="flex items-center overflow-visible">
+                            {index > 0 && (
+                              <div
+                                className="mx-2 h-7 w-px shrink-0 self-center bg-[var(--pv-border-strong)]"
+                                aria-hidden
+                              />
+                            )}
+                            <div
+                              className={cn(
+                                "min-w-0 overflow-visible rounded-lg px-2 py-1",
+                                isActive && "bg-[color-mix(in_srgb,var(--pv-accent)_10%,transparent)]"
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5 overflow-visible">
+                                <div className="group relative min-w-0 overflow-visible">
+                                  <button
+                                    type="button"
+                                    aria-label={
+                                      isActive
+                                        ? `${label}. Open my private notes for this patient`
+                                        : `Switch to ${label}`
+                                    }
+                                    className={cn(
+                                      "max-w-[10rem] truncate text-left text-sm font-semibold sm:max-w-[14rem]",
+                                      isActive
+                                        ? "text-lg text-[var(--pv-fg)] hover:text-cyan-300 hover:underline"
+                                        : "text-[var(--pv-fg-soft)] hover:text-cyan-300"
+                                    )}
+                                    onClick={() => {
+                                      if (isActive) {
+                                        setModal("personalNote");
+                                        return;
+                                      }
+                                      activateOpenChart(chart.patient.id);
+                                    }}
+                                  >
+                                    {label}
+                                  </button>
+                                  {hoverBits.length > 0 && (
+                                    <div
+                                      role="tooltip"
+                                      className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md border border-[var(--pv-border-strong)] bg-[var(--pv-card)] px-2.5 py-1.5 text-[11px] leading-relaxed text-[var(--pv-fg-soft)] shadow-lg group-hover:block"
+                                    >
+                                      {hoverBits.map((bit) => (
+                                        <div key={bit}>{bit}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  title={`Close ${label}`}
+                                  className="rounded p-0.5 text-[var(--pv-muted)] hover:bg-[var(--pv-btn)] hover:text-[var(--pv-fg)]"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeOpenChart(chart.patient.id);
+                                  }}
+                                >
+                                  <X size={14} />
+                                </button>
+                                {isActive && !isChartReadOnly && user.role !== "READONLY" && (
+                                  <Button
+                                    type="button"
+                                    variant="primary"
+                                    className="!py-1.5 !text-xs"
+                                    title="Listen with Amazon Transcribe Medical and draft HPI"
+                                    onClick={() => setModal("aiListen")}
+                                  >
+                                    <Mic size={14} /> AI Listen
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <h1 className="text-lg font-semibold">Select a patient</h1>
@@ -828,7 +1189,8 @@ export default function PatientVaultApp({
               mainView === "messages" ||
               mainView === "reminders" ||
               mainView === "unsignedNotes" ||
-              mainView === "contacts") &&
+              mainView === "contacts" ||
+              mainView === "potentials") &&
               current && (
               <Button className="!py-2 !text-xs" onClick={() => goToView("chart")}>
                 Open {formatDisplayName(current)}&apos;s Chart
@@ -887,39 +1249,77 @@ export default function PatientVaultApp({
               )}
             </div>
           )}
-          {mainView === "chart" && current && (
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--pv-muted-2)]">
-              {current.mrn && <span>MRN: <span className="text-cyan-200">{current.mrn}</span></span>}
-              {current.dateOfBirth && (
-                <span>
-                  DOB: <span className="text-cyan-200">{formatDateOnly(current.dateOfBirth)}</span>
-                  {calculateAge(current.dateOfBirth) !== null && (
-                    <span> ({calculateAge(current.dateOfBirth)}y)</span>
-                  )}
-                </span>
-              )}
-              {current.sexAtBirth && (
-                <span>Sex: <span className="text-cyan-200">{formatSexAtBirth(current.sexAtBirth)}</span></span>
-              )}
-              {current.phone && <span>Phone: <span className="text-cyan-200">{current.phone}</span></span>}
-              {current.allergies && (
-                <span className="text-amber-300/90">Allergies: {current.allergies}</span>
-              )}
-            </div>
-          )}
         </header>
 
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           {mainView === "chart" && current && (
             <aside className="flex w-[200px] shrink-0 flex-col border-r border-[var(--pv-border)] bg-[var(--pv-panel)]">
               <div className="border-b border-[var(--pv-border)] px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
-                  Chart sections
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-1 text-left"
+                  onClick={() => setChartSectionsSettingsOpen((open) => !open)}
+                  title={chartSectionsSettingsOpen ? "Close section settings" : "Choose which sections appear"}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
+                    Chart sections
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={cn(
+                      "shrink-0 text-[var(--pv-muted)] transition",
+                      chartSectionsSettingsOpen && "rotate-180"
+                    )}
+                  />
+                </button>
+                <p className="mt-0.5 text-[10px] text-[var(--pv-muted)] opacity-80">
+                  {chartSectionsSettingsOpen ? "Check to show on sidebar" : "Drag to reorder · click title to edit"}
                 </p>
-                <p className="mt-0.5 text-[10px] text-[var(--pv-muted)] opacity-80">Drag to reorder</p>
               </div>
+              {chartSectionsSettingsOpen ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+                  {orderedChartTabs.map((tab) => {
+                    const locked = ALWAYS_VISIBLE_CHART_TABS.includes(tab.id);
+                    const checked = locked || chartTabVisible[tab.id] !== false;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        disabled={locked}
+                        onClick={() => toggleChartTabVisible(tab.id)}
+                        className={cn(
+                          "flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-medium transition",
+                          locked
+                            ? "cursor-default text-[var(--pv-muted-2)] opacity-80"
+                            : "text-[var(--pv-muted-2)] hover:bg-[var(--pv-hover)] hover:text-[var(--pv-fg)]"
+                        )}
+                        title={locked ? "Always visible" : checked ? "Hide from sidebar" : "Show on sidebar"}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            checked
+                              ? "border-cyan-500/60 bg-cyan-500/20 text-cyan-300"
+                              : "border-[var(--pv-border-strong)] bg-transparent"
+                          )}
+                        >
+                          {checked && <Check size={11} strokeWidth={3} />}
+                        </span>
+                        <span className="min-w-0 leading-snug">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                  <Button
+                    variant="ghost"
+                    className="mt-2 !h-8 !text-xs text-[var(--pv-muted-2)]"
+                    onClick={() => setChartSectionsSettingsOpen(false)}
+                  >
+                    Done
+                  </Button>
+                </div>
+              ) : (
               <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-                {orderedChartTabs.map((tab) => (
+                {visibleChartTabs.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
@@ -976,6 +1376,7 @@ export default function PatientVaultApp({
                   </button>
                 ))}
               </nav>
+              )}
             </aside>
           )}
 
@@ -1018,6 +1419,8 @@ export default function PatientVaultApp({
             />
           ) : mainView === "contacts" ? (
             <ContactsPanel canEdit={user.role !== "READONLY"} />
+          ) : mainView === "potentials" ? (
+            <PotentialsPanel canEdit={user.role !== "READONLY"} />
           ) : !current ? (
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--pv-muted)]">
               Select a patient to view chart
@@ -1045,6 +1448,13 @@ export default function PatientVaultApp({
                   patientDiagnosis={current.diagnosis}
                   canRemoveRecords={canRemoveRecords}
                   onRefresh={refreshNotes}
+                />
+              </div>
+              <div className={cn("flex min-h-0 flex-1 flex-col", chartTab !== "studies" && "hidden")}>
+                <ChartStudiesPanel
+                  patientId={current.id}
+                  isActive={chartTab === "studies"}
+                  isReadOnly={!!isChartReadOnly}
                 />
               </div>
               {MEDICAL_SECTIONS.map((section) => (

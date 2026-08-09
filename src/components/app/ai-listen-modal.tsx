@@ -5,7 +5,7 @@ import { api } from "@/lib/api-client";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, Copy, Mic, Square } from "lucide-react";
+import { Check, Copy, Mic, Save, Square } from "lucide-react";
 import type { HpiVisitKind } from "@/lib/hpi-visit-context";
 
 type VisitInfo = {
@@ -170,6 +170,8 @@ export function AiListenModal({
   const [hpi, setHpi] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [micLabel, setMicLabel] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
 
@@ -217,6 +219,7 @@ export function AiListenModal({
     setTranscript("");
     setHpi("");
     setCopied(false);
+    setSaved(false);
     setStatus("");
     setElapsedSec(0);
     setVisitOverride(null);
@@ -255,6 +258,7 @@ export function AiListenModal({
     setTranscript("");
     setHpi("");
     setCopied(false);
+    setSaved(false);
     setStatus("Opening default microphone…");
     setInputLevel(0);
     chunksRef.current = [];
@@ -382,8 +386,33 @@ export function AiListenModal({
     }
   }
 
+  async function saveAsText() {
+    if (!transcript.trim() && !hpi.trim()) return;
+    const visitKind = visitOverride ?? visit?.kind ?? null;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/patients/${patientId}/ai-listen-saves`, {
+        method: "POST",
+        json: {
+          transcript,
+          hpi,
+          visitKind,
+        },
+      });
+      setSaved(true);
+      setStatus("Saved — open the patient name to view dated Listen texts");
+      window.setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save Listen text");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const effectiveKind = visitOverride ?? visit?.kind ?? null;
   const levelPct = Math.min(100, Math.round(inputLevel * 220));
+  const canSave = Boolean(transcript.trim() || hpi.trim());
 
   return (
     <Modal open={open} onClose={onClose} title={`AI Listen — ${patientName}`} wide>
@@ -516,6 +545,15 @@ export function AiListenModal({
         )}
 
         <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!canSave || saving || listening || processing}
+            onClick={() => void saveAsText()}
+          >
+            {saved ? <Check size={14} /> : <Save size={14} />}
+            {saving ? "Saving…" : saved ? "Saved" : "Save as text"}
+          </Button>
           <Button
             type="button"
             variant="ghost"

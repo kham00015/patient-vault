@@ -88,6 +88,12 @@ if (-not $vars["AWS_REGION"]) {
   $vars["AWS_REGION"] = "us-east-1"
 }
 
+# Never ship password-free visit recorder to production via this script.
+# Enable on the server only deliberately when testing with a key.
+$vars.Remove("VISIT_RECORDER_TEST_MODE")
+$vars.Remove("VISIT_RECORDER_TEST_KEY")
+$vars.Remove("VISIT_RECORDER_TEST_USER_EMAIL")
+
 $lines = @(
   "# Patient Vault production - generated $(Get-Date -Format 'yyyy-MM-dd')",
   "# Upload to Lightsail: /opt/patient-vault/.env.production",

@@ -72,6 +72,7 @@ model User {
   threadParticipations ThreadParticipant[] @relation("MessageThreadParticipants")
   remindersCreated Reminder[] @relation("CreatedReminders")
   contactsCreated Contact[] @relation("CreatedContacts")
+  potentialsCreated PotentialPatient[] @relation("CreatedPotentialPatients")
   notesCreated Note[] @relation("CreatedNotes")
   notesSigned Note[] @relation("SignedNotes")
   notesRevised Note[] @relation("RevisedNotes")
@@ -79,6 +80,7 @@ model User {
   ordersCreated Order[] @relation("CreatedOrders")
   ordersReviewed Order[] @relation("ReviewedOrders")
   personalNotes PatientPersonalNote[]
+  aiListenSaves PatientAiListenSave[]
 }
 
 model Session {
@@ -170,6 +172,7 @@ model Patient {
   reminders       Reminder[]
   orders          Order[]
   personalNotes   PatientPersonalNote[]
+  aiListenSaves   PatientAiListenSave[]
 
   @@index([name])
   @@index([lastName, firstName])
@@ -602,6 +605,23 @@ model PatientPersonalNote {
   @@index([patientId])
 }
 
+/** Private per-user AI Listen saves — transcript/HPI text with date/time */
+model PatientAiListenSave {
+  id         String   @id @default(cuid())
+  patientId  String
+  userId     String
+  visitKind  String?
+  transcript String   @default("")
+  hpi        String   @default("")
+  content    String   @default("")
+  createdAt  DateTime @default(now())
+  patient    Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, userId, createdAt])
+  @@index([userId])
+}
+
 enum ContactType {
   REFERRAL_SPECIALIST
   PHARMA_REP
@@ -629,4 +649,19 @@ model Contact {
   @@index([type])
   @@index([name])
   @@index([updatedAt])
+}
+
+/** Prospective / not-yet-registered patients (not linked to Patient charts). */
+model PotentialPatient {
+  id          String   @id @default(cuid())
+  name        String
+  mrn         String?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation("CreatedPotentialPatients", fields: [createdById], references: [id])
+
+  @@index([name])
+  @@index([createdAt])
 }

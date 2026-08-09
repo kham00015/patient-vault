@@ -1,0 +1,21 @@
+Subject: Modern Medicine Patient Vault — EMR overview + review login
+
+Dear Ayesha,
+
+Thank you for reviewing our clinical system. Attached / linked is a short product overview of Patient Vault, the EMR used by Modern Medicine.
+
+Production site: https://app.patientvault.care
+
+Your read-only review account (temporary password — you will be asked to change it on first login):
+
+  Email:    ayesha.mehdi@counsel.review
+  Password: [PROVIDED SEPARATELY IN THIS MESSAGE / CALL]
+  Role:     READONLY (view only; cannot edit charts)
+
+Please treat the login and any patient information you see as confidential. This environment and the accompanying policy drafts are for your professional review of HIPAA / healthcare compliance posture (policies, NPP, BAAs, Security Risk Analysis), not a request for clinical advice.
+
+Happy to walk you through the app on a call if helpful.
+
+Best regards,
+Firas Khamis, MD
+Modern Medicine

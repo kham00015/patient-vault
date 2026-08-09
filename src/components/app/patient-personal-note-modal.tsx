@@ -11,8 +11,8 @@ import {
   formatDisplayName,
   formatSexAtBirth,
 } from "@/lib/patient-registration";
-import { formatDateOnly } from "@/lib/utils";
-import { Check, Copy, Trash2 } from "lucide-react";
+import { formatDate, formatDateOnly } from "@/lib/utils";
+import { Check, ChevronDown, ChevronRight, Copy, Mic, Trash2 } from "lucide-react";
 
 type PatientDemographics = {
   id: string;
@@ -40,6 +40,15 @@ type PatientDemographics = {
   currentMedications?: string | null;
 };
 
+type AiListenSave = {
+  id: string;
+  visitKind: string | null;
+  transcript: string;
+  hpi: string;
+  content: string;
+  createdAt: string;
+};
+
 function DemoField({ label, value }: { label: string; value?: string | null }) {
   if (!value?.trim()) return null;
   return (
@@ -54,6 +63,12 @@ function formatAddress(patient: PatientDemographics) {
   const line1 = [patient.addressLine1, patient.addressLine2].filter(Boolean).join(", ");
   const cityStateZip = [patient.city, patient.state, patient.zip].filter(Boolean).join(", ");
   return [line1, cityStateZip].filter(Boolean).join(" · ") || null;
+}
+
+function visitKindLabel(kind: string | null) {
+  if (kind === "NEW_PATIENT") return "New patient HPI";
+  if (kind === "FOLLOW_UP") return "Follow-up HPI";
+  return "AI Listen";
 }
 
 export function PatientPersonalNoteModal({
@@ -72,6 +87,10 @@ export function PatientPersonalNoteModal({
   const [clearing, setClearing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [listenSaves, setListenSaves] = useState<AiListenSave[]>([]);
+  const [expandedSaveId, setExpandedSaveId] = useState<string | null>(null);
+  const [deletingSaveId, setDeletingSaveId] = useState<string | null>(null);
+  const [copiedSaveId, setCopiedSaveId] = useState<string | null>(null);
 
   const displayName = formatDisplayName(patient);
   const age = calculateAge(patient.dateOfBirth);
@@ -94,9 +113,15 @@ export function PatientPersonalNoteModal({
     setError("");
     setDirty(false);
     setCopied(false);
-    api<{ note: { content: string } }>(`/api/patients/${patient.id}/personal-note`)
-      .then((data) => {
-        if (!cancelled) setContent(data.note.content ?? "");
+    setExpandedSaveId(null);
+    Promise.all([
+      api<{ note: { content: string } }>(`/api/patients/${patient.id}/personal-note`),
+      api<{ saves: AiListenSave[] }>(`/api/patients/${patient.id}/ai-listen-saves`),
+    ])
+      .then(([noteData, savesData]) => {
+        if (cancelled) return;
+        setContent(noteData.note.content ?? "");
+        setListenSaves(savesData.saves ?? []);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Could not load note");
@@ -155,6 +180,30 @@ export function PatientPersonalNoteModal({
     }
   }
 
+  async function copySave(save: AiListenSave) {
+    try {
+      await navigator.clipboard.writeText(save.content || save.hpi || save.transcript);
+      setCopiedSaveId(save.id);
+      window.setTimeout(() => setCopiedSaveId(null), 1500);
+    } catch {
+      setError("Could not copy to clipboard");
+    }
+  }
+
+  async function deleteSave(saveId: string) {
+    setDeletingSaveId(saveId);
+    setError("");
+    try {
+      await api(`/api/patients/${patient.id}/ai-listen-saves/${saveId}`, { method: "DELETE" });
+      setListenSaves((prev) => prev.filter((s) => s.id !== saveId));
+      if (expandedSaveId === saveId) setExpandedSaveId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete Listen save");
+    } finally {
+      setDeletingSaveId(null);
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -204,7 +253,7 @@ export function PatientPersonalNoteModal({
           debouncedPersist(next);
         }}
         placeholder="Scratch notes, reminders to yourself, things that don't belong in the chart..."
-        className="!min-h-[42vh] !text-base leading-relaxed"
+        className="!min-h-[28vh] !text-base leading-relaxed"
         autoFocus
       />
 
@@ -239,6 +288,101 @@ export function PatientPersonalNoteModal({
             Close
           </Button>
         </div>
+      </div>
+
+      <div className="mt-6 border-t border-[var(--pv-border)] pt-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Mic size={14} className="text-cyan-400" />
+          <h3 className="text-sm font-semibold text-[var(--pv-fg)]">Saved AI Listen texts</h3>
+          <span className="text-xs text-[var(--pv-muted)]">
+            {listenSaves.length === 0 ? "None yet" : `${listenSaves.length}`}
+          </span>
+        </div>
+        <p className="mb-3 text-xs text-[var(--pv-muted)]">
+          Transcripts and HPI drafts you saved from AI Listen, with date and time.
+        </p>
+
+        {listenSaves.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-[var(--pv-border)] px-3 py-4 text-sm text-[var(--pv-muted)]">
+            No saved Listen results for this patient yet. Use <strong>Save as text</strong> in AI Listen
+            after a draft is generated.
+          </p>
+        ) : (
+          <ul className="max-h-[40vh] space-y-2 overflow-y-auto">
+            {listenSaves.map((save) => {
+              const openSave = expandedSaveId === save.id;
+              return (
+                <li
+                  key={save.id}
+                  className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)]"
+                >
+                  <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      onClick={() => setExpandedSaveId(openSave ? null : save.id)}
+                    >
+                      {openSave ? (
+                        <ChevronDown size={14} className="shrink-0 text-[var(--pv-muted)]" />
+                      ) : (
+                        <ChevronRight size={14} className="shrink-0 text-[var(--pv-muted)]" />
+                      )}
+                      <span className="truncate text-sm font-medium text-[var(--pv-fg)]">
+                        {formatDate(save.createdAt)}
+                      </span>
+                      <span className="shrink-0 rounded bg-[var(--pv-btn)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--pv-muted-2)]">
+                        {visitKindLabel(save.visitKind)}
+                      </span>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="!gap-1 !px-2 !py-1 !text-xs"
+                      onClick={() => void copySave(save)}
+                    >
+                      {copiedSaveId === save.id ? <Check size={12} /> : <Copy size={12} />}
+                      {copiedSaveId === save.id ? "Copied" : "Copy"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      className="!gap-1 !px-2 !py-1 !text-xs"
+                      disabled={deletingSaveId === save.id}
+                      onClick={() => void deleteSave(save.id)}
+                    >
+                      <Trash2 size={12} />
+                      {deletingSaveId === save.id ? "…" : "Delete"}
+                    </Button>
+                  </div>
+                  {openSave && (
+                    <div className="space-y-3 border-t border-[var(--pv-border)] px-3 py-3">
+                      {save.transcript.trim() && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
+                            Transcript
+                          </p>
+                          <pre className="whitespace-pre-wrap rounded-lg bg-[var(--pv-bg-deep)] p-2 font-mono text-xs text-[var(--pv-fg-soft)]">
+                            {save.transcript}
+                          </pre>
+                        </div>
+                      )}
+                      {save.hpi.trim() && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
+                            HPI draft
+                          </p>
+                          <pre className="whitespace-pre-wrap rounded-lg bg-[var(--pv-bg-deep)] p-2 text-sm text-[var(--pv-fg-soft)]">
+                            {save.hpi}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </Modal>
   );
