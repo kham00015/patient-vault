@@ -55,7 +55,9 @@ export async function requireVisitRecorderAccess(
   }
 
   if (!isVisitRecorderTestMode()) {
-    return requireAuth(request);
+    const auth = await requireAuth(request);
+    if (auth instanceof NextResponse) return auth;
+    return { user: auth.user, testMode: false };
   }
 
   if (!visitRecorderTestKeyOk(request)) {
