@@ -5,12 +5,20 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
-import { AI_BRAIN_TYPES } from "@/lib/ai-brain-types";
-import type { AiBrainSourceTypeValue } from "@/lib/ai-brain-types";
+
+const brainTypeSchema = z.enum([
+  "GUIDELINE",
+  "PREFERENCE",
+  "ASSESSMENT_STYLE",
+  "PLAN_STYLE",
+  "TREATMENT_STYLE",
+  "REFERENCE",
+  "OTHER",
+]);
 
 const createSchema = z.object({
   title: z.string().min(1).max(200),
-  type: z.enum(AI_BRAIN_TYPES as [AiBrainSourceTypeValue, ...AiBrainSourceTypeValue[]]),
+  type: brainTypeSchema,
   content: z.string().max(100_000).default(""),
   priority: z.number().int().min(0).max(1000).optional(),
   active: z.boolean().optional(),
