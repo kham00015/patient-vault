@@ -81,6 +81,7 @@ model User {
   ordersReviewed Order[] @relation("ReviewedOrders")
   personalNotes PatientPersonalNote[]
   aiListenSaves PatientAiListenSave[]
+  aiBrainSources AiBrainSource[] @relation("CreatedAiBrainSources")
 }
 
 model Session {
@@ -136,9 +137,24 @@ model Patient {
   emergencyContactName     String?
   emergencyContactPhone    String?
   emergencyContactRelation String?
-  primaryInsuranceCarrier      String?
-  primaryInsuranceMemberId     String?
-  primaryInsuranceGroupNumber  String?
+  primaryInsuranceCarrier           String?
+  primaryInsuranceMemberId          String?
+  primaryInsuranceGroupNumber       String?
+  primaryInsurancePayerId           String?
+  primaryInsuranceClaimAddressLine1 String?
+  primaryInsuranceClaimAddressLine2 String?
+  primaryInsuranceClaimCity         String?
+  primaryInsuranceClaimState        String?
+  primaryInsuranceClaimZip          String?
+  secondaryInsuranceCarrier           String?
+  secondaryInsuranceMemberId          String?
+  secondaryInsuranceGroupNumber       String?
+  secondaryInsurancePayerId           String?
+  secondaryInsuranceClaimAddressLine1 String?
+  secondaryInsuranceClaimAddressLine2 String?
+  secondaryInsuranceClaimCity         String?
+  secondaryInsuranceClaimState        String?
+  secondaryInsuranceClaimZip          String?
   allergies           String?
   currentMedications  String?
   diagnosis       String?
@@ -664,4 +680,32 @@ model PotentialPatient {
 
   @@index([name])
   @@index([createdAt])
+}
+
+/** Clinic-wide AI "brain" — guidelines, prefs, treatment style, reference text. */
+enum AiBrainSourceType {
+  GUIDELINE
+  PREFERENCE
+  ASSESSMENT_STYLE
+  PLAN_STYLE
+  TREATMENT_STYLE
+  REFERENCE
+  OTHER
+}
+
+model AiBrainSource {
+  id          String            @id @default(cuid())
+  title       String
+  type        AiBrainSourceType @default(GUIDELINE)
+  content     String            @default("")
+  active      Boolean           @default(true)
+  priority    Int               @default(100)
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation("CreatedAiBrainSources", fields: [createdById], references: [id])
+
+  @@index([active, priority])
+  @@index([type])
+  @@index([updatedAt])
 }

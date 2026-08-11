@@ -11,6 +11,7 @@ import { CommsBranchPanel } from "@/components/app/comms-branch-panel";
 import { OrdersPanel } from "@/components/app/orders-panel";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
+import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 import type { EncounterFormData } from "@/components/app/clinical-form-editor";
 import type { FaxTransmissionDTO } from "@/lib/fax-transmissions";
 import type { OrderDTO } from "@/lib/orders";
@@ -1052,7 +1053,10 @@ function AttachmentsBranchPanel({
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setUploadError(data?.error ?? `Upload failed (${res.status}). Try a smaller file (max 25MB).`);
+        setUploadError(
+          data?.error ??
+            `Upload failed (${res.status}). If this was a scan, try again — large BMP files often fail; JPEG under 25MB works best.`
+        );
         return;
       }
       setName("");
@@ -1111,6 +1115,16 @@ function AttachmentsBranchPanel({
             className="!h-8 max-w-[180px] !text-xs"
             type="file"
             onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+          />
+          <ScanDocumentButton
+            defaultName={name.trim() || "Encounter document"}
+            className="!h-8 !gap-1.5 !text-[10px]"
+            onCaptured={(scanned, suggestedName) => {
+              setFile(scanned);
+              setUploadError(null);
+              if (!name.trim()) setName(suggestedName);
+              setFileInputKey((k) => k + 1);
+            }}
           />
           <Button
             variant="success"

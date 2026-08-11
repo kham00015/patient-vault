@@ -125,6 +125,7 @@ export async function chatWithAI(params: {
   patientData?: string;
   attachments?: ChartDocumentAttachment[];
   pastConversations?: string;
+  brainData?: string;
 }) {
   if (!isBedrockConfigured()) {
     return {
@@ -138,6 +139,8 @@ export async function chatWithAI(params: {
   const systemBlocks: SystemContentBlock[] = [
     {
       text: `${CLINICAL_SYSTEM}${
+        params.brainData?.trim() ? `\n\n${params.brainData.trim()}` : ""
+      }${
         params.patientData ? `\n\n=== PATIENT CHART ===\n${params.patientData}` : ""
       }${
         params.pastConversations
@@ -156,7 +159,7 @@ export async function chatWithAI(params: {
         messages: toBedrockMessages(params.messages, params.attachments ?? []),
         inferenceConfig: {
           temperature: 0.2,
-          maxTokens: 2500,
+          maxTokens: 4096,
         },
       })
     );
@@ -306,6 +309,7 @@ export async function draftHpiFromTranscript(params: {
 export async function reviewChartGuidelinesWithAI(params: {
   patientData: string;
   attachments?: ChartDocumentAttachment[];
+  brainData?: string;
 }) {
   if (!isBedrockConfigured()) {
     return {
@@ -316,10 +320,14 @@ export async function reviewChartGuidelinesWithAI(params: {
     };
   }
 
+  const brainBlock = params.brainData?.trim()
+    ? params.brainData.trim()
+    : `=== CLINIC / PERSONAL GUIDELINES (PRIORITY — follow these first when they apply) ===
+${AI_GUIDELINES_CLINIC_RULES.trim() || "(None added yet — use general guidelines.)"}`;
+
   const systemText = `${AI_GUIDELINES_RULES}
 
-=== CLINIC / PERSONAL GUIDELINES (PRIORITY — follow these first when they apply) ===
-${AI_GUIDELINES_CLINIC_RULES.trim() || "(None added yet — use general guidelines.)"}
+${brainBlock}
 
 === PATIENT CHART ===
 ${params.patientData}`;
@@ -335,14 +343,14 @@ ${params.patientData}`;
             {
               role: "user",
               content:
-                "Review this patient's chart against clinic guidelines (priority) and general guidelines. Produce the structured care recommendations now.",
+                "Review this patient's chart against clinic AI brain / guidelines (priority) and general guidelines. Produce the structured care recommendations now.",
             },
           ],
           params.attachments ?? []
         ),
         inferenceConfig: {
           temperature: 0.2,
-          maxTokens: 3000,
+          maxTokens: 4096,
         },
       })
     );

@@ -6,6 +6,7 @@ import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { chatWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
+import { buildAiBrainContext } from "@/lib/ai-brain";
 import { isPatientChartWritable } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
@@ -37,7 +38,10 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const body = chatSchema.parse(await request.json());
-    const chart = await buildPatientChartAiContext(patientId);
+    const [chart, brain] = await Promise.all([
+      buildPatientChartAiContext(patientId),
+      buildAiBrainContext(),
+    ]);
 
     const existing = await prisma.aIConversation.findUnique({ where: { patientId } });
     const history: { role: string; content: string }[] = existing
@@ -50,6 +54,7 @@ export async function POST(request: Request, { params }: Params) {
       messages: messages as { role: "user" | "assistant" | "system"; content: string }[],
       patientData: chart.text,
       attachments: chart.attachments,
+      brainData: brain.text,
     });
 
     const updated = [...messages, { role: "assistant", content: result.response }];
@@ -73,11 +78,15 @@ export async function POST(request: Request, { params }: Params) {
         provider: result.provider,
         attachments: chart.attachmentSummary.length,
         skipped: chart.skipped.length,
+        coverage: chart.coverage,
+        brainSources: brain.sourceCount,
       },
     });
 
     return NextResponse.json({
       response: result.response,
+      coverage: chart.coverage,
+      brainSources: brain.sourceCount,
       configured: result.configured,
       provider: result.provider,
       context: {

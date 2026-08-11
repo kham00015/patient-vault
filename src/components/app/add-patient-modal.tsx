@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,6 +42,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+const SECONDARY_KEYS = [
+  "secondaryInsuranceCarrier",
+  "secondaryInsuranceMemberId",
+  "secondaryInsuranceGroupNumber",
+  "secondaryInsurancePayerId",
+  "secondaryInsuranceClaimAddressLine1",
+  "secondaryInsuranceClaimAddressLine2",
+  "secondaryInsuranceClaimCity",
+  "secondaryInsuranceClaimState",
+  "secondaryInsuranceClaimZip",
+] as const satisfies readonly (keyof CreatePatientInput)[];
+
 export function AddPatientModal({
   open,
   onClose,
@@ -51,6 +64,7 @@ export function AddPatientModal({
   onSubmit: (data: CreatePatientInput) => Promise<void>;
 }) {
   const [form, setForm] = useState<CreatePatientInput>(EMPTY_PATIENT_FORM);
+  const [showSecondary, setShowSecondary] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -61,12 +75,28 @@ export function AddPatientModal({
 
   function reset() {
     setForm(EMPTY_PATIENT_FORM);
+    setShowSecondary(false);
     setError("");
   }
 
   function handleClose() {
     reset();
     onClose();
+  }
+
+  function addSecondary() {
+    setShowSecondary(true);
+  }
+
+  function removeSecondary() {
+    setShowSecondary(false);
+    setForm((prev) => {
+      const next = { ...prev };
+      for (const key of SECONDARY_KEYS) {
+        (next as Record<string, unknown>)[key] = "";
+      }
+      return next;
+    });
   }
 
   async function handleSubmit() {
@@ -189,9 +219,9 @@ export function AddPatientModal({
           </div>
         </Section>
 
-        <Section title="Insurance">
+        <Section title="Primary insurance">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Primary carrier" required>
+            <Field label="Carrier" required>
               <Input
                 value={form.primaryInsuranceCarrier}
                 onChange={(e) => update("primaryInsuranceCarrier", e.target.value)}
@@ -204,13 +234,157 @@ export function AddPatientModal({
               />
             </Field>
           </div>
-          <Field label="Group number">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Group number">
+              <Input
+                value={form.primaryInsuranceGroupNumber ?? ""}
+                onChange={(e) => update("primaryInsuranceGroupNumber", e.target.value)}
+              />
+            </Field>
+            <Field label="Payer ID">
+              <Input
+                value={form.primaryInsurancePayerId ?? ""}
+                onChange={(e) => update("primaryInsurancePayerId", e.target.value)}
+              />
+            </Field>
+          </div>
+          <p className="pt-1 text-xs font-medium text-[var(--pv-muted)]">Claims address</p>
+          <Field label="Address line 1">
             <Input
-              value={form.primaryInsuranceGroupNumber ?? ""}
-              onChange={(e) => update("primaryInsuranceGroupNumber", e.target.value)}
+              value={form.primaryInsuranceClaimAddressLine1 ?? ""}
+              onChange={(e) => update("primaryInsuranceClaimAddressLine1", e.target.value)}
             />
           </Field>
+          <Field label="Address line 2">
+            <Input
+              value={form.primaryInsuranceClaimAddressLine2 ?? ""}
+              onChange={(e) => update("primaryInsuranceClaimAddressLine2", e.target.value)}
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="City">
+              <Input
+                value={form.primaryInsuranceClaimCity ?? ""}
+                onChange={(e) => update("primaryInsuranceClaimCity", e.target.value)}
+              />
+            </Field>
+            <Field label="State">
+              <select
+                className={selectClass}
+                value={form.primaryInsuranceClaimState ?? ""}
+                onChange={(e) => update("primaryInsuranceClaimState", e.target.value)}
+              >
+                <option value="">Select...</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="ZIP">
+              <Input
+                value={form.primaryInsuranceClaimZip ?? ""}
+                onChange={(e) => update("primaryInsuranceClaimZip", e.target.value)}
+              />
+            </Field>
+          </div>
+
+          {!showSecondary ? (
+            <button
+              type="button"
+              onClick={addSecondary}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--pv-border)] px-3 py-2 text-sm text-cyan-300 transition hover:border-cyan-500/50 hover:bg-cyan-500/10"
+            >
+              <Plus className="h-4 w-4" />
+              Secondary insurance
+            </button>
+          ) : null}
         </Section>
+
+        {showSecondary ? (
+          <Section title="Secondary insurance">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={removeSecondary}
+                className="inline-flex items-center gap-1 text-xs text-[var(--pv-muted)] hover:text-rose-300"
+              >
+                <X className="h-3.5 w-3.5" />
+                Remove secondary
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Carrier">
+                <Input
+                  value={form.secondaryInsuranceCarrier ?? ""}
+                  onChange={(e) => update("secondaryInsuranceCarrier", e.target.value)}
+                />
+              </Field>
+              <Field label="Member ID">
+                <Input
+                  value={form.secondaryInsuranceMemberId ?? ""}
+                  onChange={(e) => update("secondaryInsuranceMemberId", e.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Group number">
+                <Input
+                  value={form.secondaryInsuranceGroupNumber ?? ""}
+                  onChange={(e) => update("secondaryInsuranceGroupNumber", e.target.value)}
+                />
+              </Field>
+              <Field label="Payer ID">
+                <Input
+                  value={form.secondaryInsurancePayerId ?? ""}
+                  onChange={(e) => update("secondaryInsurancePayerId", e.target.value)}
+                />
+              </Field>
+            </div>
+            <p className="pt-1 text-xs font-medium text-[var(--pv-muted)]">Claims address</p>
+            <Field label="Address line 1">
+              <Input
+                value={form.secondaryInsuranceClaimAddressLine1 ?? ""}
+                onChange={(e) => update("secondaryInsuranceClaimAddressLine1", e.target.value)}
+              />
+            </Field>
+            <Field label="Address line 2">
+              <Input
+                value={form.secondaryInsuranceClaimAddressLine2 ?? ""}
+                onChange={(e) => update("secondaryInsuranceClaimAddressLine2", e.target.value)}
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="City">
+                <Input
+                  value={form.secondaryInsuranceClaimCity ?? ""}
+                  onChange={(e) => update("secondaryInsuranceClaimCity", e.target.value)}
+                />
+              </Field>
+              <Field label="State">
+                <select
+                  className={selectClass}
+                  value={form.secondaryInsuranceClaimState ?? ""}
+                  onChange={(e) => update("secondaryInsuranceClaimState", e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {US_STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="ZIP">
+                <Input
+                  value={form.secondaryInsuranceClaimZip ?? ""}
+                  onChange={(e) => update("secondaryInsuranceClaimZip", e.target.value)}
+                />
+              </Field>
+            </div>
+          </Section>
+        ) : null}
 
         <Section title="Clinical intake">
           <Field label="Allergies" required>

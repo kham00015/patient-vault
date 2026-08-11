@@ -36,6 +36,21 @@ type PatientDemographics = {
   primaryInsuranceCarrier?: string | null;
   primaryInsuranceMemberId?: string | null;
   primaryInsuranceGroupNumber?: string | null;
+  primaryInsurancePayerId?: string | null;
+  primaryInsuranceClaimAddressLine1?: string | null;
+  primaryInsuranceClaimAddressLine2?: string | null;
+  primaryInsuranceClaimCity?: string | null;
+  primaryInsuranceClaimState?: string | null;
+  primaryInsuranceClaimZip?: string | null;
+  secondaryInsuranceCarrier?: string | null;
+  secondaryInsuranceMemberId?: string | null;
+  secondaryInsuranceGroupNumber?: string | null;
+  secondaryInsurancePayerId?: string | null;
+  secondaryInsuranceClaimAddressLine1?: string | null;
+  secondaryInsuranceClaimAddressLine2?: string | null;
+  secondaryInsuranceClaimCity?: string | null;
+  secondaryInsuranceClaimState?: string | null;
+  secondaryInsuranceClaimZip?: string | null;
   allergies?: string | null;
   currentMedications?: string | null;
 };
@@ -62,6 +77,18 @@ function DemoField({ label, value }: { label: string; value?: string | null }) {
 function formatAddress(patient: PatientDemographics) {
   const line1 = [patient.addressLine1, patient.addressLine2].filter(Boolean).join(", ");
   const cityStateZip = [patient.city, patient.state, patient.zip].filter(Boolean).join(", ");
+  return [line1, cityStateZip].filter(Boolean).join(" · ") || null;
+}
+
+function formatClaimAddress(parts: {
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+}) {
+  const line1 = [parts.line1, parts.line2].filter(Boolean).join(", ");
+  const cityStateZip = [parts.city, parts.state, parts.zip].filter(Boolean).join(", ");
   return [line1, cityStateZip].filter(Boolean).join(" · ") || null;
 }
 
@@ -98,6 +125,28 @@ export function PatientPersonalNoteModal({
     ? `${formatDateOnly(patient.dateOfBirth)}${age != null ? ` (${age}y)` : ""}`
     : null;
   const address = useMemo(() => formatAddress(patient), [patient]);
+  const primaryClaimAddress = useMemo(
+    () =>
+      formatClaimAddress({
+        line1: patient.primaryInsuranceClaimAddressLine1,
+        line2: patient.primaryInsuranceClaimAddressLine2,
+        city: patient.primaryInsuranceClaimCity,
+        state: patient.primaryInsuranceClaimState,
+        zip: patient.primaryInsuranceClaimZip,
+      }),
+    [patient]
+  );
+  const secondaryClaimAddress = useMemo(
+    () =>
+      formatClaimAddress({
+        line1: patient.secondaryInsuranceClaimAddressLine1,
+        line2: patient.secondaryInsuranceClaimAddressLine2,
+        city: patient.secondaryInsuranceClaimCity,
+        state: patient.secondaryInsuranceClaimState,
+        zip: patient.secondaryInsuranceClaimZip,
+      }),
+    [patient]
+  );
   const emergency = [
     patient.emergencyContactName,
     patient.emergencyContactRelation ? `(${patient.emergencyContactRelation})` : null,
@@ -224,9 +273,16 @@ export function PatientPersonalNoteModal({
           <DemoField label="Phone" value={patient.phone} />
           <DemoField label="Email" value={patient.email} />
           <DemoField label="Address" value={address} />
-          <DemoField label="Insurance" value={patient.primaryInsuranceCarrier} />
+          <DemoField label="Primary insurance" value={patient.primaryInsuranceCarrier} />
           <DemoField label="Member ID" value={patient.primaryInsuranceMemberId} />
           <DemoField label="Group #" value={patient.primaryInsuranceGroupNumber} />
+          <DemoField label="Payer ID" value={patient.primaryInsurancePayerId} />
+          <DemoField label="Claims address" value={primaryClaimAddress} />
+          <DemoField label="Secondary insurance" value={patient.secondaryInsuranceCarrier} />
+          <DemoField label="Secondary member ID" value={patient.secondaryInsuranceMemberId} />
+          <DemoField label="Secondary group #" value={patient.secondaryInsuranceGroupNumber} />
+          <DemoField label="Secondary payer ID" value={patient.secondaryInsurancePayerId} />
+          <DemoField label="Secondary claims address" value={secondaryClaimAddress} />
           <DemoField label="Emergency contact" value={emergency || null} />
           <DemoField label="Allergies" value={patient.allergies} />
           <DemoField label="Current medications" value={patient.currentMedications} />

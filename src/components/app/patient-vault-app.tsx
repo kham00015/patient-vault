@@ -28,6 +28,7 @@ import { MessagingPanel } from "@/components/app/messaging-panel";
 import { PatientRemindersModal } from "@/components/app/patient-reminders-modal";
 import { PatientPersonalNoteModal } from "@/components/app/patient-personal-note-modal";
 import { AiListenModal } from "@/components/app/ai-listen-modal";
+import { AiBrainModal } from "@/components/app/ai-brain-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
 import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
@@ -39,6 +40,7 @@ import { SectionDocumentUploads } from "@/components/app/note-section-uploads";
 import { SectionTextReports } from "@/components/app/section-text-reports";
 import { TextReportDocumentEditor } from "@/components/app/text-report-document-editor";
 import { ThemeToggle } from "@/components/app/theme-toggle";
+import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 import { CLINIC_NAME } from "@/lib/branding";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import {
@@ -124,6 +126,21 @@ type Patient = {
   primaryInsuranceCarrier?: string | null;
   primaryInsuranceMemberId?: string | null;
   primaryInsuranceGroupNumber?: string | null;
+  primaryInsurancePayerId?: string | null;
+  primaryInsuranceClaimAddressLine1?: string | null;
+  primaryInsuranceClaimAddressLine2?: string | null;
+  primaryInsuranceClaimCity?: string | null;
+  primaryInsuranceClaimState?: string | null;
+  primaryInsuranceClaimZip?: string | null;
+  secondaryInsuranceCarrier?: string | null;
+  secondaryInsuranceMemberId?: string | null;
+  secondaryInsuranceGroupNumber?: string | null;
+  secondaryInsurancePayerId?: string | null;
+  secondaryInsuranceClaimAddressLine1?: string | null;
+  secondaryInsuranceClaimAddressLine2?: string | null;
+  secondaryInsuranceClaimCity?: string | null;
+  secondaryInsuranceClaimState?: string | null;
+  secondaryInsuranceClaimZip?: string | null;
   allergies?: string | null;
   currentMedications?: string | null;
   diagnosis?: string | null;
@@ -2303,7 +2320,10 @@ function ChartDocumentsPanel({
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setUploadError(data?.error ?? `Upload failed (${res.status}). Try a smaller file (max 25MB).`);
+        setUploadError(
+          data?.error ??
+            `Upload failed (${res.status}). If this was a scan, try again — large BMP files often fail; JPEG under 25MB works best.`
+        );
         return;
       }
       setName("");
@@ -2389,7 +2409,7 @@ function ChartDocumentsPanel({
 
       {!isReadOnly && (
         <div className="mb-4 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto_auto]">
             <Input
               placeholder="Document name (required)"
               value={name}
@@ -2402,6 +2422,16 @@ function ChartDocumentsPanel({
               key={fileInputKey}
               type="file"
               onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+            />
+            <ScanDocumentButton
+              defaultName={name.trim() || "Document"}
+              className="!h-10 !gap-1.5 !text-sm"
+              onCaptured={(scanned, suggestedName) => {
+                setFile(scanned);
+                setUploadError(null);
+                if (!name.trim()) setName(suggestedName);
+                setFileInputKey((k) => k + 1);
+              }}
             />
             <Button
               variant="success"
@@ -2653,12 +2683,15 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [brainOpen, setBrainOpen] = useState(false);
+  const [coverageHint, setCoverageHint] = useState("");
 
   useEffect(() => {
     if (open) {
       api<{ messages: { role: string; content: string }[] }>(`/api/patients/${patientId}/ai`)
         .then((d) => setMessages(d.messages))
         .catch(() => setMessages([]));
+      setCoverageHint("");
     }
   }, [open, patientId]);
 
@@ -2669,11 +2702,31 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
     setMessages((m) => [...m, { role: "user", content: q }]);
     setLoading(true);
     try {
-      const res = await api<{ response: string }>(`/api/patients/${patientId}/ai`, {
+      const res = await api<{
+        response: string;
+        coverage?: {
+          notes: number;
+          forms: number;
+          orders: number;
+          encounters: number;
+          documentsTotal: number;
+          documentsAttached: number;
+          documentsExtracted: number;
+          documentsSkipped: number;
+        };
+        brainSources?: number;
+      }>(`/api/patients/${patientId}/ai`, {
         method: "POST",
         json: { message: q },
       });
       setMessages((m) => [...m, { role: "assistant", content: res.response }]);
+      if (res.coverage) {
+        const c = res.coverage;
+        setCoverageHint(
+          `Chart read: ${c.notes} notes · ${c.forms} forms · ${c.orders} orders · ${c.encounters} encounters · ${c.documentsTotal} docs (${c.documentsAttached} attached, ${c.documentsExtracted} PDF text, ${c.documentsSkipped} skipped)` +
+            (typeof res.brainSources === "number" ? ` · brain ${res.brainSources}` : "")
+        );
+      }
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "failed"}` }]);
     } finally {
@@ -2682,9 +2735,10 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
   }
 
   return (
+    <>
     <Modal open={open} onClose={onClose} title={`Ask AI — ${patientName}`} xl className="max-w-4xl">
       <p className="mb-3 text-sm text-[var(--pv-muted)]">
-        Powered by AWS Bedrock (HIPAA BAA). Uses this patient&apos;s chart text, notes, forms, orders, and attached PDFs/images.
+        Reads this patient&apos;s full chart (notes, forms, orders, encounters, PDFs). Decision support only — you review and decide.
         Queries are audit-logged.
       </p>
       <div className="mb-3 max-h-[55vh] min-h-[280px] space-y-3 overflow-y-auto rounded-xl border border-[var(--pv-border)] bg-[var(--pv-bg-deep)] p-3">
@@ -2710,8 +2764,9 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
             {m.content}
           </div>
         ))}
-        {loading && <p className="text-center text-sm text-cyan-400">Reading chart &amp; documents...</p>}
+        {loading && <p className="text-center text-sm text-cyan-400">Reading full chart &amp; documents...</p>}
       </div>
+      {coverageHint && <p className="mb-2 text-[11px] text-[var(--pv-muted)]">{coverageHint}</p>}
       <div className="flex gap-2">
         <Input
           placeholder="Ask about this patient chart..."
@@ -2724,56 +2779,85 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
           {loading ? "..." : "Send"}
         </Button>
       </div>
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
-        <Button
-          variant="primary"
-          className="!text-xs"
-          disabled={loading}
-          onClick={async () => {
-            if (loading) return;
-            setMessages((m) => [
-              ...m,
-              {
-                role: "user",
-                content:
-                  "Guidelines review — continue / stop / start, labs, imaging, testing, vaccines, treatments.",
-              },
-            ]);
-            setLoading(true);
-            try {
-              const res = await api<{ response: string }>(
-                `/api/patients/${patientId}/ai/guidelines`,
-                { method: "POST" }
-              );
-              setMessages((m) => [...m, { role: "assistant", content: res.response }]);
-            } catch (e) {
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          className="text-[11px] text-[var(--pv-muted)] underline-offset-2 hover:text-[var(--pv-muted-2)] hover:underline"
+          onClick={() => setBrainOpen(true)}
+        >
+          Clinic knowledge (background)
+        </button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="primary"
+            className="!text-xs"
+            disabled={loading}
+            onClick={async () => {
+              if (loading) return;
               setMessages((m) => [
                 ...m,
                 {
-                  role: "assistant",
-                  content: `Error: ${e instanceof Error ? e.message : "failed"}`,
+                  role: "user",
+                  content:
+                    "Guidelines review — continue / stop / start, labs, imaging, testing, vaccines, treatments.",
                 },
               ]);
-            } finally {
-              setLoading(false);
-            }
-          }}
-        >
-          Guidelines
-        </Button>
-        <Button
-          variant="danger"
-          className="!text-xs"
-          disabled={loading}
-          onClick={async () => {
-            await api(`/api/patients/${patientId}/ai`, { method: "DELETE" });
-            setMessages([]);
-          }}
-        >
-          Clear History
-        </Button>
+              setLoading(true);
+              try {
+                const res = await api<{
+                  response: string;
+                  coverage?: {
+                    notes: number;
+                    forms: number;
+                    orders: number;
+                    encounters: number;
+                    documentsTotal: number;
+                    documentsAttached: number;
+                    documentsExtracted: number;
+                    documentsSkipped: number;
+                  };
+                  brainSources?: number;
+                }>(`/api/patients/${patientId}/ai/guidelines`, { method: "POST" });
+                setMessages((m) => [...m, { role: "assistant", content: res.response }]);
+                if (res.coverage) {
+                  const c = res.coverage;
+                  setCoverageHint(
+                    `Chart read: ${c.notes} notes · ${c.forms} forms · ${c.orders} orders · ${c.encounters} encounters · ${c.documentsTotal} docs (${c.documentsAttached} attached, ${c.documentsExtracted} PDF text, ${c.documentsSkipped} skipped)` +
+                      (typeof res.brainSources === "number" ? ` · brain ${res.brainSources}` : "")
+                  );
+                }
+              } catch (e) {
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: `Error: ${e instanceof Error ? e.message : "failed"}`,
+                  },
+                ]);
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Guidelines
+          </Button>
+          <Button
+            variant="danger"
+            className="!text-xs"
+            disabled={loading}
+            onClick={async () => {
+              await api(`/api/patients/${patientId}/ai`, { method: "DELETE" });
+              setMessages([]);
+              setCoverageHint("");
+            }}
+          >
+            Clear History
+          </Button>
+        </div>
       </div>
     </Modal>
+    <AiBrainModal open={brainOpen} onClose={() => setBrainOpen(false)} />
+    </>
   );
 }
 

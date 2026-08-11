@@ -23,6 +23,20 @@ const optionalText = (max: number) =>
     .or(z.literal(""))
     .transform((v) => (v?.trim() ? v.trim() : undefined));
 
+const optionalState = z
+  .string()
+  .max(2)
+  .optional()
+  .or(z.literal(""))
+  .transform((v) => {
+    const trimmed = v?.trim().toUpperCase();
+    return trimmed || undefined;
+  })
+  .refine(
+    (v) => !v || (US_STATES as readonly string[]).includes(v),
+    "Invalid US state code"
+  );
+
 export const createPatientSchema = z.object({
   firstName: z.string().min(1, "First name is required").max(100).transform((v) => v.trim()),
   lastName: z.string().min(1, "Last name is required").max(100).transform((v) => v.trim()),
@@ -61,6 +75,21 @@ export const createPatientSchema = z.object({
   primaryInsuranceCarrier: z.string().min(1, "Insurance carrier is required").max(150).transform((v) => v.trim()),
   primaryInsuranceMemberId: z.string().min(1, "Member ID is required").max(100).transform((v) => v.trim()),
   primaryInsuranceGroupNumber: optionalText(100),
+  primaryInsurancePayerId: optionalText(100),
+  primaryInsuranceClaimAddressLine1: optionalText(200),
+  primaryInsuranceClaimAddressLine2: optionalText(200),
+  primaryInsuranceClaimCity: optionalText(100),
+  primaryInsuranceClaimState: optionalState,
+  primaryInsuranceClaimZip: optionalText(10),
+  secondaryInsuranceCarrier: optionalText(150),
+  secondaryInsuranceMemberId: optionalText(100),
+  secondaryInsuranceGroupNumber: optionalText(100),
+  secondaryInsurancePayerId: optionalText(100),
+  secondaryInsuranceClaimAddressLine1: optionalText(200),
+  secondaryInsuranceClaimAddressLine2: optionalText(200),
+  secondaryInsuranceClaimCity: optionalText(100),
+  secondaryInsuranceClaimState: optionalState,
+  secondaryInsuranceClaimZip: optionalText(10),
   allergies: z.string().min(1, "Allergies are required — enter NKDA if none").max(2000).transform((v) => v.trim()),
   currentMedications: optionalText(4000),
 });
@@ -82,6 +111,21 @@ export const ENCRYPTED_DEMOGRAPHIC_FIELDS = [
   "primaryInsuranceCarrier",
   "primaryInsuranceMemberId",
   "primaryInsuranceGroupNumber",
+  "primaryInsurancePayerId",
+  "primaryInsuranceClaimAddressLine1",
+  "primaryInsuranceClaimAddressLine2",
+  "primaryInsuranceClaimCity",
+  "primaryInsuranceClaimState",
+  "primaryInsuranceClaimZip",
+  "secondaryInsuranceCarrier",
+  "secondaryInsuranceMemberId",
+  "secondaryInsuranceGroupNumber",
+  "secondaryInsurancePayerId",
+  "secondaryInsuranceClaimAddressLine1",
+  "secondaryInsuranceClaimAddressLine2",
+  "secondaryInsuranceClaimCity",
+  "secondaryInsuranceClaimState",
+  "secondaryInsuranceClaimZip",
   "allergies",
   "currentMedications",
 ] as const;
@@ -136,6 +180,21 @@ export const EMPTY_PATIENT_FORM: CreatePatientInput = {
   primaryInsuranceCarrier: "",
   primaryInsuranceMemberId: "",
   primaryInsuranceGroupNumber: "",
+  primaryInsurancePayerId: "",
+  primaryInsuranceClaimAddressLine1: "",
+  primaryInsuranceClaimAddressLine2: "",
+  primaryInsuranceClaimCity: "",
+  primaryInsuranceClaimState: "",
+  primaryInsuranceClaimZip: "",
+  secondaryInsuranceCarrier: "",
+  secondaryInsuranceMemberId: "",
+  secondaryInsuranceGroupNumber: "",
+  secondaryInsurancePayerId: "",
+  secondaryInsuranceClaimAddressLine1: "",
+  secondaryInsuranceClaimAddressLine2: "",
+  secondaryInsuranceClaimCity: "",
+  secondaryInsuranceClaimState: "",
+  secondaryInsuranceClaimZip: "",
   allergies: "NKDA",
   currentMedications: "",
 };

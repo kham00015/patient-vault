@@ -1,3 +1,4 @@
+import { extractText, getDocumentProxy } from "unpdf";
 import { readDocument } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
 import { toPatientDTO, toNoteDTO, MEDICAL_SECTIONS } from "@/lib/patients";
@@ -41,11 +42,24 @@ export type PatientChartAiContext = {
   attachments: ChartDocumentAttachment[];
   attachmentSummary: string[];
   skipped: string[];
+  coverage: {
+    notes: number;
+    forms: number;
+    orders: number;
+    encounters: number;
+    documentsTotal: number;
+    documentsAttached: number;
+    documentsInlined: number;
+    documentsExtracted: number;
+    documentsSkipped: number;
+  };
 };
 
-const MAX_ATTACHMENTS = 12;
+/** Bedrock Converse native doc size limit is ~4.5MB per file. */
+const MAX_ATTACHMENTS = 30;
 const MAX_ATTACHMENT_BYTES = 4.5 * 1024 * 1024;
-const MAX_TEXT_DOC_CHARS = 120_000;
+const MAX_TEXT_DOC_CHARS = 900_000;
+const MAX_PDF_EXTRACT_CHARS = 200_000;
 
 function mimeToDocumentFormat(mimeType: string, fileName: string): BedrockDocumentFormat | null {
   const mime = mimeType.toLowerCase();
@@ -95,21 +109,48 @@ function safeDocName(name: string) {
   return cleaned || "document";
 }
 
+async function extractPdfText(bytes: Buffer): Promise<string | null> {
+  try {
+    const pdf = await getDocumentProxy(new Uint8Array(bytes));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const joined = Array.isArray(text) ? text.join("\n") : String(text ?? "");
+    const cleaned = joined.replace(/\s+/g, " ").trim();
+    return cleaned || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Assemble chart text + attach PDFs/images Bedrock can read natively.
- * Text/HTML docs are inlined as text to save attachment slots.
+ * Assemble full chart text + attach as many PDFs/images as Bedrock allows.
+ * Oversized / overflow PDFs are text-extracted when possible so AI still sees them.
  */
 export async function buildPatientChartAiContext(
   patientId: string
 ): Promise<PatientChartAiContext> {
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) {
-    return { text: "", attachments: [], attachmentSummary: [], skipped: ["Patient not found"] };
+    return {
+      text: "",
+      attachments: [],
+      attachmentSummary: [],
+      skipped: ["Patient not found"],
+      coverage: {
+        notes: 0,
+        forms: 0,
+        orders: 0,
+        encounters: 0,
+        documentsTotal: 0,
+        documentsAttached: 0,
+        documentsInlined: 0,
+        documentsExtracted: 0,
+        documentsSkipped: 0,
+      },
+    };
   }
 
   const dto = toPatientDTO(patient);
 
-  // Sequential fetches avoid RDS connection storms; each is optional so AI still works if one fails.
   const notes = await prisma.note
     .findMany({ where: { patientId }, orderBy: { date: "desc" } })
     .catch(() => []);
@@ -149,7 +190,7 @@ export async function buildPatientChartAiContext(
     .findMany({
       where: { patientId },
       orderBy: { orderedAt: "desc" },
-      take: 100,
+      take: 250,
       select: {
         name: true,
         status: true,
@@ -157,6 +198,21 @@ export async function buildPatientChartAiContext(
         orderedAt: true,
         completedAt: true,
         notes: true,
+      },
+    })
+    .catch(() => []);
+  const encounters = await prisma.encounter
+    .findMany({
+      where: { patientId },
+      orderBy: { date: "desc" },
+      take: 100,
+      select: {
+        date: true,
+        visitCategory: true,
+        modality: true,
+        status: true,
+        chiefComplaint: true,
+        summary: true,
       },
     })
     .catch(() => []);
@@ -171,9 +227,23 @@ export async function buildPatientChartAiContext(
     if (age != null) lines.push(`Age: ${age}`);
   }
   lines.push(`Sex at birth: ${formatSexAtBirth(dto.sexAtBirth)}`);
+  if (dto.phone?.trim()) lines.push(`Phone: ${dto.phone}`);
   if (dto.allergies?.trim()) lines.push(`Allergies: ${dto.allergies}`);
   if (dto.currentMedications?.trim()) {
     lines.push(`Current medications (registration): ${dto.currentMedications}`);
+  }
+  if (dto.primaryInsuranceCarrier?.trim()) {
+    lines.push(
+      `Primary insurance: ${dto.primaryInsuranceCarrier}` +
+        (dto.primaryInsuranceMemberId ? ` · Member ${dto.primaryInsuranceMemberId}` : "") +
+        (dto.primaryInsuranceGroupNumber ? ` · Group ${dto.primaryInsuranceGroupNumber}` : "")
+    );
+  }
+  if (dto.secondaryInsuranceCarrier?.trim()) {
+    lines.push(
+      `Secondary insurance: ${dto.secondaryInsuranceCarrier}` +
+        (dto.secondaryInsuranceMemberId ? ` · Member ${dto.secondaryInsuranceMemberId}` : "")
+    );
   }
 
   for (const s of MEDICAL_SECTIONS) {
@@ -181,6 +251,17 @@ export async function buildPatientChartAiContext(
     if (typeof val === "string" && val.trim()) {
       lines.push(`\n=== ${s.label.toUpperCase()} ===`);
       lines.push(val.trim());
+    }
+  }
+
+  if (encounters.length > 0) {
+    lines.push("\n=== ENCOUNTERS ===");
+    for (const enc of encounters) {
+      lines.push(
+        `- ${enc.date.toISOString().slice(0, 10)} · ${enc.visitCategory} · ${enc.modality} · ${enc.status}` +
+          (enc.chiefComplaint?.trim() ? ` · CC: ${enc.chiefComplaint.trim()}` : "") +
+          (enc.summary?.trim() ? ` · ${enc.summary.trim()}` : "")
+      );
     }
   }
 
@@ -230,6 +311,9 @@ export async function buildPatientChartAiContext(
   const attachmentSummary: string[] = [];
   const skipped: string[] = [];
   let textDocBudget = MAX_TEXT_DOC_CHARS;
+  let documentsAttached = 0;
+  let documentsInlined = 0;
+  let documentsExtracted = 0;
 
   lines.push("\n=== DOCUMENTS INDEX ===");
   if (documents.length === 0) {
@@ -241,11 +325,6 @@ export async function buildPatientChartAiContext(
     lines.push(
       `- ${doc.uploadedAt.toISOString().slice(0, 10)} · ${label} · ${doc.mimeType} · ${doc.fileSize} bytes`
     );
-
-    if (doc.fileSize > MAX_ATTACHMENT_BYTES) {
-      skipped.push(`${label}: too large for AI attachment`);
-      continue;
-    }
 
     let bytes: Buffer;
     try {
@@ -272,15 +351,16 @@ export async function buildPatientChartAiContext(
       lines.push(`\n=== DOCUMENT TEXT: ${label} ===`);
       lines.push(text || "(empty)");
       attachmentSummary.push(`inlined text: ${label}`);
+      documentsInlined += 1;
       continue;
     }
 
-    if (attachments.length >= MAX_ATTACHMENTS) {
-      skipped.push(`${label}: attachment limit reached`);
-      continue;
-    }
+    const canAttachNative =
+      bytes.length <= MAX_ATTACHMENT_BYTES &&
+      attachments.length < MAX_ATTACHMENTS &&
+      (Boolean(imageFormat) || Boolean(docFormat));
 
-    if (imageFormat) {
+    if (canAttachNative && imageFormat) {
       attachments.push({
         kind: "image",
         name: safeDocName(doc.fileName),
@@ -288,10 +368,11 @@ export async function buildPatientChartAiContext(
         bytes: new Uint8Array(bytes),
       });
       attachmentSummary.push(`image: ${label}`);
+      documentsAttached += 1;
       continue;
     }
 
-    if (docFormat) {
+    if (canAttachNative && docFormat) {
       attachments.push({
         kind: "document",
         name: safeDocName(doc.fileName),
@@ -299,14 +380,50 @@ export async function buildPatientChartAiContext(
         bytes: new Uint8Array(bytes),
       });
       attachmentSummary.push(`file: ${label}`);
+      documentsAttached += 1;
       continue;
     }
 
-    skipped.push(`${label}: unsupported type for AI (${doc.mimeType})`);
+    // Fallback: extract PDF text when too large, attachment slots full, or native attach failed.
+    if (docFormat === "pdf") {
+      if (textDocBudget <= 0) {
+        skipped.push(`${label}: text budget exceeded (PDF extract)`);
+        continue;
+      }
+      const extracted = await extractPdfText(bytes);
+      if (extracted) {
+        let text = extracted;
+        const cap = Math.min(textDocBudget, MAX_PDF_EXTRACT_CHARS);
+        if (text.length > cap) {
+          text = text.slice(0, cap) + "\n...[truncated PDF extract]";
+        }
+        textDocBudget -= text.length;
+        lines.push(`\n=== DOCUMENT PDF TEXT EXTRACT: ${label} ===`);
+        lines.push(text);
+        attachmentSummary.push(`pdf extract: ${label}`);
+        documentsExtracted += 1;
+        continue;
+      }
+      skipped.push(
+        `${label}: PDF could not be attached or text-extracted` +
+          (bytes.length > MAX_ATTACHMENT_BYTES ? " (file too large for native attach)" : "")
+      );
+      continue;
+    }
+
+    if (!imageFormat && !docFormat) {
+      skipped.push(`${label}: unsupported type for AI (${doc.mimeType})`);
+      continue;
+    }
+
+    skipped.push(
+      `${label}: attachment limit or size — not attached` +
+        (bytes.length > MAX_ATTACHMENT_BYTES ? " (over 4.5MB Bedrock limit)" : "")
+    );
   }
 
   if (attachmentSummary.length > 0) {
-    lines.push("\n=== AI ATTACHMENTS ===");
+    lines.push("\n=== AI ATTACHMENTS / EXTRACTS ===");
     for (const item of attachmentSummary) lines.push(`- ${item}`);
   }
   if (skipped.length > 0) {
@@ -314,10 +431,26 @@ export async function buildPatientChartAiContext(
     for (const item of skipped) lines.push(`- ${item}`);
   }
 
+  lines.push("\n=== CHART COVERAGE SUMMARY ===");
+  lines.push(
+    `notes=${notes.length}; forms=${forms.length}; orders=${orders.length}; encounters=${encounters.length}; documents=${documents.length}; attached=${documentsAttached}; inlined=${documentsInlined}; pdfExtracted=${documentsExtracted}; skipped=${skipped.length}`
+  );
+
   return {
     text: lines.join("\n"),
     attachments,
     attachmentSummary,
     skipped,
+    coverage: {
+      notes: notes.length,
+      forms: forms.length,
+      orders: orders.length,
+      encounters: encounters.length,
+      documentsTotal: documents.length,
+      documentsAttached,
+      documentsInlined,
+      documentsExtracted,
+      documentsSkipped: skipped.length,
+    },
   };
 }

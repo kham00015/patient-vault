@@ -12,6 +12,7 @@ import {
 } from "@/lib/document-sections";
 import { formatDate, cn } from "@/lib/utils";
 import { FileUp, Trash2, Eye } from "lucide-react";
+import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 
 type SectionDoc = {
   id: string;
@@ -146,7 +147,7 @@ export function SectionDocumentUploads({
       </div>
 
       {!readOnly && (
-        <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto_auto]">
           <Input
             className="!h-8 !text-xs"
             placeholder={`${label} document name`}
@@ -162,6 +163,16 @@ export function SectionDocumentUploads({
             type="file"
             accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.doc,.docx,application/pdf,image/*"
             onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+          />
+          <ScanDocumentButton
+            defaultName={name.trim() || label}
+            className="!h-8 !gap-1.5 !text-xs"
+            onCaptured={(scanned, suggestedName) => {
+              setFile(scanned);
+              setError(null);
+              if (!name.trim()) setName(suggestedName);
+              setFileInputKey((k) => k + 1);
+            }}
           />
           <Button
             variant="success"

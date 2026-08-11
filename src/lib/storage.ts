@@ -34,13 +34,25 @@ async function streamToBuffer(body: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+function guessContentType(fileName: string) {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
+  return "application/octet-stream";
+}
+
 export async function saveDocument(
   patientId: string,
   fileName: string,
-  buffer: Buffer
+  buffer: Buffer,
+  mimeType?: string
 ): Promise<string> {
   const storageType = process.env.STORAGE_TYPE ?? "local";
   const key = `patients/${patientId}/${randomBytes(8).toString("hex")}_${sanitizeFileName(fileName)}`;
+  const contentType = mimeType || guessContentType(fileName);
 
   if (storageType === "s3") {
     const client = getS3Client();
@@ -53,7 +65,7 @@ export async function saveDocument(
         ...(process.env.AWS_KMS_KEY_ID
           ? { SSEKMSKeyId: process.env.AWS_KMS_KEY_ID }
           : {}),
-        ContentType: "application/octet-stream",
+        ContentType: contentType,
       })
     );
     return `s3:${key}`;

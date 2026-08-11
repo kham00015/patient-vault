@@ -5,6 +5,7 @@ import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { reviewChartGuidelinesWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
+import { buildAiBrainContext } from "@/lib/ai-brain";
 import { isPatientChartWritable } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
@@ -23,10 +24,14 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const chart = await buildPatientChartAiContext(patientId);
+    const [chart, brain] = await Promise.all([
+      buildPatientChartAiContext(patientId),
+      buildAiBrainContext(),
+    ]);
     const result = await reviewChartGuidelinesWithAI({
       patientData: chart.text,
       attachments: chart.attachments,
+      brainData: brain.text || undefined,
     });
 
     const existing = await prisma.aIConversation.findUnique({ where: { patientId } });
@@ -60,6 +65,8 @@ export async function POST(request: Request, { params }: Params) {
         provider: result.provider,
         attachments: chart.attachmentSummary.length,
         skipped: chart.skipped.length,
+        coverage: chart.coverage,
+        brainSources: brain.sourceCount,
       },
     });
 
@@ -67,6 +74,8 @@ export async function POST(request: Request, { params }: Params) {
       response: result.response,
       configured: result.configured,
       provider: result.provider,
+      coverage: chart.coverage,
+      brainSources: brain.sourceCount,
     });
   } catch (error) {
     console.error("[ai guidelines]", error);
