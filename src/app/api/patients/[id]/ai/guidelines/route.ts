@@ -65,8 +65,15 @@ export async function POST(request: Request, { params }: Params) {
         provider: result.provider,
         attachments: chart.attachmentSummary.length,
         skipped: chart.skipped.length,
-        coverage: chart.coverage,
         brainSources: brain.sourceCount,
+        coverageNotes: chart.coverage.notes,
+        coverageForms: chart.coverage.forms,
+        coverageOrders: chart.coverage.orders,
+        coverageEncounters: chart.coverage.encounters,
+        coverageDocsTotal: chart.coverage.documentsTotal,
+        coverageDocsAttached: chart.coverage.documentsAttached,
+        coverageDocsExtracted: chart.coverage.documentsExtracted,
+        coverageDocsSkipped: chart.coverage.documentsSkipped,
       },
     });
 
