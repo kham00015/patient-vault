@@ -89,7 +89,7 @@ sudo docker run --rm \
   -v /opt/patient-vault/prisma:/prisma \
   -w /prisma \
   node:20-alpine \
-  sh -c 'npm i prisma@6.19.0 --no-save --ignore-scripts >/dev/null && node node_modules/prisma/build/index.js db push --schema=/prisma/schema.prisma --skip-generate'
+  sh -c 'npm i prisma@6.19.0 --no-save --ignore-scripts >/dev/null && node node_modules/prisma/build/index.js db push --schema=/prisma/schema.prisma --skip-generate --accept-data-loss'
 
 echo "=== Restarting containers ==="
 sudo docker compose -f docker-compose.production.yml -f docker-compose.override.yml up -d --force-recreate 2>&1
