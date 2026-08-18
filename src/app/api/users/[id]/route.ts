@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, forbidden, badRequest, notFound } from "@/lib/api";
 import { canManageUsers } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
-import { assertSameOfficeUser, isPlatformOwner } from "@/lib/office";
+import { assertSameOfficeUser, isPlatformOwner, platformOwnerEmails } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -31,6 +31,20 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!existing) return notFound("User not found");
     const denied = await assertSameOfficeUser(auth.user, id);
     if (denied) return denied;
+
+    if (body.isActive === false && isPlatformOwner(existing.email)) {
+      const otherActiveMasters = await prisma.user.count({
+        where: {
+          isActive: true,
+          email: {
+            in: platformOwnerEmails().filter((e) => e !== existing.email.toLowerCase()),
+          },
+        },
+      });
+      if (otherActiveMasters === 0) {
+        return badRequest("Cannot disable the last master admin");
+      }
+    }
 
     const user = await prisma.user.update({
       where: { id },

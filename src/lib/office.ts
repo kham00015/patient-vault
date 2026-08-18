@@ -13,13 +13,19 @@ let ensurePromise: Promise<{ primaryId: string; secondId: string }> | null = nul
 
 export const ACTIVE_OFFICE_COOKIE = "pv_office";
 
-export function isPlatformOwner(email: string) {
+const DEFAULT_PLATFORM_OWNER_EMAILS =
+  "firas.khamis@clinic.local,diana.calma@clinic.local";
+
+export function platformOwnerEmails() {
   const raw = process.env.PLATFORM_OWNER_EMAILS?.trim();
-  const list = (raw || "firas.khamis@clinic.local")
+  return (raw || DEFAULT_PLATFORM_OWNER_EMAILS)
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return list.includes(email.trim().toLowerCase());
+}
+
+export function isPlatformOwner(email: string) {
+  return platformOwnerEmails().includes(email.trim().toLowerCase());
 }
 
 export async function ensureOffices() {
@@ -89,10 +95,11 @@ export async function assertSameOfficeUser(actor: SessionUser, targetUserId: str
   const { notFound } = await import("@/lib/api");
   const target = await prisma.user.findUnique({
     where: { id: targetUserId },
-    select: { id: true, officeId: true },
+    select: { id: true, email: true, officeId: true },
   });
   if (!target) return notFound("User not found");
   if (isPlatformOwner(actor.email)) return null;
+  if (isPlatformOwner(target.email)) return notFound("User not found");
   if (actor.officeId && target.officeId && target.officeId !== actor.officeId) {
     return notFound("User not found");
   }

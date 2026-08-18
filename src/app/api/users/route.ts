@@ -6,7 +6,7 @@ import { requireAuth, forbidden, badRequest } from "@/lib/api";
 import { canManageUsers, hashPassword } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { passwordSchema, validatePassword } from "@/lib/password-policy";
-import { isPlatformOwner } from "@/lib/office";
+import { isPlatformOwner, platformOwnerEmails } from "@/lib/office";
 
 const userSelect = {
   id: true,
@@ -41,21 +41,37 @@ export async function GET(request: Request) {
     return NextResponse.json({ users: [] });
   }
 
+  const owner = isPlatformOwner(auth.user.email);
   const users = await prisma.user.findMany({
     orderBy: [{ role: "asc" }, { email: "asc" }],
-    where: { officeId },
+    where: {
+      officeId,
+      ...(owner ? {} : { email: { notIn: platformOwnerEmails() } }),
+    },
     select: userSelect,
   });
 
-  const owner = isPlatformOwner(auth.user.email);
+  let listed = users;
+  if (owner) {
+    const extras = await prisma.user.findMany({
+      where: {
+        email: { in: platformOwnerEmails() },
+        id: { notIn: users.map((u) => u.id) },
+      },
+      select: userSelect,
+    });
+    listed = [...extras, ...users];
+  }
+
   return NextResponse.json({
-    users: users.map((u) => ({
+    users: listed.map((u) => ({
       ...u,
       lockedAt: u.lockedAt?.toISOString() ?? null,
       lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
       passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
       createdAt: u.createdAt.toISOString(),
       isLocked: u.lockedAt != null,
+      isPlatformOwner: isPlatformOwner(u.email),
       officeId: owner ? u.officeId : undefined,
       officeName: owner ? u.office?.name ?? null : undefined,
       officeCode: owner ? u.office?.code ?? null : undefined,

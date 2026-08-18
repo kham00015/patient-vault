@@ -23,6 +23,7 @@ type ManagedUser = {
   lastLoginAt: string | null;
   createdAt: string;
   officeName?: string | null;
+  isPlatformOwner?: boolean;
 };
 
 type OfficeOption = { id: string; code?: string; name: string };
@@ -268,6 +269,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                     <p className="text-[var(--pv-muted-2)]">{u.email}</p>
                     <p className="mt-1 text-[var(--pv-muted)]">
                       {u.role}
+                      {u.isPlatformOwner ? " · Master" : ""}
                       {canAssignOffice && u.officeName ? ` · ${u.officeName}` : ""}
                       {!u.isActive && " · Disabled"}
                       {u.mfaEnabled && " · MFA on"}

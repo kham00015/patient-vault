@@ -9,6 +9,7 @@ const SEED_USERS: { email: string; name: string; role: Role }[] = [
   { email: "admin@clinic.local", name: "Clinic Admin", role: "ADMIN" },
   { email: "user@clinic.local", name: "Clinic User", role: "STAFF" },
   { email: "firas.khamis@clinic.local", name: "Firas Khamis", role: "CLINICIAN" },
+  { email: "diana.calma@clinic.local", name: "Diana Calma", role: "ADMIN" },
   { email: "nicholas.kalayeh@clinic.local", name: "Nicholas Kalayeh", role: "CLINICIAN" },
 ];
 
