@@ -998,7 +998,7 @@ export function StructuredNoteEditor({
           <Textarea
             value={aiDraft}
             readOnly
-            className="!min-h-[40vh] !text-sm leading-relaxed"
+            className="!min-h-[40vh] !text-sm leading-relaxed pv-ai-text"
             placeholder="AI draft will appear here..."
           />
         )}

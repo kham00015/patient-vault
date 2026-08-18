@@ -3,12 +3,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite, canDelete } from "@/lib/auth";
+import { officeScope } from "@/lib/office";
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
   const lists = await prisma.patientList.findMany({
+    where: officeScope(auth.user),
     orderBy: { updatedAt: "desc" },
     include: {
       patients: {
@@ -37,7 +39,11 @@ export async function POST(request: Request) {
   try {
     const body = createSchema.parse(await request.json());
     const list = await prisma.patientList.create({
-      data: { name: body.name.trim(), createdById: auth.user.id },
+      data: {
+        name: body.name.trim(),
+        createdById: auth.user.id,
+        officeId: auth.user.officeId ?? undefined,
+      },
     });
     return NextResponse.json({ list }, { status: 201 });
   } catch {

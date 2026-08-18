@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { isPatientChartWritable } from "@/lib/patients";
@@ -83,7 +84,11 @@ function toEncounterSummary(
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();
@@ -124,8 +129,12 @@ export async function GET(request: Request, { params }: Params) {
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();

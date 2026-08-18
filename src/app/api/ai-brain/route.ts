@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
+import { officeScope } from "@/lib/office";
 
 const brainTypeSchema = z.enum([
   "GUIDELINE",
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
   if (auth instanceof NextResponse) return auth;
 
   const sources = await prisma.aiBrainSource.findMany({
+    where: officeScope(auth.user),
     orderBy: [{ active: "desc" }, { priority: "desc" }, { updatedAt: "desc" }],
     select: {
       id: true,
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
         priority: body.priority ?? 100,
         active: body.active ?? true,
         createdById: auth.user.id,
+        officeId: auth.user.officeId ?? undefined,
       },
       include: {
         createdBy: { select: { id: true, name: true, email: true } },

@@ -22,9 +22,12 @@ type ManagedUser = {
   lockedAt: string | null;
   lastLoginAt: string | null;
   createdAt: string;
+  officeName?: string | null;
 };
 
-const ROLES = ["ADMIN", "CLINICIAN", "STAFF", "READONLY"] as const;
+type OfficeOption = { id: string; code: string; name: string };
+
+const ROLES = ["ADMIN", "CLINICIAN", "STAFF", "READONLY", "CONSULTANT"] as const;
 
 export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -37,15 +40,20 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
   const [createName, setCreateName] = useState("");
   const [createRole, setCreateRole] = useState<(typeof ROLES)[number]>("CLINICIAN");
   const [createPassword, setCreatePassword] = useState("");
+  const [offices, setOffices] = useState<OfficeOption[]>([]);
+  const [canAssignOffice, setCanAssignOffice] = useState(false);
+  const [listOfficeId, setListOfficeId] = useState("");
+  const [createOfficeId, setCreateOfficeId] = useState("");
 
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
 
-  async function loadUsers() {
+  async function loadUsers(officeId = listOfficeId) {
     setLoading(true);
     setError("");
     try {
-      const data = await api<{ users: ManagedUser[] }>("/api/users");
+      const qs = officeId ? `?officeId=${encodeURIComponent(officeId)}` : "";
+      const data = await api<{ users: ManagedUser[] }>(`/api/users${qs}`);
       setUsers(data.users);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load users");
@@ -54,9 +62,29 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
     }
   }
 
+  async function loadOffices() {
+    try {
+      const data = await api<{
+        offices: OfficeOption[];
+        canAssignOffice: boolean;
+        currentOfficeId: string | null;
+      }>("/api/offices");
+      setOffices(data.offices);
+      setCanAssignOffice(data.canAssignOffice);
+      const current = data.currentOfficeId || data.offices[0]?.id || "";
+      setListOfficeId((prev) => prev || current);
+      setCreateOfficeId((prev) => prev || current);
+      return current;
+    } catch {
+      return "";
+    }
+  }
+
   useEffect(() => {
     if (open) {
-      loadUsers().catch(() => undefined);
+      loadOffices()
+        .then((officeId) => loadUsers(officeId))
+        .catch(() => undefined);
       setShowCreate(false);
       setResetUserId(null);
       setSuccess("");
@@ -75,14 +103,19 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
           name: createName.trim(),
           role: createRole,
           password: createPassword,
+          ...(canAssignOffice && createOfficeId ? { officeId: createOfficeId } : {}),
         },
       });
-      setSuccess(`User ${createEmail.trim()} created. They must change password on first login.`);
+      const clinic = offices.find((o) => o.id === createOfficeId)?.name;
+      setSuccess(
+        `User ${createEmail.trim()} created${clinic ? ` in ${clinic}` : ""}. They must change password on first login.`
+      );
       setShowCreate(false);
       setCreateEmail("");
       setCreateName("");
       setCreatePassword("");
-      await loadUsers();
+      if (createOfficeId) setListOfficeId(createOfficeId);
+      await loadUsers(createOfficeId || listOfficeId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create user");
     }
@@ -137,9 +170,28 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
           <p className="text-sm text-[var(--pv-muted-2)]">
             Create accounts, reset passwords, and unlock accounts after failed logins.
           </p>
-          <Button variant="primary" className="gap-2" onClick={() => setShowCreate((v) => !v)}>
-            <UserPlus size={16} /> New user
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {canAssignOffice && offices.length > 0 && (
+              <select
+                className="rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2 text-sm text-white"
+                value={listOfficeId}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setListOfficeId(next);
+                  loadUsers(next).catch(() => undefined);
+                }}
+              >
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button variant="primary" className="gap-2" onClick={() => setShowCreate((v) => !v)}>
+              <UserPlus size={16} /> New user
+            </Button>
+          </div>
         </div>
 
         {showCreate && (
@@ -159,6 +211,19 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                   </option>
                 ))}
               </select>
+              {canAssignOffice && offices.length > 0 && (
+                <select
+                  className="rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 py-2.5 text-sm text-white"
+                  value={createOfficeId}
+                  onChange={(e) => setCreateOfficeId(e.target.value)}
+                >
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <div className="flex gap-2">
                 <Input
                   type="text"
@@ -203,6 +268,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                     <p className="text-[var(--pv-muted-2)]">{u.email}</p>
                     <p className="mt-1 text-[var(--pv-muted)]">
                       {u.role}
+                      {u.officeName ? ` · ${u.officeName}` : ""}
                       {!u.isActive && " · Disabled"}
                       {u.mfaEnabled && " · MFA on"}
                       {u.mustChangePassword && " · Must change password"}

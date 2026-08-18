@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canWrite, canDelete } from "@/lib/auth";
+import { assertSameOfficeRecord } from "@/lib/office";
+import { assertPatientReadable } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -11,6 +13,10 @@ export async function PATCH(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id } = await params;
+  const existing = await prisma.patientList.findUnique({ where: { id } });
+  if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   try {
     const body = z.object({ name: z.string().min(1) }).parse(await request.json());
@@ -29,6 +35,10 @@ export async function DELETE(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canDelete(auth.user.role)) return forbidden();
   const { id } = await params;
+  const existing = await prisma.patientList.findUnique({ where: { id } });
+  if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   await prisma.patientList.delete({ where: { id } }).catch(() => null);
   return NextResponse.json({ ok: true });
@@ -41,9 +51,15 @@ export async function POST(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: listId } = await params;
+  const list = await prisma.patientList.findUnique({ where: { id: listId } });
+  if (!list) return notFound();
+  const deniedList = await assertSameOfficeRecord(auth.user, list.officeId);
+  if (deniedList) return deniedList;
 
   try {
     const body = patientSchema.parse(await request.json());
+    const deniedPatient = await assertPatientReadable(auth.user, body.patientId);
+    if (deniedPatient) return deniedPatient;
     await prisma.listPatient.create({
       data: { listId, patientId: body.patientId },
     });

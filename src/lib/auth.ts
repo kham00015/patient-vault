@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 import { type SessionUser } from "./roles";
+import { ensureOffices, isPlatformOwner, PRIMARY_OFFICE_CODE } from "./office";
 
 const COOKIE_NAME = "pv_session";
 const SALT_ROUNDS = 12;
@@ -173,10 +174,30 @@ export async function getSessionUser(): Promise<SessionUser | null> {
         mustChangePassword: true,
         mfaEnabled: true,
         lockedAt: true,
+        officeId: true,
+        office: { select: { id: true, name: true, code: true } },
       },
     });
 
     if (!user?.isActive || user.lockedAt) return null;
+
+    let officeId = user.officeId;
+    let officeName = user.office?.name ?? null;
+    let officeCode = user.office?.code ?? null;
+    try {
+      const offices = await ensureOffices();
+      if (!officeId) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { officeId: offices.primaryId },
+        });
+        officeId = offices.primaryId;
+        officeCode = PRIMARY_OFFICE_CODE;
+        officeName = "Clinic 1";
+      }
+    } catch {
+      // Schema may not be pushed yet; keep session working without office.
+    }
 
     // Sliding expiration — keep DB session and browser cookie in sync
     const newExpiry = new Date(Date.now() + getSessionTimeoutMs());
@@ -215,6 +236,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       role: user.role,
       mustChangePassword: user.mustChangePassword,
       mfaEnabled: user.mfaEnabled,
+      officeId,
+      officeName,
+      officeCode,
+      isPlatformOwner: isPlatformOwner(user.email),
     };
   } catch {
     return null;

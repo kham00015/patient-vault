@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/prisma";
 
-export async function generateMrn(): Promise<string> {
+export async function generateMrn(officeId?: string | null): Promise<string> {
   const patients = await prisma.patient.findMany({
-    where: { mrn: { not: null } },
+    where: {
+      mrn: { not: null },
+      ...(officeId ? { officeId } : {}),
+    },
     select: { mrn: true },
   });
   const maxNum = patients.reduce((max, p) => {

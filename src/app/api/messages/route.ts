@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
+import { officeScope, assertSameOfficeUser } from "@/lib/office";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { MESSAGE_CATEGORIES, MESSAGE_PRIORITIES } from "@/lib/messages";
 import { threadInclude, toThreadSummary } from "@/lib/message-threads";
 
@@ -53,13 +55,15 @@ export async function POST(request: Request) {
     }
 
     const recipient = await prisma.user.findFirst({
-      where: { id: body.recipientId, isActive: true },
+      where: { id: body.recipientId, isActive: true, ...officeScope(auth.user) },
     });
     if (!recipient) return badRequest("Recipient not found");
+    const deniedUser = await assertSameOfficeUser(auth.user, body.recipientId);
+    if (deniedUser) return deniedUser;
 
     if (body.patientId) {
-      const patient = await prisma.patient.findUnique({ where: { id: body.patientId } });
-      if (!patient) return badRequest("Patient not found");
+      const deniedPatient = await assertPatientReadable(auth.user, body.patientId);
+      if (deniedPatient) return deniedPatient;
     }
 
     const now = new Date();

@@ -7,6 +7,7 @@ import { getClinicalFormLabel } from "@/lib/clinical-forms";
 import { getNoteTypeLabel } from "@/lib/notes";
 import { formatNoteAuthorName, getNoteAuthorLabel, NOTE_AUTHOR_SELECT } from "@/lib/note-authors";
 import { isTextReportDocument } from "@/lib/document-sections";
+import { assertDocumentReadable, isConsultant } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -33,6 +34,8 @@ export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   const { id: patientId } = await params;
+  const denied = await assertDocumentReadable(auth.user, patientId);
+  if (denied) return denied;
   const { searchParams } = new URL(request.url);
   const encounterId = searchParams.get("encounterId")?.trim() || undefined;
   const noteId = searchParams.get("noteId")?.trim() || undefined;
@@ -40,6 +43,9 @@ export async function GET(request: Request, { params }: Params) {
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();
+
+  // Consultants get uploaded files only — note/form PDFs stay locked.
+  const uploadsOnly = isConsultant(auth.user.role);
 
   const [documents, notes, forms] = await Promise.all([
     prisma.document.findMany({
@@ -66,7 +72,7 @@ export async function GET(request: Request, { params }: Params) {
       },
     }),
     // When filtering to a note section's uploads, skip synthesized notes/forms.
-    noteId || sectionKey
+    noteId || sectionKey || uploadsOnly
       ? Promise.resolve([])
       : prisma.note.findMany({
           where: {
@@ -86,7 +92,7 @@ export async function GET(request: Request, { params }: Params) {
             signedBy: { select: NOTE_AUTHOR_SELECT },
           },
         }),
-    noteId || sectionKey
+    noteId || sectionKey || uploadsOnly
       ? Promise.resolve([])
       : prisma.encounterForm.findMany({
           where: {
@@ -157,7 +163,7 @@ export async function GET(request: Request, { params }: Params) {
       canRename: true,
       canFax: !isReport,
       openUrl:
-        isHtmlFormSnapshot && d.encounterForm
+        isHtmlFormSnapshot && d.encounterForm && !uploadsOnly
           ? `/api/patients/${patientId}/forms/${d.encounterForm.id}/pdf`
           : `/api/patients/${patientId}/documents/${d.id}`,
     });

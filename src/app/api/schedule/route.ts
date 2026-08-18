@@ -12,6 +12,8 @@ import {
 } from "@/lib/schedule";
 import { isScheduleProviderKey } from "@/lib/schedule-providers";
 import { normalizeScheduleDay } from "@/lib/utils";
+import { officeScope } from "@/lib/office";
+import { assertPatientReadable } from "@/lib/patient-access";
 
 const providerKeySchema = z.string().refine(isScheduleProviderKey, "Invalid provider");
 
@@ -34,7 +36,10 @@ export async function GET(request: Request) {
   if (provider instanceof NextResponse) return provider;
 
   const entries = await prisma.scheduleEntry.findMany({
-    where: scheduleDayWhere(dateStr, { providerKey: provider }),
+    where: {
+      ...scheduleDayWhere(dateStr, { providerKey: provider }),
+      patient: officeScope(auth.user),
+    },
     include: { patient: { select: { id: true, name: true } } },
     orderBy: { patient: { name: "asc" } },
   });
@@ -63,6 +68,8 @@ export async function POST(request: Request) {
 
     const patient = await prisma.patient.findUnique({ where: { id: body.patientId } });
     if (!patient) return notFound("Patient not found");
+    const denied = await assertPatientReadable(auth.user, body.patientId);
+    if (denied) return denied;
 
     const scheduleDay = normalizeScheduleDay(body.date);
 
@@ -129,6 +136,8 @@ export async function DELETE(request: Request) {
 
   try {
     const body = deleteSchema.parse(await request.json());
+    const denied = await assertPatientReadable(auth.user, body.patientId);
+    if (denied) return denied;
 
     const result = await prisma.scheduleEntry.deleteMany({
       where: scheduleDayWhere(body.date, {
@@ -167,6 +176,8 @@ export async function PATCH(request: Request) {
 
   try {
     const body = patchSchema.parse(await request.json());
+    const denied = await assertPatientReadable(auth.user, body.patientId);
+    if (denied) return denied;
 
     const hasVisitCategory = body.visitCategory !== undefined;
     const hasCheckedIn = body.checkedIn !== undefined;

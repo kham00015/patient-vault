@@ -11,6 +11,11 @@ import {
 } from "@/lib/patient-registration";
 import { generateMrn } from "@/lib/generate-mrn";
 import { encryptPatientFields } from "@/lib/encryption";
+import {
+  getActiveGrantedPatientIds,
+  isConsultant,
+} from "@/lib/patient-access";
+import { officeScope } from "@/lib/office";
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
@@ -21,10 +26,20 @@ export async function GET(request: Request) {
   const includeArchived =
     searchParams.get("includeArchived") === "1" && canManageUsers(auth.user.role);
 
+  let grantedIds: string[] | null = null;
+  if (isConsultant(auth.user.role)) {
+    grantedIds = await getActiveGrantedPatientIds(auth.user.id);
+    if (grantedIds.length === 0) {
+      return NextResponse.json({ patients: [] });
+    }
+  }
+
   const patients = await prisma.patient.findMany({
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { name: "asc" }],
     where: {
+      ...officeScope(auth.user),
       ...(includeArchived ? {} : { status: "ACTIVE" }),
+      ...(grantedIds ? { id: { in: grantedIds } } : {}),
       ...(q
         ? {
             OR: [
@@ -64,6 +79,7 @@ export async function POST(request: Request) {
 
     const duplicate = await prisma.patient.findFirst({
       where: {
+        ...officeScope(auth.user),
         firstName: body.firstName,
         lastName: body.lastName,
         dateOfBirth: dob,
@@ -73,7 +89,7 @@ export async function POST(request: Request) {
       return badRequest("A patient with the same name and date of birth already exists");
     }
 
-    const mrn = await generateMrn();
+    const mrn = await generateMrn(auth.user.officeId);
     const name = formatPatientName(body.firstName, body.lastName, body.middleName);
 
     const encrypted = encryptPatientFields({
@@ -119,6 +135,7 @@ export async function POST(request: Request) {
         sexAtBirth: body.sexAtBirth,
         phone: body.phone,
         createdById: auth.user.id,
+        officeId: auth.user.officeId ?? undefined,
         ...encrypted,
       },
     });

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden, notFound } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
+import { assertSameOfficeRecord } from "@/lib/office";
 import { toPotentialPatientDTO } from "@/lib/potentials";
 
 type Params = { params: Promise<{ id: string }> };
@@ -21,6 +22,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const existing = await prisma.potentialPatient.findUnique({ where: { id } });
   if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   try {
     const body = updateSchema.parse(await request.json());
@@ -47,6 +50,8 @@ export async function DELETE(request: Request, { params }: Params) {
 
   const existing = await prisma.potentialPatient.findUnique({ where: { id } });
   if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   await prisma.potentialPatient.delete({ where: { id } });
   return NextResponse.json({ ok: true });

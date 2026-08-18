@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -27,6 +28,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, orderId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const existing = await prisma.order.findFirst({
     where: { id: orderId, patientId },
@@ -88,6 +91,8 @@ export async function DELETE(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, orderId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   try {
     const body = deleteRecordReasonSchema.parse(await request.json());

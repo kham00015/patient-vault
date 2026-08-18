@@ -40,6 +40,7 @@ async function resolveTestActor(): Promise<SessionUser | null> {
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     mfaEnabled: user.mfaEnabled,
+    officeId: user.officeId,
   };
 }
 

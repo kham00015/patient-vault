@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, notFound } from "@/lib/api";
@@ -10,6 +11,8 @@ export async function DELETE(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   const { id, saveId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, id);
+  if (officeDenied) return officeDenied;
 
   const existing = await prisma.patientAiListenSave.findFirst({
     where: { id: saveId, patientId: id, userId: auth.user.id },

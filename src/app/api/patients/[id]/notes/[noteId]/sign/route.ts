@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
@@ -14,6 +15,8 @@ export async function POST(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, noteId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const note = await prisma.note.findFirst({ where: { id: noteId, patientId } });
   if (!note) return notFound();

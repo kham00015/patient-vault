@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { canWrite, canDelete } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { deleteDocument } from "@/lib/storage";
@@ -19,7 +20,11 @@ const updateSchema = z.object({
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId, formId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const form = await prisma.encounterForm.findFirst({
     where: { id: formId, patientId },
@@ -46,8 +51,12 @@ export async function GET(request: Request, { params }: Params) {
 export async function PATCH(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, formId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const existing = await prisma.encounterForm.findFirst({
     where: { id: formId, patientId },
@@ -99,8 +108,12 @@ export async function PATCH(request: Request, { params }: Params) {
 export async function DELETE(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   if (!canDelete(auth.user.role)) return forbidden();
   const { id: patientId, formId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const existing = await prisma.encounterForm.findFirst({
     where: { id: formId, patientId },

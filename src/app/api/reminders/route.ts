@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
+import { officeScope } from "@/lib/office";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { toReminderDTO } from "@/lib/reminders";
 
 const reminderInclude = {
@@ -18,8 +20,14 @@ export async function GET(request: Request) {
   const status = searchParams.get("status") === "completed" ? "COMPLETED" : undefined;
   const pendingOnly = searchParams.get("pending") === "1";
 
+  if (patientId) {
+    const denied = await assertPatientReadable(auth.user, patientId);
+    if (denied) return denied;
+  }
+
   const reminders = await prisma.reminder.findMany({
     where: {
+      patient: officeScope(auth.user),
       ...(patientId ? { patientId } : {}),
       ...(status ? { status } : {}),
       ...(pendingOnly ? { status: "PENDING" } : {}),
@@ -49,6 +57,8 @@ export async function POST(request: Request) {
     const body = createSchema.parse(await request.json());
     const patient = await prisma.patient.findUnique({ where: { id: body.patientId } });
     if (!patient) return badRequest("Patient not found");
+    const denied = await assertPatientReadable(auth.user, body.patientId);
+    if (denied) return denied;
 
     const dueDate = new Date(body.dueDate);
     dueDate.setHours(12, 0, 0, 0);

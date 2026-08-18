@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, notFound } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { toOrderDTO } from "@/lib/orders";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
@@ -8,7 +9,11 @@ type Params = { params: Promise<{ id: string; encounterId: string }> };
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId, encounterId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const encounter = await prisma.encounter.findFirst({ where: { id: encounterId, patientId } });
   if (!encounter) return notFound();

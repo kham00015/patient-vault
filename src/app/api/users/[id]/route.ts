@@ -5,19 +5,20 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, forbidden, badRequest, notFound } from "@/lib/api";
 import { canManageUsers } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
+import { assertSameOfficeUser, isPlatformOwner } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
 const updateUserSchema = z.object({
   name: z.string().min(1).max(120).optional(),
-  role: z.enum(["ADMIN", "CLINICIAN", "STAFF", "READONLY"]).optional(),
+  role: z.enum(["ADMIN", "CLINICIAN", "STAFF", "READONLY", "CONSULTANT"]).optional(),
   isActive: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  if (!canManageUsers(auth.user.role)) return forbidden();
+  if (!canManageUsers(auth.user.role) && !isPlatformOwner(auth.user.email)) return forbidden();
 
   const { id } = await params;
   if (id === auth.user.id) {
@@ -28,6 +29,8 @@ export async function PATCH(request: Request, { params }: Params) {
     const body = updateUserSchema.parse(await request.json());
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return notFound("User not found");
+    const denied = await assertSameOfficeUser(auth.user, id);
+    if (denied) return denied;
 
     const user = await prisma.user.update({
       where: { id },

@@ -12,6 +12,7 @@ import {
 import { isPatientChartWritable } from "@/lib/patients";
 import { saveDocument } from "@/lib/storage";
 import { requireVisitRecorderAccess } from "@/lib/visit-recorder-auth";
+import { assertPatientReadable } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ patientId: string }> };
 
@@ -49,6 +50,8 @@ export async function POST(request: Request, { params }: Params) {
   const access = await requireVisitRecorderAccess(request);
   if (access instanceof NextResponse) return access;
   const { patientId } = await params;
+  const denied = await assertPatientReadable(access.user, patientId);
+  if (denied) return denied;
 
   if (!isTranscribeConfigured()) {
     return badRequest("Amazon Transcribe Medical is not configured");

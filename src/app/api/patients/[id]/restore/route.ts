@@ -5,6 +5,7 @@ import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canManageUsers } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { toPatientDTO } from "@/lib/patients";
+import { assertPatientReadable } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -15,6 +16,8 @@ export async function POST(request: Request, { params }: Params) {
   if (!canManageUsers(auth.user.role)) return forbidden();
 
   const { id } = await params;
+  const denied = await assertPatientReadable(auth.user, id);
+  if (denied) return denied;
   const existing = await prisma.patient.findUnique({ where: { id } });
   if (!existing) return notFound("Patient not found");
   if (existing.status === "ACTIVE") {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { AuditAction } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -32,6 +33,8 @@ export async function POST(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   try {
     const body = createTextReportSchema.parse(await request.json());

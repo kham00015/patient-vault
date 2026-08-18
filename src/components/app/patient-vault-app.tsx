@@ -29,6 +29,7 @@ import { PatientRemindersModal } from "@/components/app/patient-reminders-modal"
 import { PatientPersonalNoteModal } from "@/components/app/patient-personal-note-modal";
 import { AiListenModal } from "@/components/app/ai-listen-modal";
 import { AiBrainModal } from "@/components/app/ai-brain-modal";
+import { PatientAccessModal } from "@/components/app/patient-access-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
 import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
@@ -354,6 +355,7 @@ type ModalType =
   | "reminders"
   | "personalNote"
   | "aiListen"
+  | "access"
   | null;
 
 type SelectPatientOptions = {
@@ -601,28 +603,34 @@ export default function PatientVaultApp({
       openingPatientIdsRef.current.add(patient.id);
       try {
         const data = await api<{ patient: Patient }>(`/api/patients/${patient.id}`);
-        const notesData = await api<{ notes: Note[] }>(`/api/patients/${patient.id}/notes`);
+        let notes: Note[] = [];
+        if (user.role !== "CONSULTANT") {
+          const notesData = await api<{ notes: Note[] }>(`/api/patients/${patient.id}/notes`);
+          notes = notesData.notes;
+        }
 
         let intent: ChartNavigationIntent | null = null;
-        if (options?.fromSchedule && options.scheduleDate) {
-          intent = {
-            fromSchedule: true,
-            scheduleDate: options.scheduleDate,
-            visitCategory: options.visitCategory,
-            openNote: true,
-          };
-        } else if (options?.encounterId) {
-          intent = {
-            encounterId: options.encounterId,
-            openNotesBranch: options.openNotesBranch ?? true,
-            openNote: options.openNote ?? false,
-          };
+        if (user.role !== "CONSULTANT") {
+          if (options?.fromSchedule && options.scheduleDate) {
+            intent = {
+              fromSchedule: true,
+              scheduleDate: options.scheduleDate,
+              visitCategory: options.visitCategory,
+              openNote: true,
+            };
+          } else if (options?.encounterId) {
+            intent = {
+              encounterId: options.encounterId,
+              openNotesBranch: options.openNotesBranch ?? true,
+              openNote: options.openNote ?? false,
+            };
+          }
         }
 
         const nextChart: OpenChart = {
           patient: data.patient,
-          notes: notesData.notes,
-          chartTab: "encounters",
+          notes,
+          chartTab: user.role === "CONSULTANT" ? "documents" : "encounters",
           chartNavigationIntent: intent,
         };
 
@@ -664,7 +672,7 @@ export default function PatientVaultApp({
       openingPatientIdsRef.current.delete(patient.id);
       notify(e instanceof Error ? e.message : "Failed to open patient chart", "error");
     }
-  }, [pushViewHistory]);
+  }, [pushViewHistory, user.role]);
 
   useEffect(() => {
     loadPatients().catch((e) => notify(e.message, "error"));
@@ -734,8 +742,12 @@ export default function PatientVaultApp({
   }, [chartTabOrder]);
 
   const visibleChartTabs = useMemo(
-    () => orderedChartTabs.filter((tab) => chartTabVisible[tab.id] !== false),
-    [orderedChartTabs, chartTabVisible]
+    () =>
+      orderedChartTabs.filter((tab) => {
+        if (user.role === "CONSULTANT") return tab.id === "documents";
+        return chartTabVisible[tab.id] !== false;
+      }),
+    [orderedChartTabs, chartTabVisible, user.role]
   );
 
   useEffect(() => {
@@ -777,6 +789,9 @@ export default function PatientVaultApp({
   }, []);
 
   const canRemoveRecords = user.role === "ADMIN" || user.role === "CLINICIAN";
+  const isConsultantUser = user.role === "CONSULTANT";
+  const canGrantAccess =
+    user.role === "ADMIN" || user.role === "CLINICIAN" || user.role === "STAFF";
 
   async function logout() {
     await api("/api/auth/login", { method: "DELETE" });
@@ -800,7 +815,8 @@ export default function PatientVaultApp({
     notify(`Patient registered — ${result.patient.mrn ?? "MRN assigned"}`, "success");
   }
 
-  const isChartReadOnly = Boolean(current?.status && current.status !== "ACTIVE");
+  const isChartReadOnly =
+    Boolean(current?.status && current.status !== "ACTIVE") || isConsultantUser;
 
   async function archivePatient(data: ArchivePatientInput) {
     if (!current) return;
@@ -886,15 +902,27 @@ export default function PatientVaultApp({
 
   const menuItems = [
     { id: "patients", label: "Patient List", icon: Users, color: "text-sky-400" },
-    { id: "schedule", label: "Clinic Schedule", icon: Calendar, color: "text-amber-400" },
-    { id: "add", label: "Add Patient", icon: Plus, color: "text-emerald-400" },
+    {
+      id: "schedule",
+      label: "Clinic Schedule",
+      icon: Calendar,
+      color: "text-amber-400",
+      hidden: isConsultantUser,
+    },
+    {
+      id: "add",
+      label: "Add Patient",
+      icon: Plus,
+      color: "text-emerald-400",
+      hidden: isConsultantUser,
+    },
     {
       id: "archive",
       label: "Archive Chart",
       icon: Archive,
       color: "text-amber-400",
       disabled: !current || isChartReadOnly,
-      hidden: user.role === "STAFF" || user.role === "READONLY",
+      hidden: user.role === "STAFF" || user.role === "READONLY" || isConsultantUser,
     },
     {
       id: "hardDelete",
@@ -904,10 +932,29 @@ export default function PatientVaultApp({
       disabled: !current,
       hidden: user.role !== "ADMIN",
     },
-    { id: "ai", label: "Ask AI", icon: Bot, color: "text-violet-400", disabled: !current },
-    { id: "lists", label: "Lists", icon: List, color: "text-fuchsia-400" },
-    { id: "messages", label: "Messages", icon: MessageSquare, color: "text-sky-300" },
-    { id: "reminders", label: "Reminders", icon: Bell, color: "text-orange-300" },
+    {
+      id: "ai",
+      label: "Ask AI",
+      icon: Bot,
+      color: "text-violet-400",
+      disabled: !current,
+      hidden: isConsultantUser,
+    },
+    { id: "lists", label: "Lists", icon: List, color: "text-fuchsia-400", hidden: isConsultantUser },
+    {
+      id: "messages",
+      label: "Messages",
+      icon: MessageSquare,
+      color: "text-sky-300",
+      hidden: isConsultantUser,
+    },
+    {
+      id: "reminders",
+      label: "Reminders",
+      icon: Bell,
+      color: "text-orange-300",
+      hidden: isConsultantUser,
+    },
     {
       id: "unsignedNotes",
       label: "Notes to Sign",
@@ -915,8 +962,20 @@ export default function PatientVaultApp({
       color: "text-amber-300",
       hidden: user.role !== "ADMIN" && user.role !== "CLINICIAN",
     },
-    { id: "potentials", label: "Potentials", icon: UserRoundSearch, color: "text-teal-300" },
-    { id: "contacts", label: "Contacts", icon: BookUser, color: "text-lime-300" },
+    {
+      id: "potentials",
+      label: "Potentials",
+      icon: UserRoundSearch,
+      color: "text-teal-300",
+      hidden: isConsultantUser,
+    },
+    {
+      id: "contacts",
+      label: "Contacts",
+      icon: BookUser,
+      color: "text-lime-300",
+      hidden: isConsultantUser,
+    },
   ] as const;
 
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
@@ -960,7 +1019,9 @@ export default function PatientVaultApp({
     <div className={cn("flex h-screen flex-col gap-3 p-3 md:p-4", mustChangePassword && "pointer-events-none opacity-40")}>
       <header className="flex shrink-0 items-center gap-3 rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-surface)] px-3 py-2.5 md:px-4">
         <div className="min-w-0 shrink-0 pr-1">
-          <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{CLINIC_NAME}</p>
+          <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">
+            {user.officeName || CLINIC_NAME}
+          </p>
           <p className="truncate text-base font-medium text-cyan-300">{user.name ?? user.email}</p>
         </div>
 
@@ -1006,23 +1067,23 @@ export default function PatientVaultApp({
               )}
             </Button>
           ))}
+          {(user.role === "ADMIN" || user.isPlatformOwner) && (
+            <Button
+              variant="ghost"
+              className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+              onClick={() => handleNavClick("users")}
+            >
+              <UserCog size={18} className="text-cyan-400" /> Users
+            </Button>
+          )}
           {user.role === "ADMIN" && (
-            <>
-              <Button
-                variant="ghost"
-                className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
-                onClick={() => handleNavClick("users")}
-              >
-                <UserCog size={18} className="text-cyan-400" /> Users
-              </Button>
-              <Button
-                variant="ghost"
-                className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
-                onClick={() => handleNavClick("audit")}
-              >
-                <ClipboardList size={18} className="text-cyan-400" /> Audit Log
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+              onClick={() => handleNavClick("audit")}
+            >
+              <ClipboardList size={18} className="text-cyan-400" /> Audit Log
+            </Button>
           )}
           <Button
             variant="ghost"
@@ -1148,7 +1209,7 @@ export default function PatientVaultApp({
                                     )}
                                     onClick={() => {
                                       if (isActive) {
-                                        setModal("personalNote");
+                                        if (!isConsultantUser) setModal("personalNote");
                                         return;
                                       }
                                       activateOpenChart(chart.patient.id);
@@ -1178,7 +1239,7 @@ export default function PatientVaultApp({
                                 >
                                   <X size={14} />
                                 </button>
-                                {isActive && !isChartReadOnly && user.role !== "READONLY" && (
+                                {isActive && !isChartReadOnly && user.role !== "READONLY" && !isConsultantUser && (
                                   <Button
                                     type="button"
                                     variant="primary"
@@ -1187,6 +1248,16 @@ export default function PatientVaultApp({
                                     onClick={() => setModal("aiListen")}
                                   >
                                     <Mic size={14} /> AI Listen
+                                  </Button>
+                                )}
+                                {isActive && canGrantAccess && current && (
+                                  <Button
+                                    type="button"
+                                    className="!py-1.5 !text-xs"
+                                    title="Grant consultant documents-only access"
+                                    onClick={() => setModal("access")}
+                                  >
+                                    Access
                                   </Button>
                                 )}
                               </div>
@@ -1213,7 +1284,7 @@ export default function PatientVaultApp({
                 Open {formatDisplayName(current)}&apos;s Chart
               </Button>
             )}
-            {mainView === "chart" && current && (
+            {mainView === "chart" && current && !isConsultantUser && (
               <div className="flex flex-wrap gap-2">
                 <Button
                   className="!py-2 !text-xs"
@@ -1254,7 +1325,7 @@ export default function PatientVaultApp({
               </div>
             )}
           </div>
-          {mainView === "chart" && current && isChartReadOnly && (
+          {mainView === "chart" && current && current.status !== "ACTIVE" && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
               <span>
                 This chart is <strong>{current.status === "DECEASED" ? "deceased" : "archived"}</strong> — read-only. Data is retained for compliance.
@@ -1264,6 +1335,11 @@ export default function PatientVaultApp({
                   Restore to Active
                 </Button>
               )}
+            </div>
+          )}
+          {mainView === "chart" && current && isConsultantUser && current.status === "ACTIVE" && (
+            <div className="mt-3 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-200">
+              Consultant access — documents only (view / print). Other chart areas are locked.
             </div>
           )}
         </header>
@@ -1512,8 +1588,9 @@ export default function PatientVaultApp({
                 <ChartDocumentsPanel
                   patientId={current.id}
                   isReadOnly={!!isChartReadOnly}
-                  canRemoveRecords={canRemoveRecords}
-                  showEncounterBadge
+                  canRemoveRecords={canRemoveRecords && !isConsultantUser}
+                  showEncounterBadge={!isConsultantUser}
+                  documentsOnly={isConsultantUser}
                 />
               </div>
             </>
@@ -1594,6 +1671,15 @@ export default function PatientVaultApp({
       {current && (
         <AiListenModal
           open={modal === "aiListen"}
+          onClose={() => setModal(null)}
+          patientId={current.id}
+          patientName={formatDisplayName(current)}
+        />
+      )}
+
+      {current && canGrantAccess && (
+        <PatientAccessModal
+          open={modal === "access"}
           onClose={() => setModal(null)}
           patientId={current.id}
           patientName={formatDisplayName(current)}
@@ -2193,11 +2279,13 @@ function ChartDocumentsPanel({
   isReadOnly,
   canRemoveRecords,
   showEncounterBadge,
+  documentsOnly,
 }: {
   patientId: string;
   isReadOnly: boolean;
   canRemoveRecords?: boolean;
   showEncounterBadge?: boolean;
+  documentsOnly?: boolean;
 }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [encounters, setEncounters] = useState<{ id: string; label: string }[]>([]);
@@ -2218,28 +2306,36 @@ function ChartDocumentsPanel({
   const [viewerDoc, setViewerDoc] = useState<DocumentItem | null>(null);
 
   const load = useCallback(async () => {
-    const [docData, encData] = await Promise.all([
-      api<{ documents: DocumentItem[] }>(`/api/patients/${patientId}/documents`),
-      api<{
-        encounters: {
-          id: string;
-          visitCategory: string;
-          modality: string;
-          date: string;
-        }[];
-      }>(`/api/patients/${patientId}/encounters`),
-    ]);
-    setDocs(docData.documents);
-    setEncounters(
-      encData.encounters.map((enc) => ({
-        id: enc.id,
-        label: `${formatEncounterLabel(enc.visitCategory, enc.modality)} · ${formatDateOnly(enc.date)}`,
-      }))
+    const docData = await api<{ documents: DocumentItem[] }>(
+      `/api/patients/${patientId}/documents`
     );
+    setDocs(docData.documents);
+    if (!documentsOnly) {
+      try {
+        const encData = await api<{
+          encounters: {
+            id: string;
+            visitCategory: string;
+            modality: string;
+            date: string;
+          }[];
+        }>(`/api/patients/${patientId}/encounters`);
+        setEncounters(
+          encData.encounters.map((enc) => ({
+            id: enc.id,
+            label: `${formatEncounterLabel(enc.visitCategory, enc.modality)} · ${formatDateOnly(enc.date)}`,
+          }))
+        );
+      } catch {
+        setEncounters([]);
+      }
+    } else {
+      setEncounters([]);
+    }
     setSelectedIds((prev) =>
       prev.filter((id) => docData.documents.some((d) => d.id === id && d.canFax === true))
     );
-  }, [patientId]);
+  }, [patientId, documentsOnly]);
 
   useEffect(() => {
     load().catch(() => undefined);
@@ -2758,7 +2854,7 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
             key={i}
             className={cn(
               "rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
-              m.role === "user" ? "ml-8 bg-sky-900/50" : "mr-8 bg-[var(--pv-btn)]"
+              m.role === "user" ? "ml-8 bg-sky-900/50" : "mr-8 bg-[var(--pv-btn)] pv-ai-text"
             )}
           >
             {m.content}

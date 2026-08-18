@@ -5,17 +5,20 @@ import { requireAuth, forbidden, badRequest, notFound } from "@/lib/api";
 import { canManageUsers } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { unlockAccount } from "@/lib/account-lockout";
+import { assertSameOfficeUser, isPlatformOwner } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  if (!canManageUsers(auth.user.role)) return forbidden();
+  if (!canManageUsers(auth.user.role) && !isPlatformOwner(auth.user.email)) return forbidden();
 
   const { id } = await params;
   const existing = await prisma.user.findUnique({ where: { id } });
   if (!existing) return notFound("User not found");
+  const denied = await assertSameOfficeUser(auth.user, id);
+  if (denied) return denied;
   if (!existing.lockedAt) return badRequest("Account is not locked");
 
   await unlockAccount(id);

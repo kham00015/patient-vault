@@ -4,6 +4,10 @@ export type SessionUser = Pick<User, "id" | "email" | "name" | "role"> & {
   mustChangePassword?: boolean;
   mfaEnabled?: boolean;
   lockedAt?: Date | null;
+  officeId?: string | null;
+  officeName?: string | null;
+  officeCode?: string | null;
+  isPlatformOwner?: boolean;
 };
 
 export function canWrite(role: Role) {

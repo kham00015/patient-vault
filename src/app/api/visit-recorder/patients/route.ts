@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { toPatientDTO } from "@/lib/patients";
 import { requireVisitRecorderAccess } from "@/lib/visit-recorder-auth";
+import { officeScope } from "@/lib/office";
 
 export async function GET(request: Request) {
   const access = await requireVisitRecorderAccess(request);
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { name: "asc" }],
     where: {
       status: "ACTIVE",
+      ...officeScope(access.user),
       ...(q
         ? {
             OR: [

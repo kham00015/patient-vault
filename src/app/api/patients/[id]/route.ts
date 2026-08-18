@@ -18,6 +18,8 @@ import {
   hardDeletePatientSchema,
   isClearingField,
 } from "@/lib/patient-lifecycle";
+import { assertPatientReadable } from "@/lib/patient-access";
+import { officeScope } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -25,6 +27,9 @@ export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+
+  const denied = await assertPatientReadable(auth.user, id);
+  if (denied) return denied;
 
   const patient = await prisma.patient.findUnique({ where: { id } });
   if (!patient) return notFound("Patient not found");
@@ -98,6 +103,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id } = await params;
+  const denied = await assertPatientReadable(auth.user, id);
+  if (denied) return denied;
 
   try {
     const body = expandSyncedPatientFields(updateSchema.parse(await request.json()));
@@ -122,7 +129,9 @@ export async function PATCH(request: Request, { params }: Params) {
     }
 
     if (body.name && body.name !== existing.name) {
-      const dup = await prisma.patient.findFirst({ where: { name: body.name, NOT: { id } } });
+      const dup = await prisma.patient.findFirst({
+        where: { name: body.name, NOT: { id }, ...officeScope(auth.user) },
+      });
       if (dup) return badRequest("Patient name already exists");
     }
 
@@ -209,6 +218,8 @@ export async function DELETE(request: Request, { params }: Params) {
     return forbidden("Only administrators can permanently delete patient charts");
   }
   const { id } = await params;
+  const denied = await assertPatientReadable(auth.user, id);
+  if (denied) return denied;
 
   try {
     const body = hardDeletePatientSchema.parse(await request.json());

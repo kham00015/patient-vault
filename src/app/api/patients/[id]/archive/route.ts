@@ -5,6 +5,7 @@ import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
 import { canArchive } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { toPatientDTO } from "@/lib/patients";
+import { assertPatientReadable } from "@/lib/patient-access";
 import {
   archivePatientSchema,
   formatArchiveCategory,
@@ -20,6 +21,8 @@ export async function POST(request: Request, { params }: Params) {
   if (!canArchive(auth.user.role)) return forbidden();
 
   const { id } = await params;
+  const denied = await assertPatientReadable(auth.user, id);
+  if (denied) return denied;
 
   try {
     const body = archivePatientSchema.parse(await request.json());

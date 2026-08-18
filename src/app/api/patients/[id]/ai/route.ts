@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { chatWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
@@ -18,7 +19,11 @@ const chatSchema = z.object({
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const conv = await prisma.aIConversation.findUnique({ where: { patientId } });
   const messages = conv ? JSON.parse(conv.messages) : [];
@@ -28,7 +33,11 @@ export async function GET(request: Request, { params }: Params) {
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) return notFound();
@@ -112,7 +121,11 @@ export async function POST(request: Request, { params }: Params) {
 export async function DELETE(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   await prisma.aIConversation.deleteMany({ where: { patientId } });
   return NextResponse.json({ ok: true });

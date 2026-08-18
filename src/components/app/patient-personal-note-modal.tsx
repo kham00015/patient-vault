@@ -427,7 +427,7 @@ export function PatientPersonalNoteModal({
                           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
                             HPI draft
                           </p>
-                          <pre className="whitespace-pre-wrap rounded-lg bg-[var(--pv-bg-deep)] p-2 text-sm text-[var(--pv-fg-soft)]">
+                          <pre className="whitespace-pre-wrap rounded-lg bg-[var(--pv-bg-deep)] p-2 text-sm pv-ai-text">
                             {save.hpi}
                           </pre>
                         </div>

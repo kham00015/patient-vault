@@ -4,6 +4,7 @@ import type { ContactType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
+import { officeScope } from "@/lib/office";
 import { CONTACT_TYPES, toContactDTO } from "@/lib/contacts";
 
 const contactTypeSchema = z.enum(
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
 
   const contacts = await prisma.contact.findMany({
     where: {
+      ...officeScope(auth.user),
       ...(type && contactTypeSchema.safeParse(type).success ? { type: type as ContactType } : {}),
     },
     orderBy: [{ type: "asc" }, { name: "asc" }],
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
         company: body.company?.trim() || null,
         drug: body.drug?.trim() || null,
         createdById: auth.user.id,
+        officeId: auth.user.officeId ?? undefined,
       },
     });
 

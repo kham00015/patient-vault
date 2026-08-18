@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
+import { officeScope } from "@/lib/office";
 import { toPotentialPatientDTO } from "@/lib/potentials";
 
 export async function GET(request: Request) {
@@ -10,6 +11,7 @@ export async function GET(request: Request) {
   if (auth instanceof NextResponse) return auth;
 
   const potentials = await prisma.potentialPatient.findMany({
+    where: officeScope(auth.user),
     orderBy: [{ createdAt: "desc" }],
   });
 
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
       data: {
         name: body.name.trim(),
         createdById: auth.user.id,
+        officeId: auth.user.officeId ?? undefined,
       },
     });
     return NextResponse.json({ potential: toPotentialPatientDTO(potential) }, { status: 201 });

@@ -539,7 +539,7 @@ export function AiListenModal({
               value={hpi}
               onChange={(e) => setHpi(e.target.value)}
               rows={10}
-              className="text-sm"
+              className="text-sm pv-ai-text"
             />
           </div>
         )}

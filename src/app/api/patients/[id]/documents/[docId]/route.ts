@@ -9,6 +9,7 @@ import { readDocument, deleteDocument, writeDocument } from "@/lib/storage";
 import { deleteRecordReasonSchema } from "@/lib/patient-lifecycle";
 import { isPatientChartWritable } from "@/lib/patients";
 import { isTextReportDocument } from "@/lib/document-sections";
+import { assertDocumentReadable, assertPatientReadable } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ id: string; docId: string }> };
 
@@ -29,6 +30,9 @@ export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
   const { id: patientId, docId } = await params;
+
+  const denied = await assertDocumentReadable(auth.user, patientId);
+  if (denied) return denied;
 
   const doc = await prisma.document.findFirst({ where: { id: docId, patientId } });
   if (!doc) return notFound();
@@ -60,6 +64,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, docId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   try {
     const raw = await request.json();
@@ -150,6 +156,8 @@ export async function DELETE(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canDelete(auth.user.role)) return forbidden();
   const { id: patientId, docId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   try {
     const body = deleteRecordReasonSchema.parse(await request.json());

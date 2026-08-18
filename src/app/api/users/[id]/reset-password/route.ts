@@ -7,6 +7,7 @@ import { canManageUsers, hashPassword, destroyAllUserSessions } from "@/lib/auth
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { passwordSchema, validatePassword } from "@/lib/password-policy";
 import { unlockAccount } from "@/lib/account-lockout";
+import { assertSameOfficeUser, isPlatformOwner } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -17,7 +18,7 @@ const resetSchema = z.object({
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
-  if (!canManageUsers(auth.user.role)) return forbidden();
+  if (!canManageUsers(auth.user.role) && !isPlatformOwner(auth.user.email)) return forbidden();
 
   const { id } = await params;
 
@@ -28,6 +29,8 @@ export async function POST(request: Request, { params }: Params) {
 
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return notFound("User not found");
+    const denied = await assertSameOfficeUser(auth.user, id);
+    if (denied) return denied;
 
     const passwordHash = await hashPassword(body.password);
     await prisma.user.update({

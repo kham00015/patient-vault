@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, forbidden, notFound } from "@/lib/api";
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
+import { assertSameOfficeRecord } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -34,6 +35,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const existing = await prisma.aiBrainSource.findUnique({ where: { id } });
   if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   try {
     const body = updateSchema.parse(await request.json());
@@ -80,6 +83,8 @@ export async function DELETE(request: Request, { params }: Params) {
 
   const existing = await prisma.aiBrainSource.findUnique({ where: { id } });
   if (!existing) return notFound();
+  const denied = await assertSameOfficeRecord(auth.user, existing.officeId);
+  if (denied) return denied;
 
   await prisma.aiBrainSource.delete({ where: { id } });
 

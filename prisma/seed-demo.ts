@@ -21,8 +21,16 @@ async function main() {
     process.exit(1);
   }
 
+  const clinic1 = await prisma.office.upsert({
+    where: { code: "clinic-1" },
+    update: {},
+    create: { code: "clinic-1", name: "Clinic 1" },
+  });
+
   for (const p of DEMO_PATIENTS) {
-    const existing = await prisma.patient.findUnique({ where: { mrn: p.mrn } });
+    const existing = await prisma.patient.findFirst({
+      where: { mrn: p.mrn, officeId: clinic1.id },
+    });
     if (existing) {
       console.log(`Demo: ${p.name} already exists`);
       continue;
@@ -33,6 +41,7 @@ async function main() {
         ...p,
         status: "ACTIVE",
         createdById: admin.id,
+        officeId: clinic1.id,
       },
     });
     console.log(`Demo: created ${p.name}`);

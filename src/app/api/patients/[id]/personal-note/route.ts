@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 
 type Params = { params: Promise<{ id: string }> };
@@ -16,7 +17,11 @@ const putSchema = z.object({
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, id);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({
     where: { id },
@@ -44,7 +49,11 @@ export async function GET(request: Request, { params }: Params) {
 export async function PUT(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, id);
+  if (officeDenied) return officeDenied;
 
   try {
     const body = putSchema.parse(await request.json());
@@ -96,7 +105,11 @@ export async function PUT(request: Request, { params }: Params) {
 export async function DELETE(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, id);
+  if (officeDenied) return officeDenied;
 
   const existing = await prisma.patientPersonalNote.findUnique({
     where: {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPatientReadable } from "@/lib/patient-access";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
@@ -14,6 +15,8 @@ export async function DELETE(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   if (!canDelete(auth.user.role)) return forbidden();
   const { id: patientId, noteId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   try {
     const body = deleteRecordReasonSchema.parse(await request.json());

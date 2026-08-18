@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api";
 import { formatDisplayName } from "@/lib/patient-registration";
+import { officeScope } from "@/lib/office";
 import {
   NON_PHYSICIAN_ENCOUNTER_MODALITIES,
   classifyUnsignedPhysicianNote,
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
     where: {
       status: "OPEN",
       modality: { notIn: [...NON_PHYSICIAN_ENCOUNTER_MODALITIES] },
-      patient: { status: "ACTIVE" },
+      patient: { status: "ACTIVE", ...officeScope(auth.user) },
       ...(isAdmin
         ? {}
         : {

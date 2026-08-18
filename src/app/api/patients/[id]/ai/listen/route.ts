@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AuditAction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, badRequest, notFound } from "@/lib/api";
+import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { draftHpiFromTranscript, isBedrockConfigured } from "@/lib/ai";
 import { resolveHpiVisitContext, type HpiVisitKind } from "@/lib/hpi-visit-context";
@@ -25,7 +26,11 @@ function parseVisitKind(value: string | null): HpiVisitKind | null {
 export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
@@ -44,7 +49,11 @@ export async function GET(request: Request, { params }: Params) {
 export async function POST(request: Request, { params }: Params) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
+  const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
+  if (consultantBlocked) return consultantBlocked;
   const { id: patientId } = await params;
+  const officeDenied = await assertPatientReadable(auth.user, patientId);
+  if (officeDenied) return officeDenied;
 
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
