@@ -16,12 +16,19 @@ export async function GET(request: Request) {
     orderBy: { code: "asc" },
     select: { id: true, code: true, name: true },
   });
-  const visible = isPlatformOwner(auth.user.email)
-    ? offices
-    : offices.filter((o) => o.id === auth.user.officeId);
+  const owner = isPlatformOwner(auth.user.email);
+  if (!owner) {
+    const mine = offices.find((o) => o.id === auth.user.officeId);
+    return NextResponse.json({
+      offices: mine ? [{ id: mine.id, name: mine.name }] : [],
+      canAssignOffice: false,
+      currentOfficeId: auth.user.officeId ?? null,
+    });
+  }
+
   return NextResponse.json({
-    offices: visible,
-    canAssignOffice: isPlatformOwner(auth.user.email),
+    offices,
+    canAssignOffice: true,
     currentOfficeId: auth.user.officeId ?? null,
   });
 }

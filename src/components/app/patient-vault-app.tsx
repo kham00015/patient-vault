@@ -397,6 +397,7 @@ export default function PatientVaultApp({
   const [toast, setToast] = useState({ message: "", type: "info" as "info" | "success" | "error" });
   const [search, setSearch] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [masterOffices, setMasterOffices] = useState<{ id: string; name: string }[]>([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [pendingReminders, setPendingReminders] = useState(0);
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
@@ -509,6 +510,19 @@ export default function PatientVaultApp({
       });
     });
   }, [openCharts]);
+
+  useEffect(() => {
+    if (!user.isPlatformOwner) return;
+    api<{ offices: { id: string; name: string }[] }>("/api/offices")
+      .then((data) => setMasterOffices(data.offices))
+      .catch(() => undefined);
+  }, [user.isPlatformOwner]);
+
+  async function switchMasterOffice(officeId: string) {
+    if (officeId === user.officeId) return;
+    await api("/api/offices/active", { method: "POST", json: { officeId } });
+    window.location.reload();
+  }
 
   const notify = (message: string, type: "info" | "success" | "error" = "info") =>
     setToast({ message, type });
@@ -1019,10 +1033,34 @@ export default function PatientVaultApp({
     <div className={cn("flex h-screen flex-col gap-3 p-3 md:p-4", mustChangePassword && "pointer-events-none opacity-40")}>
       <header className="flex shrink-0 items-center gap-3 rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-surface)] px-3 py-2.5 md:px-4">
         <div className="min-w-0 shrink-0 pr-1">
-          <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">
-            {user.officeName || CLINIC_NAME}
-          </p>
-          <p className="truncate text-base font-medium text-cyan-300">{user.name ?? user.email}</p>
+          {user.isPlatformOwner ? (
+            <>
+              <p className="text-xs uppercase tracking-wider text-amber-400">Master</p>
+              <select
+                className="mt-0.5 max-w-[11rem] truncate rounded-md border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-2 py-1 text-sm font-medium text-cyan-300"
+                value={user.officeId ?? ""}
+                title="Switch clinic"
+                onChange={(e) => switchMasterOffice(e.target.value)}
+              >
+                {(masterOffices.length
+                  ? masterOffices
+                  : user.officeId
+                    ? [{ id: user.officeId, name: user.officeName || "Clinic" }]
+                    : []
+                ).map((office) => (
+                  <option key={office.id} value={office.id}>
+                    {office.name}
+                  </option>
+                ))}
+              </select>
+              <p className="truncate text-xs text-cyan-300">{user.name ?? user.email}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{CLINIC_NAME}</p>
+              <p className="truncate text-base font-medium text-cyan-300">{user.name ?? user.email}</p>
+            </>
+          )}
         </div>
 
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
@@ -1076,7 +1114,7 @@ export default function PatientVaultApp({
               <UserCog size={18} className="text-cyan-400" /> Users
             </Button>
           )}
-          {user.role === "ADMIN" && (
+          {(user.role === "ADMIN" || user.isPlatformOwner) && (
             <Button
               variant="ghost"
               className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"

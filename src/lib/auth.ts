@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 import { type SessionUser } from "./roles";
-import { ensureOffices, isPlatformOwner, PRIMARY_OFFICE_CODE } from "./office";
+import { ensureOffices, isPlatformOwner, PRIMARY_OFFICE_CODE, ACTIVE_OFFICE_COOKIE } from "./office";
 
 const COOKIE_NAME = "pv_session";
 const SALT_ROUNDS = 12;
@@ -125,6 +125,7 @@ export async function destroySession() {
     }
   }
   cookieStore.delete(COOKIE_NAME);
+  cookieStore.delete(ACTIVE_OFFICE_COOKIE);
 }
 
 export async function destroyAllUserSessions(userId: string) {
@@ -184,6 +185,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     let officeId = user.officeId;
     let officeName = user.office?.name ?? null;
     let officeCode = user.office?.code ?? null;
+    const owner = isPlatformOwner(user.email);
     try {
       const offices = await ensureOffices();
       if (!officeId) {
@@ -199,6 +201,21 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       // Schema may not be pushed yet; keep session working without office.
     }
 
+    if (owner) {
+      const wanted = cookieStore.get(ACTIVE_OFFICE_COOKIE)?.value?.trim();
+      if (wanted) {
+        const selected = await prisma.office.findUnique({
+          where: { id: wanted },
+          select: { id: true, name: true, code: true },
+        });
+        if (selected) {
+          officeId = selected.id;
+          officeName = selected.name;
+          officeCode = selected.code;
+        }
+      }
+    }
+
     // Sliding expiration — keep DB session and browser cookie in sync
     const newExpiry = new Date(Date.now() + getSessionTimeoutMs());
     await prisma.session.update({
@@ -206,7 +223,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       data: { expiresAt: newExpiry },
     });
 
-    const cookieStore = await cookies();
     const refreshedJwt = await signSessionJwt(
       {
         id: user.id,
@@ -239,7 +255,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       officeId,
       officeName,
       officeCode,
-      isPlatformOwner: isPlatformOwner(user.email),
+      isPlatformOwner: owner,
     };
   } catch {
     return null;

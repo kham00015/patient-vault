@@ -11,9 +11,11 @@ export const DEFAULT_OFFICES = [
 
 let ensurePromise: Promise<{ primaryId: string; secondId: string }> | null = null;
 
+export const ACTIVE_OFFICE_COOKIE = "pv_office";
+
 export function isPlatformOwner(email: string) {
   const raw = process.env.PLATFORM_OWNER_EMAILS?.trim();
-  const list = (raw || "firas.khamis@clinic.local,admin@clinic.local")
+  const list = (raw || "firas.khamis@clinic.local")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
@@ -27,7 +29,7 @@ export async function ensureOffices() {
       for (const row of DEFAULT_OFFICES) {
         const office = await prisma.office.upsert({
           where: { code: row.code },
-          update: { name: row.name },
+          update: {},
           create: { code: row.code, name: row.name },
         });
         offices.push(office);

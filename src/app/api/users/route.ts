@@ -47,6 +47,7 @@ export async function GET(request: Request) {
     select: userSelect,
   });
 
+  const owner = isPlatformOwner(auth.user.email);
   return NextResponse.json({
     users: users.map((u) => ({
       ...u,
@@ -55,9 +56,9 @@ export async function GET(request: Request) {
       passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
       createdAt: u.createdAt.toISOString(),
       isLocked: u.lockedAt != null,
-      officeId: u.officeId,
-      officeName: u.office?.name ?? null,
-      officeCode: u.office?.code ?? null,
+      officeId: owner ? u.officeId : undefined,
+      officeName: owner ? u.office?.name ?? null : undefined,
+      officeCode: owner ? u.office?.code ?? null : undefined,
     })),
   });
 }
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
     let officeId = auth.user.officeId ?? null;
     if (body.officeId && body.officeId !== auth.user.officeId) {
       if (!isPlatformOwner(auth.user.email)) {
-        return forbidden("Cannot create users in another clinic");
+        return forbidden();
       }
       const office = await prisma.office.findUnique({ where: { id: body.officeId } });
       if (!office) return badRequest("Clinic not found");
@@ -119,6 +120,7 @@ export async function POST(request: Request) {
       metadata: { action: "user_created", targetEmail: email, role: body.role },
     });
 
+    const owner = isPlatformOwner(auth.user.email);
     return NextResponse.json(
       {
         user: {
@@ -128,9 +130,9 @@ export async function POST(request: Request) {
           passwordChangedAt: null,
           createdAt: user.createdAt.toISOString(),
           isLocked: false,
-          officeId: user.officeId,
-          officeName: user.office?.name ?? null,
-          officeCode: user.office?.code ?? null,
+          officeId: owner ? user.officeId : undefined,
+          officeName: owner ? user.office?.name ?? null : undefined,
+          officeCode: owner ? user.office?.code ?? null : undefined,
         },
       },
       { status: 201 }

@@ -25,7 +25,7 @@ type ManagedUser = {
   officeName?: string | null;
 };
 
-type OfficeOption = { id: string; code: string; name: string };
+type OfficeOption = { id: string; code?: string; name: string };
 
 const ROLES = ["ADMIN", "CLINICIAN", "STAFF", "READONLY", "CONSULTANT"] as const;
 
@@ -268,7 +268,7 @@ export function UsersAdminModal({ open, onClose }: { open: boolean; onClose: () 
                     <p className="text-[var(--pv-muted-2)]">{u.email}</p>
                     <p className="mt-1 text-[var(--pv-muted)]">
                       {u.role}
-                      {u.officeName ? ` · ${u.officeName}` : ""}
+                      {canAssignOffice && u.officeName ? ` · ${u.officeName}` : ""}
                       {!u.isActive && " · Disabled"}
                       {u.mfaEnabled && " · MFA on"}
                       {u.mustChangePassword && " · Must change password"}
