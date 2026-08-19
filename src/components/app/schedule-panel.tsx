@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/roles";
 import { canWrite } from "@/lib/roles";
 import { api } from "@/lib/api-client";
@@ -17,9 +17,16 @@ import {
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, toClinicDateInputValue } from "@/lib/utils";
-import { CalendarDays, Check, Stethoscope } from "lucide-react";
+import { CalendarDays, Check, Search, Stethoscope } from "lucide-react";
 
-type PatientOption = { id: string; name: string };
+type PatientOption = {
+  id: string;
+  name: string;
+  mrn?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  middleName?: string | null;
+};
 type ScheduleProviderOption = { key: string; label: string };
 
 type SelectPatientFromSchedule = (
@@ -91,6 +98,134 @@ function VisitTypeToggle({
       >
         Follow-Up
       </button>
+    </div>
+  );
+}
+
+function patientSearchHaystack(patient: PatientOption) {
+  return `${formatDisplayName(patient)} ${patient.mrn ?? ""}`.toLowerCase();
+}
+
+function SchedulePatientSearch({
+  patients,
+  value,
+  onChange,
+}: {
+  patients: PatientOption[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const selected = patients.find((patient) => patient.id === value);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return patients.filter((patient) => patientSearchHaystack(patient).includes(q)).slice(0, 40);
+  }, [patients, query]);
+
+  useEffect(() => {
+    if (!value) setQuery("");
+  }, [value]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(event: MouseEvent) {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function pick(id: string) {
+    onChange(id);
+    const patient = patients.find((row) => row.id === id);
+    setQuery(patient ? formatDisplayName(patient) : "");
+    setOpen(false);
+  }
+
+  const showMenu = open && (query.trim().length > 0 || matches.length > 0);
+
+  return (
+    <div ref={wrapRef} className="relative min-w-[12rem] flex-1">
+      <Search
+        size={14}
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--pv-muted)]"
+      />
+      <input
+        ref={inputRef}
+        className={cn(
+          "w-full rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] py-0 pl-9 pr-3 text-sm text-[var(--pv-fg)] outline-none placeholder:text-[var(--pv-muted)] focus:border-[var(--pv-accent-strong)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--pv-accent-strong)_20%,transparent)]",
+          SCHEDULE_TOOLBAR_HEIGHT
+        )}
+        value={open || !selected ? query : formatDisplayName(selected)}
+        placeholder="Search patient by name or MRN..."
+        autoComplete="off"
+        onFocus={() => {
+          setOpen(true);
+          if (selected && !query) setQuery("");
+        }}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange("");
+          setOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setActiveIndex((i) => Math.min(i + 1, Math.max(matches.length - 1, 0)));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIndex((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const hit = matches[activeIndex];
+            if (hit) pick(hit.id);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+            inputRef.current?.blur();
+          }
+        }}
+      />
+      {showMenu && (
+        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-panel)] py-1 shadow-lg">
+          {matches.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-[var(--pv-muted)]">
+              {query.trim() ? "No matching patients" : "Type a name or MRN"}
+            </p>
+          ) : (
+            matches.map((patient, index) => (
+              <button
+                key={patient.id}
+                type="button"
+                className={cn(
+                  "flex w-full flex-col items-start px-3 py-1.5 text-left text-sm",
+                  index === activeIndex
+                    ? "bg-[color-mix(in_srgb,var(--pv-accent)_18%,transparent)] text-[var(--pv-fg)]"
+                    : "text-[var(--pv-fg-soft)] hover:bg-[var(--pv-hover)]"
+                )}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(patient.id)}
+              >
+                <span className="font-medium">{formatDisplayName(patient)}</span>
+                {patient.mrn ? (
+                  <span className="text-[11px] text-[var(--pv-muted)]">MRN {patient.mrn}</span>
+                ) : null}
+              </button>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -352,21 +487,11 @@ export function SchedulePanel({
 
       {canEdit && providerKey && (
         <div className="mb-4 flex max-w-3xl flex-wrap items-center gap-2">
-          <select
-            className={cn(
-              "min-w-[12rem] flex-1 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm",
-              SCHEDULE_TOOLBAR_HEIGHT
-            )}
+          <SchedulePatientSearch
+            patients={availablePatients}
             value={patientId}
-            onChange={(e) => setPatientId(e.target.value)}
-          >
-            <option value="">Select patient...</option>
-            {availablePatients.map((p) => (
-              <option key={p.id} value={p.id}>
-                {formatDisplayName(p)}
-              </option>
-            ))}
-          </select>
+            onChange={setPatientId}
+          />
           <VisitTypeToggle size="toolbar" value={addVisitCategory} onChange={setAddVisitCategory} />
           <Button
             variant="success"

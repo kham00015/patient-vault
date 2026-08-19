@@ -27,6 +27,13 @@ import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
+import { MixedNoteField } from "@/components/app/mixed-note-field";
+import { NoteTextToolbar } from "@/components/app/note-text-toolbar";
+import {
+  appendAiNoteContinuation,
+  appendPlainToNoteSection,
+  noteSectionToPlainText,
+} from "@/lib/note-ai-text";
 import {
   isNotePanelCollapsed,
   loadCollapsedNotePanels,
@@ -43,10 +50,32 @@ import {
   Copy,
   Expand,
   FileText,
+  ArrowRightFromLine,
+  Maximize2,
   PenLine,
   Pin,
   Trash2,
+  Type,
 } from "lucide-react";
+
+const NOTE_FIT_KEY = "pv-note-fit-v1";
+
+function loadNoteFitMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(NOTE_FIT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistNoteFitMode(on: boolean) {
+  try {
+    window.localStorage.setItem(NOTE_FIT_KEY, on ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
 
 export type StructuredNoteData = {
   id: string;
@@ -144,14 +173,14 @@ const CLINICAL_GROUPS: NoteSectionGroup[] = [
         label: "Review of Systems",
         placeholder:
           "Constitutional:\nEyes:\nENT:\nCardiovascular:\nRespiratory:\nGastrointestinal:\nGenitourinary:\nMusculoskeletal:\nSkin:\nNeurological:\nPsychiatric:\nEndocrine:\nHematologic/Lymphatic:\nAllergic/Immunologic:",
-        size: "lg",
+        size: "md",
         span: 1,
       },
       {
         key: "physicalExam",
         label: "Physical Exam",
         placeholder: "Exam findings...",
-        size: "lg",
+        size: "md",
         span: 1,
       },
     ],
@@ -256,6 +285,37 @@ function flattenGroupFields(groups: NoteSectionGroup[]): BoxField[] {
   return groups.flatMap((group) => group.fields);
 }
 
+function fitGroupGrowClass(groupId: string) {
+  switch (groupId) {
+    case "subjective":
+      return "flex-[1.7]";
+    case "history":
+      return "flex-[1.45]";
+    case "assessment_plan":
+      return "flex-[1.3]";
+    case "ros_exam":
+      return "flex-[1.25]";
+    case "medications":
+      return "flex-[1.1]";
+    default:
+      return "flex-1";
+  }
+}
+
+function fitStackedRowTemplate(
+  fields: BoxField[],
+  collapsedPanels: Set<CollapsibleNotePanelKey>
+) {
+  return fields
+    .map((field) => {
+      if (isNotePanelCollapsed(collapsedPanels, field.key)) return "auto";
+      if (field.key === "hpi" || field.size === "lg") return "minmax(5.5rem,1.15fr)";
+      if (field.size === "sm") return "minmax(4.25rem,0.35fr)";
+      return "minmax(5.25rem,0.8fr)";
+    })
+    .join(" ");
+}
+
 export function StructuredNoteEditor({
   patientId,
   note,
@@ -320,9 +380,11 @@ export function StructuredNoteEditor({
   const [aiDraft, setAiDraft] = useState("");
   const [aiError, setAiError] = useState("");
   const [aiCopied, setAiCopied] = useState(false);
+  const [textToolbarKey, setTextToolbarKey] = useState<NoteSectionKey | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<CollapsibleNotePanelKey>>(
     () => new Set()
   );
+  const [fitMode, setFitMode] = useState(false);
   const isSigned = note.status === "SIGNED";
   const isRevised = isSigned && (note.revisionCount ?? 0) > 0;
   const statusLabel = getNoteStatusLabel(note);
@@ -335,6 +397,7 @@ export function StructuredNoteEditor({
 
   useEffect(() => {
     setCollapsedPanels(loadCollapsedNotePanels());
+    setFitMode(loadNoteFitMode());
   }, []);
 
   useEffect(() => {
@@ -352,7 +415,7 @@ export function StructuredNoteEditor({
   }
 
   function previewText(value: string | undefined) {
-    const trimmed = value?.trim() ?? "";
+    const trimmed = noteSectionToPlainText(value).trim();
     if (!trimmed) return "Empty";
     return trimmed.replace(/\s+/g, " ").slice(0, 90) + (trimmed.length > 90 ? "…" : "");
   }
@@ -465,8 +528,7 @@ export function StructuredNoteEditor({
       const data = await api<{ patient: PatientChartInsertSnapshot }>(`/api/patients/${patientId}`);
       const chartText = getChartInsertText(data.patient, key);
       if (!chartText) return;
-      const current = sections[key]?.trim() ?? "";
-      updateSection(key, current ? `${current}\n\n${chartText}` : chartText);
+      updateSection(key, appendPlainToNoteSection(sectionsRef.current[key] ?? "", chartText));
     } finally {
       setInsertingKey(null);
     }
@@ -476,8 +538,7 @@ export function StructuredNoteEditor({
     if (readOnly || !hasDiagnosis) return;
     setInsertingDiagnosis(true);
     try {
-      const current = sections.assessment?.trim() ?? "";
-      updateSection("assessment", current ? `${current}\n\n${diagnosisText}` : diagnosisText);
+      updateSection("assessment", appendPlainToNoteSection(sectionsRef.current.assessment ?? "", diagnosisText));
     } finally {
       setInsertingDiagnosis(false);
     }
@@ -506,21 +567,25 @@ export function StructuredNoteEditor({
     onBack();
   }
 
+  function ctx(text: string | undefined) {
+    return noteSectionToPlainText(text).trim();
+  }
+
   function buildAiNoteContext(target: "assessment" | "plan") {
     const s = sectionsRef.current;
     const parts: string[] = [];
-    if (s.chiefComplaint?.trim()) parts.push(`=== CHIEF COMPLAINT ===\n${s.chiefComplaint.trim()}`);
-    if (s.hpi?.trim()) parts.push(`=== HPI ===\n${s.hpi.trim()}`);
-    if (s.reviewOfSystems?.trim()) parts.push(`=== ROS ===\n${s.reviewOfSystems.trim()}`);
-    if (s.physicalExam?.trim()) parts.push(`=== EXAM ===\n${s.physicalExam.trim()}`);
-    if (s.pastMedicalHistory?.trim()) parts.push(`=== NOTE PMH ===\n${s.pastMedicalHistory.trim()}`);
+    if (ctx(s.chiefComplaint)) parts.push(`=== CHIEF COMPLAINT ===\n${ctx(s.chiefComplaint)}`);
+    if (ctx(s.hpi)) parts.push(`=== HPI ===\n${ctx(s.hpi)}`);
+    if (ctx(s.reviewOfSystems)) parts.push(`=== ROS ===\n${ctx(s.reviewOfSystems)}`);
+    if (ctx(s.physicalExam)) parts.push(`=== EXAM ===\n${ctx(s.physicalExam)}`);
+    if (ctx(s.pastMedicalHistory)) parts.push(`=== NOTE PMH ===\n${ctx(s.pastMedicalHistory)}`);
     if (target === "plan") {
-      if (s.assessment?.trim()) parts.push(`=== ASSESSMENT ===\n${s.assessment.trim()}`);
-    } else if (s.assessment?.trim()) {
-      parts.push(`=== CURRENT ASSESSMENT DRAFT (optional reference) ===\n${s.assessment.trim()}`);
+      if (ctx(s.assessment)) parts.push(`=== ASSESSMENT ===\n${ctx(s.assessment)}`);
+    } else if (ctx(s.assessment)) {
+      parts.push(`=== CURRENT ASSESSMENT DRAFT (optional reference) ===\n${ctx(s.assessment)}`);
     }
-    if (target === "plan" && s.plan?.trim()) {
-      parts.push(`=== CURRENT PLAN DRAFT (optional reference) ===\n${s.plan.trim()}`);
+    if (target === "plan" && ctx(s.plan)) {
+      parts.push(`=== CURRENT PLAN DRAFT (optional reference) ===\n${ctx(s.plan)}`);
     }
     if (diagnosisText) parts.push(`=== CHART DIAGNOSES ===\n${diagnosisText}`);
     // Chart context helps Plan rules (prior PFTs / 6MWT / asthma-COPD history).
@@ -545,7 +610,7 @@ export function StructuredNoteEditor({
 
   async function runSectionAi(target: "assessment" | "plan") {
     const noteContext = buildAiNoteContext(target);
-    if (!noteContext.trim() || (!sectionsRef.current.hpi?.trim() && target === "assessment")) {
+    if (!noteContext.trim() || (!ctx(sectionsRef.current.hpi) && target === "assessment")) {
       setAiTarget(target);
       setAiDraft("");
       setAiError(
@@ -556,7 +621,7 @@ export function StructuredNoteEditor({
       setAiCopied(false);
       return;
     }
-    if (target === "plan" && !sectionsRef.current.hpi?.trim() && !sectionsRef.current.assessment?.trim()) {
+    if (target === "plan" && !ctx(sectionsRef.current.hpi) && !ctx(sectionsRef.current.assessment)) {
       setAiTarget(target);
       setAiDraft("");
       setAiError("Add HPI or Assessment first so AI can draft a Plan.");
@@ -593,6 +658,16 @@ export function StructuredNoteEditor({
     }
   }
 
+  function transferAiDraft() {
+    if (readOnly || !aiTarget || !aiDraft.trim()) return;
+    const current = sectionsRef.current[aiTarget] ?? "";
+    updateSection(aiTarget, appendAiNoteContinuation(current, aiDraft));
+    setAiTarget(null);
+    setAiDraft("");
+    setAiError("");
+    setAiCopied(false);
+  }
+
   function renderSectionActions(
     fieldKey: NoteSectionKey,
     options?: { includeExpand?: boolean; includeCollapse?: boolean }
@@ -606,7 +681,20 @@ export function StructuredNoteEditor({
     const showAi = fieldKey === "assessment" || fieldKey === "plan";
 
     return (
-      <div className="flex flex-wrap items-center gap-1">
+      <div className={cn("flex flex-wrap items-center gap-1", fitMode && "max-w-[min(100%,36rem)] flex-nowrap overflow-x-auto")}>
+        {!isReadOnly && (
+          <Button
+            className={cn(
+              "!h-7 !px-2 !text-[11px]",
+              textToolbarKey === fieldKey &&
+                "!border-violet-500/45 !bg-violet-500/15 !text-violet-200 hover:!bg-violet-500/25"
+            )}
+            title="Change font, underline, color, and text style"
+            onClick={() => setTextToolbarKey((current) => (current === fieldKey ? null : fieldKey))}
+          >
+            <Type size={12} /> Text
+          </Button>
+        )}
         {!isReadOnly && getNormalNoteText(fieldKey) && (
           <Button className="!h-7 !px-2 !text-[11px]" onClick={() => applyNormalText(fieldKey)}>
             Normal
@@ -718,6 +806,27 @@ export function StructuredNoteEditor({
           >
             {statusLabel}
           </span>
+          <Button
+            className={cn(
+              "!h-7 !px-2 !text-[11px]",
+              fitMode && "!border-amber-500/50 !bg-amber-500/20 !text-amber-200 hover:!bg-amber-500/30"
+            )}
+            title={
+              fitMode
+                ? "Turn off fit — note scrolls as usual"
+                : "Fit every section on this screen"
+            }
+            onClick={() => {
+              setFitMode((on) => {
+                const next = !on;
+                persistNoteFitMode(next);
+                return next;
+              });
+            }}
+          >
+            <Maximize2 size={12} className={cn(fitMode && "rotate-45")} />
+            Fit
+          </Button>
           <span className="shrink-0 text-sm font-semibold text-cyan-200">
             {getNoteTypeLabel(note.type)}
           </span>
@@ -766,12 +875,22 @@ export function StructuredNoteEditor({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div
+        className={cn(
+          "min-h-0 flex-1 pr-1",
+          fitMode ? "flex flex-col gap-1 overflow-hidden" : "space-y-4 overflow-y-auto"
+        )}
+      >
         {showVitals && (
           <section
             className={cn(
               "rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)]",
-              isNotePanelCollapsed(collapsedPanels, "vitals") ? "px-2.5 py-2" : "p-2.5"
+              fitMode && "shrink-0",
+              isNotePanelCollapsed(collapsedPanels, "vitals")
+                ? "px-2.5 py-2"
+                : fitMode
+                  ? "p-1.5"
+                  : "p-2.5"
             )}
           >
             {isNotePanelCollapsed(collapsedPanels, "vitals") ? (
@@ -819,22 +938,55 @@ export function StructuredNoteEditor({
                 : "grid-cols-1";
 
           return (
-            <section key={group.id} className="space-y-2">
-              <div className="flex items-center gap-3">
+            <section
+              key={group.id}
+              className={cn(
+                "space-y-2",
+                fitMode &&
+                  cn(
+                    "flex min-h-0 flex-col gap-0.5 space-y-0 overflow-hidden",
+                    fitGroupGrowClass(group.id)
+                  )
+              )}
+            >
+              <div className={cn("flex items-center gap-3", fitMode && "shrink-0 gap-2")}>
                 <h3 className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--pv-muted)]">
                   {group.title}
                 </h3>
                 <div className="h-px flex-1 bg-[var(--pv-border)]" />
               </div>
 
-              <div className={cn("grid gap-2.5", gridCols)}>
+              <div
+                className={cn(
+                  "grid gap-2.5",
+                  gridCols,
+                  fitMode && "min-h-0 flex-1 gap-1.5",
+                  fitMode && group.columns !== 1 && "auto-rows-[minmax(5.75rem,1fr)]"
+                )}
+                style={
+                  fitMode && group.columns === 1
+                    ? { gridTemplateRows: fitStackedRowTemplate(group.fields, collapsedPanels) }
+                    : undefined
+                }
+              >
                 {group.fields.map((field) => {
                   const isFixed = Boolean(fixedSections[field.key]);
                   const collapsed = isNotePanelCollapsed(collapsedPanels, field.key);
                   const value = sections[field.key] ?? "";
-                  const filled = Boolean(value.trim());
-                  const textMinHeight =
-                    field.size === "lg" ? "min-h-[140px]" : field.size === "sm" ? "min-h-[40px]" : "min-h-[100px]";
+                  const filled = Boolean(noteSectionToPlainText(value).trim());
+                  const isCompactScroll =
+                    field.key === "reviewOfSystems" || field.key === "physicalExam";
+                  const isLargeScroll =
+                    field.key === "assessment" || field.key === "plan" || field.key === "hpi";
+                  const textMinHeight = isCompactScroll
+                    ? "h-[6.5rem] max-h-[6.5rem] min-h-[6.5rem] overflow-y-auto"
+                    : isLargeScroll
+                      ? "h-[140px] max-h-[140px] min-h-[140px] overflow-y-auto"
+                      : field.size === "lg"
+                        ? "min-h-[140px]"
+                        : field.size === "sm"
+                          ? "min-h-[40px]"
+                          : "min-h-[100px]";
 
                       return (
                     <div
@@ -846,7 +998,8 @@ export function StructuredNoteEditor({
                         isFixed
                           ? "border-amber-500/40 bg-amber-500/5"
                           : "border-[var(--pv-border)] bg-[var(--pv-panel)]",
-                        collapsed ? "px-2.5 py-2" : "p-2.5"
+                        collapsed ? "px-2.5 py-2" : fitMode ? "h-full min-h-[5.75rem] overflow-hidden p-1.5" : "p-2.5",
+                        fitMode && collapsed && "shrink-0"
                       )}
                     >
                       {collapsed ? (
@@ -891,7 +1044,12 @@ export function StructuredNoteEditor({
                         </div>
                       ) : (
                         <>
-                          <div className="mb-1.5 flex flex-wrap items-start justify-between gap-2">
+                          <div
+                            className={cn(
+                              "flex flex-wrap items-start justify-between gap-2",
+                              fitMode ? "mb-0.5 shrink-0" : "mb-1.5"
+                            )}
+                          >
                             <label className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300/90">
                               {field.label}
                               {isFixed && (
@@ -902,27 +1060,23 @@ export function StructuredNoteEditor({
                             </label>
                             {renderSectionActions(field.key)}
                           </div>
-                          {field.size === "sm" ? (
-                            <Input
-                              value={value}
-                              onChange={(e) => updateSection(field.key, e.target.value)}
-                              disabled={readOnly}
-                              placeholder={field.placeholder}
-                              className="!text-[12px]"
-                            />
-                          ) : (
-                            <Textarea
-                              className={cn(
-                                "resize-y font-mono text-[12px] leading-relaxed",
-                                textMinHeight,
-                                isFixed && "border-amber-500/30"
-                              )}
-                              value={value}
-                              onChange={(e) => updateSection(field.key, e.target.value)}
-                              disabled={readOnly}
-                              placeholder={field.placeholder}
-                            />
+                          {!readOnly && textToolbarKey === field.key && (
+                            <div className={cn(fitMode && "shrink-0")}>
+                              <NoteTextToolbar />
+                            </div>
                           )}
+                          <MixedNoteField
+                            value={value}
+                            onChange={(next) => updateSection(field.key, next)}
+                            disabled={readOnly}
+                            placeholder={field.placeholder}
+                            className={cn(
+                              fitMode
+                                ? "min-h-[4.5rem] h-full flex-1 overflow-y-auto"
+                                : textMinHeight,
+                              isFixed && "border-amber-500/30"
+                            )}
+                          />
                         </>
                       )}
                     </div>
@@ -933,13 +1087,13 @@ export function StructuredNoteEditor({
           );
         })}
 
-        <div className="flex justify-center pb-2 pt-1">
+        <div className={cn("flex justify-center", fitMode ? "shrink-0 py-0" : "pb-2 pt-1")}>
           <Button
             variant="primary"
-            className="!gap-2 !px-5 !py-2.5 !text-sm"
+            className={cn("!gap-2", fitMode ? "!h-7 !px-3 !py-1 !text-xs" : "!px-5 !py-2.5 !text-sm")}
             onClick={() => setPdfOpen(true)}
           >
-            <FileText size={16} /> View PDF
+            <FileText size={fitMode ? 14 : 16} /> View PDF
           </Button>
         </div>
       </div>
@@ -955,13 +1109,13 @@ export function StructuredNoteEditor({
           <div className="space-y-3">
             {!readOnly &&
               renderSectionActions(expandedSection, { includeExpand: false, includeCollapse: false })}
-            <Textarea
-              className="min-h-[50vh] font-mono text-[12px]"
+            {!readOnly && textToolbarKey === expandedSection && <NoteTextToolbar />}
+            <MixedNoteField
               value={sections[expandedSection] ?? ""}
-              onChange={(e) => updateSection(expandedSection, e.target.value)}
+              onChange={(next) => updateSection(expandedSection, next)}
               disabled={readOnly}
               placeholder={expandedField.placeholder}
-              autoFocus
+              className="min-h-[50vh] text-[12px]"
             />
             <div className="flex justify-end">
               <Button onClick={() => setExpandedSection(null)}>Close</Button>
@@ -984,8 +1138,8 @@ export function StructuredNoteEditor({
       >
         <p className="mb-3 text-sm text-[var(--pv-muted)]">
           {aiTarget === "assessment"
-            ? "Generated from HPI using clinical judgment. Review before pasting into the note."
-            : "Generated from HPI/Assessment using clinical judgment. Review before pasting into the note."}
+            ? "Generated from HPI using clinical judgment. Transfer appends this draft to Assessment in the AI color."
+            : "Generated from HPI/Assessment using clinical judgment. Transfer appends this draft to Plan in the AI color."}
         </p>
         {aiError && (
           <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
@@ -1011,6 +1165,19 @@ export function StructuredNoteEditor({
           >
             {aiCopied ? <Check size={14} /> : <Copy size={14} />}
             {aiCopied ? "Copied" : "Copy"}
+          </Button>
+          <Button
+            className="!gap-1.5 !border-violet-500/45 !bg-violet-500/15 !text-violet-200 hover:!bg-violet-500/25"
+            disabled={aiLoading || readOnly || !aiDraft.trim()}
+            onClick={() => transferAiDraft()}
+            title={
+              aiTarget === "plan"
+                ? "Append this draft to Plan in the AI color"
+                : "Append this draft to Assessment in the AI color"
+            }
+          >
+            <ArrowRightFromLine size={14} />
+            Transfer
           </Button>
           <Button
             variant="ghost"

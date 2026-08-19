@@ -141,6 +141,33 @@ button {
   opacity: 0.55;
 }
 
+.pv-mixed-note-field {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.625;
+  word-break: break-word;
+}
+
+.pv-mixed-note-field b,
+.pv-mixed-note-field strong {
+  font-weight: 700;
+}
+
+.pv-mixed-note-field i,
+.pv-mixed-note-field em {
+  font-style: italic;
+}
+
+.pv-mixed-note-field u {
+  text-decoration: underline;
+}
+
+.pv-mixed-note-field[data-empty="true"]:before {
+  content: attr(data-placeholder);
+  color: var(--pv-muted);
+  pointer-events: none;
+}
+
 input[type="date"] {
   color-scheme: dark;
 }

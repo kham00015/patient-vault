@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { decryptNoteContent } from "@/lib/encryption";
 import { prepareNoteContent, preparePatientUpdate } from "@/lib/patients";
+import { noteSectionToPlainText } from "@/lib/note-ai-text";
 import {
   parseNotePayload,
   serializeNoteContent,
@@ -45,13 +46,13 @@ export function chartFieldsFromNoteSections(
   const out: Partial<Record<SyncedPatientField, string>> = {};
 
   if ("pastMedicalHistory" in sections) {
-    const value = sections.pastMedicalHistory ?? "";
+    const value = noteSectionToPlainText(sections.pastMedicalHistory ?? "");
     out.diagnosis = value;
     out.pmh = value;
   }
 
   if ("currentMedications" in sections) {
-    const value = sections.currentMedications ?? "";
+    const value = noteSectionToPlainText(sections.currentMedications ?? "");
     out.medications = value;
     out.currentMedications = value;
   }

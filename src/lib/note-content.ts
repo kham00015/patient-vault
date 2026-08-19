@@ -1,5 +1,6 @@
 import type { NoteType } from "./notes";
 import { usesStructuredNote } from "./note-templates";
+import { noteSectionToPlainText } from "./note-ai-text";
 import { createEmptyVitals, formatVitalsForDisplay, vitalsHasContent, type VitalsData } from "./vitals";
 
 export type NoteSectionKey =
@@ -97,7 +98,9 @@ export function noteHasContent(
     return Boolean(sections.content?.trim());
   }
   if (vitals && vitalsHasContent(vitals)) return true;
-  return Object.entries(sections).some(([key, value]) => key !== "content" && Boolean(value?.trim()));
+  return Object.entries(sections).some(
+    ([key, value]) => key !== "content" && Boolean(noteSectionToPlainText(value).trim())
+  );
 }
 
 export function flattenNoteForDisplay(
@@ -125,7 +128,7 @@ export function flattenNoteForDisplay(
     plan: "Plan",
   };
   for (const [key, label] of Object.entries(labels)) {
-    const val = sections[key as NoteSectionKey]?.trim();
+    const val = noteSectionToPlainText(sections[key as NoteSectionKey]).trim();
     if (val) parts.push(`${label}:\n${val}`);
   }
   return parts.join("\n\n");

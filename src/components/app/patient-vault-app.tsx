@@ -258,7 +258,7 @@ const CHART_TABS: { id: ChartTab; label: string; shortLabel: string }[] = [
   { id: "orders", label: "Orders", shortLabel: "Orders" },
 ];
 
-/** v3: Diagnosis replaces sidebar PMH; Orders stays at end of medical tabs. */
+/** v3: Diagnosis replaces sidebar PMH; Orders stays at end of medical tabs. Per-user keys are appended. */
 const CHART_TAB_ORDER_KEY = "pv-chart-tab-order-v3";
 const CHART_TAB_VISIBLE_KEY = "pv-chart-tab-visible-v1";
 /** Encounters stays on the sidebar so a chart always has a home tab. */
@@ -305,27 +305,54 @@ function normalizeChartTabVisibility(raw: unknown): Record<ChartTab, boolean> {
   return next;
 }
 
-function loadChartTabOrder(): ChartTab[] {
-  if (typeof window === "undefined") return getDefaultChartTabOrder();
+function chartTabOrderStorageKey(userId: string) {
+  return `${CHART_TAB_ORDER_KEY}:${userId}`;
+}
+
+function chartTabVisibleStorageKey(userId: string) {
+  return `${CHART_TAB_VISIBLE_KEY}:${userId}`;
+}
+
+function readLocalJson(key: string): unknown {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(CHART_TAB_ORDER_KEY);
-    if (!raw) return getDefaultChartTabOrder();
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return getDefaultChartTabOrder();
-    return normalizeChartTabOrder(parsed.map(String));
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return getDefaultChartTabOrder();
+    return null;
   }
 }
 
-function loadChartTabVisibility(): Record<ChartTab, boolean> {
-  if (typeof window === "undefined") return getDefaultChartTabVisibility();
+function loadChartTabOrder(userId?: string): ChartTab[] {
+  const keyed = userId ? readLocalJson(chartTabOrderStorageKey(userId)) : null;
+  const legacy = readLocalJson(CHART_TAB_ORDER_KEY);
+  const parsed = keyed ?? legacy;
+  if (!Array.isArray(parsed)) return getDefaultChartTabOrder();
+  return normalizeChartTabOrder(parsed.map(String));
+}
+
+function loadChartTabVisibility(userId?: string): Record<ChartTab, boolean> {
+  const keyed = userId ? readLocalJson(chartTabVisibleStorageKey(userId)) : null;
+  const legacy = readLocalJson(CHART_TAB_VISIBLE_KEY);
+  const parsed = keyed ?? legacy;
+  return normalizeChartTabVisibility(parsed);
+}
+
+function isDefaultChartTabOrder(order: ChartTab[]) {
+  const defaults = getDefaultChartTabOrder();
+  return order.length === defaults.length && order.every((id, index) => id === defaults[index]);
+}
+
+function isDefaultChartTabVisibility(visible: Record<ChartTab, boolean>) {
+  return CHART_TABS.every((tab) => visible[tab.id] !== false);
+}
+
+function writeChartTabLocal(userId: string, order: ChartTab[], visible: Record<ChartTab, boolean>) {
   try {
-    const raw = window.localStorage.getItem(CHART_TAB_VISIBLE_KEY);
-    if (!raw) return getDefaultChartTabVisibility();
-    return normalizeChartTabVisibility(JSON.parse(raw));
+    window.localStorage.setItem(chartTabOrderStorageKey(userId), JSON.stringify(order));
+    window.localStorage.setItem(chartTabVisibleStorageKey(userId), JSON.stringify(visible));
   } catch {
-    return getDefaultChartTabVisibility();
+    // ignore storage errors
   }
 }
 
@@ -390,6 +417,11 @@ export default function PatientVaultApp({
   mainViewRef.current = mainView;
   const [chartTabOrder, setChartTabOrder] = useState<ChartTab[]>(getDefaultChartTabOrder);
   const [chartTabVisible, setChartTabVisible] = useState<Record<ChartTab, boolean>>(getDefaultChartTabVisibility);
+  const chartTabOrderRef = useRef(chartTabOrder);
+  const chartTabVisibleRef = useRef(chartTabVisible);
+  chartTabOrderRef.current = chartTabOrder;
+  chartTabVisibleRef.current = chartTabVisible;
+  const chartUiSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chartSectionsSettingsOpen, setChartSectionsSettingsOpen] = useState(false);
   const [draggingChartTab, setDraggingChartTab] = useState<ChartTab | null>(null);
   const [dragOverChartTab, setDragOverChartTab] = useState<ChartTab | null>(null);
@@ -745,10 +777,90 @@ export default function PatientVaultApp({
     refreshUnsignedNotesSummary().catch(() => undefined);
   }, [refreshUnsignedNotesSummary]);
 
+  const persistChartUi = useCallback(
+    (order: ChartTab[], visible: Record<ChartTab, boolean>) => {
+      writeChartTabLocal(user.id, order, visible);
+      if (chartUiSaveTimer.current) window.clearTimeout(chartUiSaveTimer.current);
+      const payload = { order, visible };
+      chartUiSaveTimer.current = setTimeout(() => {
+        api("/api/me/chart-ui", { method: "PATCH", json: payload }).catch(() => undefined);
+      }, 50);
+    },
+    [user.id]
+  );
+
+  const flushChartUi = useCallback(async () => {
+    if (chartUiSaveTimer.current) {
+      window.clearTimeout(chartUiSaveTimer.current);
+      chartUiSaveTimer.current = null;
+    }
+    const order = chartTabOrderRef.current;
+    const visible = chartTabVisibleRef.current;
+    writeChartTabLocal(user.id, order, visible);
+    try {
+      await api("/api/me/chart-ui", { method: "PATCH", json: { order, visible } });
+    } catch {
+      // browser copy already written
+    }
+  }, [user.id]);
+
   useEffect(() => {
-    setChartTabOrder(loadChartTabOrder());
-    setChartTabVisible(loadChartTabVisibility());
-  }, []);
+    const localOrder = loadChartTabOrder(user.id);
+    const localVisible = loadChartTabVisibility(user.id);
+    setChartTabOrder(localOrder);
+    setChartTabVisible(localVisible);
+    let cancelled = false;
+    api<{ order?: string[]; visible?: Record<string, boolean> }>("/api/me/chart-ui")
+      .then((data) => {
+        if (cancelled) return;
+        const serverOrder = data.order?.length ? normalizeChartTabOrder(data.order) : null;
+        const serverVisible =
+          data.visible && Object.keys(data.visible).length
+            ? normalizeChartTabVisibility(data.visible)
+            : null;
+
+        let nextOrder = localOrder;
+        let nextVisible = localVisible;
+        if (
+          serverOrder &&
+          (!isDefaultChartTabOrder(serverOrder) || isDefaultChartTabOrder(localOrder))
+        ) {
+          nextOrder = serverOrder;
+        }
+        if (
+          serverVisible &&
+          (!isDefaultChartTabVisibility(serverVisible) || isDefaultChartTabVisibility(localVisible))
+        ) {
+          nextVisible = serverVisible;
+        }
+
+        setChartTabOrder(nextOrder);
+        setChartTabVisible(nextVisible);
+        persistChartUi(nextOrder, nextVisible);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        persistChartUi(localOrder, localVisible);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id, persistChartUi]);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flushChartUi();
+    };
+    const onPageHide = () => {
+      void flushChartUi();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [flushChartUi]);
 
   const orderedChartTabs = useMemo(() => {
     const byId = new Map(CHART_TABS.map((tab) => [tab.id, tab]));
@@ -771,36 +883,34 @@ export default function PatientVaultApp({
     }
   }, [chartTab, chartTabVisible, current, setChartTab]);
 
-  const reorderChartTab = useCallback((fromId: ChartTab, toId: ChartTab) => {
-    if (fromId === toId) return;
-    setChartTabOrder((prev) => {
-      const next = [...prev];
-      const fromIndex = next.indexOf(fromId);
-      const toIndex = next.indexOf(toId);
-      if (fromIndex < 0 || toIndex < 0) return prev;
-      next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, fromId);
-      try {
-        window.localStorage.setItem(CHART_TAB_ORDER_KEY, JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
-      return next;
-    });
-  }, []);
+  const reorderChartTab = useCallback(
+    (fromId: ChartTab, toId: ChartTab) => {
+      if (fromId === toId) return;
+      setChartTabOrder((prev) => {
+        const next = [...prev];
+        const fromIndex = next.indexOf(fromId);
+        const toIndex = next.indexOf(toId);
+        if (fromIndex < 0 || toIndex < 0) return prev;
+        next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, fromId);
+        persistChartUi(next, chartTabVisibleRef.current);
+        return next;
+      });
+    },
+    [persistChartUi]
+  );
 
-  const toggleChartTabVisible = useCallback((id: ChartTab) => {
-    if (ALWAYS_VISIBLE_CHART_TABS.includes(id)) return;
-    setChartTabVisible((prev) => {
-      const next = { ...prev, [id]: prev[id] === false };
-      try {
-        window.localStorage.setItem(CHART_TAB_VISIBLE_KEY, JSON.stringify(next));
-      } catch {
-        // ignore storage errors
-      }
-      return next;
-    });
-  }, []);
+  const toggleChartTabVisible = useCallback(
+    (id: ChartTab) => {
+      if (ALWAYS_VISIBLE_CHART_TABS.includes(id)) return;
+      setChartTabVisible((prev) => {
+        const next = { ...prev, [id]: prev[id] === false };
+        persistChartUi(chartTabOrderRef.current, next);
+        return next;
+      });
+    },
+    [persistChartUi]
+  );
 
   const canRemoveRecords = user.role === "ADMIN" || user.role === "CLINICIAN";
   const isConsultantUser = user.role === "CONSULTANT";
@@ -808,16 +918,18 @@ export default function PatientVaultApp({
     user.role === "ADMIN" || user.role === "CLINICIAN" || user.role === "STAFF";
 
   async function logout() {
+    await flushChartUi();
     await api("/api/auth/login", { method: "DELETE" });
     router.push("/login");
     router.refresh();
   }
 
   const idleLogout = useCallback(async () => {
+    await flushChartUi();
     await api("/api/auth/login", { method: "DELETE" });
     router.push("/login?reason=idle");
     router.refresh();
-  }, [router]);
+  }, [flushChartUi, router]);
 
   async function addPatient(data: CreatePatientInput) {
     const result = await api<{ patient: Patient }>("/api/patients", {
@@ -1404,7 +1516,7 @@ export default function PatientVaultApp({
                   />
                 </button>
                 <p className="mt-0.5 text-[10px] text-[var(--pv-muted)] opacity-80">
-                  {chartSectionsSettingsOpen ? "Check to show on sidebar" : "Drag to reorder · click title to edit"}
+                  {chartSectionsSettingsOpen ? "Saved for your login · check to show" : "Drag to reorder · click title to edit"}
                 </p>
               </div>
               {chartSectionsSettingsOpen ? (

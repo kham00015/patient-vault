@@ -71,6 +71,7 @@ model User {
   passwordChangedAt   DateTime?
   isActive            Boolean   @default(true)
   lastLoginAt         DateTime?
+  chartUi             Json?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   sessions     Session[]
