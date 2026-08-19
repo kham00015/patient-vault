@@ -1,11 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/roles";
-import { requireOfficeId } from "@/lib/office";
+import { platformOwnerEmails, requireOfficeId } from "@/lib/office";
 
 const LEGACY_PROVIDER_EMAILS: Record<string, string> = {
   FIRAS_KHAMIS: "firas.khamis@clinic.local",
   NICHOLAS_KALAYEH: "nicholas.kalayeh@clinic.local",
 };
+
+const CLINICIAN_PROVIDER_EMAILS = new Set(
+  Object.values(LEGACY_PROVIDER_EMAILS).map((email) => email.toLowerCase())
+);
 
 let migratePromise: Promise<void> | null = null;
 
@@ -13,6 +17,18 @@ export type ScheduleProviderOption = {
   key: string;
   label: string;
 };
+
+function scheduleProviderWhere(officeId: string) {
+  const excludedOwners = platformOwnerEmails().filter(
+    (email) => !CLINICIAN_PROVIDER_EMAILS.has(email)
+  );
+  return {
+    officeId,
+    isActive: true,
+    role: "CLINICIAN" as const,
+    ...(excludedOwners.length > 0 ? { email: { notIn: excludedOwners } } : {}),
+  };
+}
 
 export async function migrateLegacyScheduleProviders() {
   if (!migratePromise) {
@@ -40,11 +56,7 @@ export async function listScheduleProviders(user: SessionUser): Promise<Schedule
   await migrateLegacyScheduleProviders();
   const officeId = requireOfficeId(user);
   const providers = await prisma.user.findMany({
-    where: {
-      officeId,
-      isActive: true,
-      role: "CLINICIAN",
-    },
+    where: scheduleProviderWhere(officeId),
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true },
   });
@@ -63,9 +75,7 @@ export async function assertScheduleProviderInOffice(
   const provider = await prisma.user.findFirst({
     where: {
       id: providerKey,
-      officeId,
-      isActive: true,
-      role: "CLINICIAN",
+      ...scheduleProviderWhere(officeId),
     },
     select: { id: true },
   });

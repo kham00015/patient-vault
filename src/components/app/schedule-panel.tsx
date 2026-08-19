@@ -326,7 +326,7 @@ export function SchedulePanel({
         <label className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">Provider</label>
         {providers.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[var(--pv-border)] px-3 py-2 text-sm text-[var(--pv-muted)]">
-            No clinicians in this clinic. Add a CLINICIAN user to create a schedule.
+            No providers in this clinic. Add a CLINICIAN user to create a schedule. Admins are not listed.
           </p>
         ) : (
           <select
