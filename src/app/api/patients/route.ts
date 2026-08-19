@@ -43,11 +43,11 @@ export async function GET(request: Request) {
       ...(q
         ? {
             OR: [
-              { name: { contains: q } },
-              { firstName: { contains: q } },
-              { lastName: { contains: q } },
-              { mrn: { contains: q } },
-              { phone: { contains: q } },
+              { name: { contains: q, mode: "insensitive" } },
+              { firstName: { contains: q, mode: "insensitive" } },
+              { lastName: { contains: q, mode: "insensitive" } },
+              { mrn: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q, mode: "insensitive" } },
             ],
           }
         : {}),

@@ -90,7 +90,6 @@ import {
   BookUser,
   Mic,
   Plus,
-  Search,
   Stethoscope,
   Trash2,
   Shield,
@@ -1885,11 +1884,37 @@ function PatientsModal({
   includeArchived?: boolean;
   onToggleArchived?: (v: boolean) => void;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(
+      () => {
+        onSearch();
+      },
+      search.trim() ? 180 : 0
+    );
+    return () => window.clearTimeout(timer);
+    // onSearch is recreated each render; search/open are the real triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, search]);
+
+  function openChart(patient: Patient) {
+    onSelect(patient);
+    onClose();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Patient List" wide>
       <div className="mb-4 flex flex-wrap gap-2">
-        <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Button onClick={onSearch}><Search size={16} /></Button>
+        <Input
+          placeholder="Search by name or MRN..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            if (patients.length === 1) openChart(patients[0]);
+          }}
+        />
         {isAdmin && onToggleArchived && (
           <label className="ml-auto flex items-center gap-2 text-xs text-[var(--pv-muted-2)]">
             <input
@@ -1907,7 +1932,8 @@ function PatientsModal({
         {patients.map((p) => (
           <button
             key={p.id}
-            onClick={() => onSelect(p)}
+            type="button"
+            onClick={() => openChart(p)}
             className={cn(
               "w-full rounded-xl border px-4 py-3 text-left transition hover:bg-[var(--pv-btn)]",
               p.id === currentId ? "border-cyan-500/50 bg-cyan-500/5" : "border-[var(--pv-border)] bg-[var(--pv-panel)]"

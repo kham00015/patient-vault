@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +59,15 @@ import {
 } from "lucide-react";
 
 const NOTE_FIT_KEY = "pv-note-fit-v1";
+const FIT_GROUP_GROW_KEY = "pv-note-fit-group-grow-v1";
+const FIT_GROUP_GROW_MIN = 0.7;
+const FIT_GROUP_GROW_DEFAULTS: Record<string, number> = {
+  subjective: 1.7,
+  history: 1.45,
+  assessment_plan: 1.3,
+  ros_exam: 1.25,
+  medications: 1.1,
+};
 
 function loadNoteFitMode() {
   if (typeof window === "undefined") return false;
@@ -75,6 +84,80 @@ function persistNoteFitMode(on: boolean) {
   } catch {
     // ignore
   }
+}
+
+function defaultFitGroupGrow(groupId: string) {
+  return FIT_GROUP_GROW_DEFAULTS[groupId] ?? 1;
+}
+
+function loadFitGroupGrow(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(FIT_GROUP_GROW_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] > 0
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistFitGroupGrow(grow: Record<string, number>) {
+  try {
+    window.localStorage.setItem(FIT_GROUP_GROW_KEY, JSON.stringify(grow));
+  } catch {
+    // ignore
+  }
+}
+
+function FitGroupResizeHandle({
+  onDelta,
+}: {
+  onDelta: (dy: number) => void;
+}) {
+  const dragging = useRef(false);
+  const lastY = useRef(0);
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    dragging.current = true;
+    lastY.current = event.clientY;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!dragging.current) return;
+    const dy = event.clientY - lastY.current;
+    lastY.current = event.clientY;
+    if (dy) onDelta(dy);
+  }
+
+  function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    dragging.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      title="Drag to resize this section"
+      className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      <div className="h-0.5 w-14 rounded-full bg-[var(--pv-border-strong)] transition group-hover:bg-cyan-400/80 group-active:bg-cyan-300" />
+    </div>
+  );
 }
 
 export type StructuredNoteData = {
@@ -285,23 +368,6 @@ function flattenGroupFields(groups: NoteSectionGroup[]): BoxField[] {
   return groups.flatMap((group) => group.fields);
 }
 
-function fitGroupGrowClass(groupId: string) {
-  switch (groupId) {
-    case "subjective":
-      return "flex-[1.7]";
-    case "history":
-      return "flex-[1.45]";
-    case "assessment_plan":
-      return "flex-[1.3]";
-    case "ros_exam":
-      return "flex-[1.25]";
-    case "medications":
-      return "flex-[1.1]";
-    default:
-      return "flex-1";
-  }
-}
-
 function fitStackedRowTemplate(
   fields: BoxField[],
   collapsedPanels: Set<CollapsibleNotePanelKey>
@@ -385,6 +451,9 @@ export function StructuredNoteEditor({
     () => new Set()
   );
   const [fitMode, setFitMode] = useState(false);
+  const [fitGroupGrow, setFitGroupGrow] = useState<Record<string, number>>({});
+  const fitBodyRef = useRef<HTMLDivElement>(null);
+  const fitGrowSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSigned = note.status === "SIGNED";
   const isRevised = isSigned && (note.revisionCount ?? 0) > 0;
   const statusLabel = getNoteStatusLabel(note);
@@ -398,7 +467,17 @@ export function StructuredNoteEditor({
   useEffect(() => {
     setCollapsedPanels(loadCollapsedNotePanels());
     setFitMode(loadNoteFitMode());
+    setFitGroupGrow(loadFitGroupGrow());
   }, []);
+
+  useEffect(() => {
+    if (fitGrowSaveTimer.current) window.clearTimeout(fitGrowSaveTimer.current);
+    if (!Object.keys(fitGroupGrow).length) return;
+    fitGrowSaveTimer.current = setTimeout(() => persistFitGroupGrow(fitGroupGrow), 200);
+    return () => {
+      if (fitGrowSaveTimer.current) window.clearTimeout(fitGrowSaveTimer.current);
+    };
+  }, [fitGroupGrow]);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -409,6 +488,40 @@ export function StructuredNoteEditor({
   useEffect(() => {
     dateRef.current = date;
   }, [date]);
+
+  const resizeFitGroups = useCallback(
+    (upperId: string, lowerId: string, dy: number) => {
+      const host = fitBodyRef.current;
+      if (!host || host.clientHeight <= 0 || !dy) return;
+      setFitGroupGrow((prev) => {
+        const total = noteGroups.reduce(
+          (sum, group) => sum + (prev[group.id] ?? defaultFitGroupGrow(group.id)),
+          0
+        );
+        const delta = (dy / host.clientHeight) * Math.max(total, 1);
+        const a = prev[upperId] ?? defaultFitGroupGrow(upperId);
+        const b = prev[lowerId] ?? defaultFitGroupGrow(lowerId);
+        let nextA = a + delta;
+        let nextB = b - delta;
+        if (nextA < FIT_GROUP_GROW_MIN) {
+          nextB -= FIT_GROUP_GROW_MIN - nextA;
+          nextA = FIT_GROUP_GROW_MIN;
+        }
+        if (nextB < FIT_GROUP_GROW_MIN) {
+          nextA -= FIT_GROUP_GROW_MIN - nextB;
+          nextB = FIT_GROUP_GROW_MIN;
+        }
+        const next = { ...prev };
+        for (const group of noteGroups) {
+          if (next[group.id] == null) next[group.id] = defaultFitGroupGrow(group.id);
+        }
+        next[upperId] = Math.max(FIT_GROUP_GROW_MIN, nextA);
+        next[lowerId] = Math.max(FIT_GROUP_GROW_MIN, nextB);
+        return next;
+      });
+    },
+    [noteGroups]
+  );
 
   function togglePanel(key: CollapsibleNotePanelKey) {
     setCollapsedPanels((prev) => toggleNotePanelCollapsed(prev, key));
@@ -876,9 +989,10 @@ export function StructuredNoteEditor({
       )}
 
       <div
+        ref={fitBodyRef}
         className={cn(
           "min-h-0 flex-1 pr-1",
-          fitMode ? "flex flex-col gap-1 overflow-hidden" : "space-y-4 overflow-y-auto"
+          fitMode ? "flex flex-col gap-0 overflow-hidden" : "space-y-4 overflow-y-auto"
         )}
       >
         {showVitals && (
@@ -929,25 +1043,32 @@ export function StructuredNoteEditor({
           </section>
         )}
 
-        {noteGroups.map((group) => {
+        {noteGroups.map((group, groupIndex) => {
           const gridCols =
             group.columns === 3
               ? "grid-cols-1 lg:grid-cols-3"
               : group.columns === 2
                 ? "grid-cols-1 md:grid-cols-2"
                 : "grid-cols-1";
+          const nextGroup = noteGroups[groupIndex + 1];
 
           return (
+            <Fragment key={group.id}>
             <section
-              key={group.id}
               className={cn(
                 "space-y-2",
-                fitMode &&
-                  cn(
-                    "flex min-h-0 flex-col gap-0.5 space-y-0 overflow-hidden",
-                    fitGroupGrowClass(group.id)
-                  )
+                fitMode && "flex min-h-0 flex-col gap-0.5 space-y-0 overflow-hidden"
               )}
+              style={
+                fitMode
+                  ? {
+                      flexGrow: fitGroupGrow[group.id] ?? defaultFitGroupGrow(group.id),
+                      flexShrink: 1,
+                      flexBasis: 0,
+                      minHeight: "5.75rem",
+                    }
+                  : undefined
+              }
             >
               <div className={cn("flex items-center gap-3", fitMode && "shrink-0 gap-2")}>
                 <h3 className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--pv-muted)]">
@@ -1084,6 +1205,12 @@ export function StructuredNoteEditor({
                 })}
               </div>
             </section>
+            {fitMode && nextGroup && (
+              <FitGroupResizeHandle
+                onDelta={(dy) => resizeFitGroups(group.id, nextGroup.id, dy)}
+              />
+            )}
+            </Fragment>
           );
         })}
 

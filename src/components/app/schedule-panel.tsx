@@ -110,10 +110,12 @@ function SchedulePatientSearch({
   patients,
   value,
   onChange,
+  onEnterAdd,
 }: {
   patients: PatientOption[];
   value: string;
   onChange: (id: string) => void;
+  onEnterAdd?: (id: string) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -189,7 +191,10 @@ function SchedulePatientSearch({
           } else if (e.key === "Enter") {
             e.preventDefault();
             const hit = matches[activeIndex];
+            const id = hit?.id || value;
+            if (!id) return;
             if (hit) pick(hit.id);
+            onEnterAdd?.(id);
           } else if (e.key === "Escape") {
             setOpen(false);
             inputRef.current?.blur();
@@ -294,6 +299,34 @@ export function SchedulePanel({
   useEffect(() => {
     load().catch(() => setError("Could not load schedule."));
   }, [load]);
+
+  const availablePatients = patients.filter((p) => !scheduled.some((s) => s.id === p.id));
+
+  const addPatientToSchedule = useCallback(
+    async (id: string) => {
+      if (!id) {
+        setError(
+          availablePatients.length === 0
+            ? "All patients are already on this doctor's schedule for this date."
+            : "Select a patient to add."
+        );
+        return;
+      }
+      if (!providerKey) return;
+      setError("");
+      try {
+        await api("/api/schedule", {
+          method: "POST",
+          json: { date, patientId: id, providerKey, visitCategory: addVisitCategory },
+        });
+        setPatientId("");
+        await load();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not add patient.");
+      }
+    },
+    [addVisitCategory, availablePatients.length, date, load, providerKey]
+  );
 
   async function patchEntry(
     entryPatientId: string,
@@ -411,8 +444,6 @@ export function SchedulePanel({
     ? scheduled.find((s) => s.entryId === docNotesTarget.entryId) ?? docNotesTarget
     : null;
 
-  const availablePatients = patients.filter((p) => !scheduled.some((s) => s.id === p.id));
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -491,31 +522,16 @@ export function SchedulePanel({
             patients={availablePatients}
             value={patientId}
             onChange={setPatientId}
+            onEnterAdd={(id) => {
+              void addPatientToSchedule(id);
+            }}
           />
           <VisitTypeToggle size="toolbar" value={addVisitCategory} onChange={setAddVisitCategory} />
           <Button
             variant="success"
             className={cn("shrink-0", SCHEDULE_TOOLBAR_HEIGHT, SCHEDULE_TOOLBAR_TEXT, "!py-0")}
-            onClick={async () => {
-              if (!patientId) {
-                setError(
-                  availablePatients.length === 0
-                    ? "All patients are already on this doctor's schedule for this date."
-                    : "Select a patient to add."
-                );
-                return;
-              }
-              setError("");
-              try {
-                await api("/api/schedule", {
-                  method: "POST",
-                  json: { date, patientId, providerKey, visitCategory: addVisitCategory },
-                });
-                setPatientId("");
-                await load();
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Could not add patient.");
-              }
+            onClick={() => {
+              void addPatientToSchedule(patientId);
             }}
           >
             Add
