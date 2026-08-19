@@ -10,18 +10,17 @@ import {
   scheduleDayWhere,
   toScheduleEntryDTO,
 } from "@/lib/schedule";
-import { isScheduleProviderKey } from "@/lib/schedule-providers";
+import { assertScheduleProviderInOffice } from "@/lib/schedule-providers";
 import { normalizeScheduleDay } from "@/lib/utils";
 import { officeScope } from "@/lib/office";
 import { assertPatientReadable } from "@/lib/patient-access";
 
-const providerKeySchema = z.string().refine(isScheduleProviderKey, "Invalid provider");
+const providerKeySchema = z.string().min(1);
 
-function parseProvider(value: string | null) {
-  if (!value || !isScheduleProviderKey(value)) {
-    return badRequest("provider parameter required");
-  }
-  return value;
+async function requireClinicProvider(user: Parameters<typeof assertScheduleProviderInOffice>[0], providerKey: string) {
+  const ok = await assertScheduleProviderInOffice(user, providerKey);
+  if (!ok) return badRequest("Provider is not available in this clinic");
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -32,8 +31,10 @@ export async function GET(request: Request) {
   const dateStr = searchParams.get("date");
   if (!dateStr) return badRequest("date parameter required");
 
-  const provider = parseProvider(searchParams.get("provider"));
-  if (provider instanceof NextResponse) return provider;
+  const provider = searchParams.get("provider")?.trim() || "";
+  if (!provider) return badRequest("provider parameter required");
+  const providerDenied = await requireClinicProvider(auth.user, provider);
+  if (providerDenied) return providerDenied;
 
   const entries = await prisma.scheduleEntry.findMany({
     where: {
@@ -65,6 +66,8 @@ export async function POST(request: Request) {
 
   try {
     const body = addSchema.parse(await request.json());
+    const providerDenied = await requireClinicProvider(auth.user, body.providerKey);
+    if (providerDenied) return providerDenied;
 
     const patient = await prisma.patient.findUnique({ where: { id: body.patientId } });
     if (!patient) return notFound("Patient not found");
@@ -136,6 +139,8 @@ export async function DELETE(request: Request) {
 
   try {
     const body = deleteSchema.parse(await request.json());
+    const providerDenied = await requireClinicProvider(auth.user, body.providerKey);
+    if (providerDenied) return providerDenied;
     const denied = await assertPatientReadable(auth.user, body.patientId);
     if (denied) return denied;
 
@@ -176,6 +181,8 @@ export async function PATCH(request: Request) {
 
   try {
     const body = patchSchema.parse(await request.json());
+    const providerDenied = await requireClinicProvider(auth.user, body.providerKey);
+    if (providerDenied) return providerDenied;
     const denied = await assertPatientReadable(auth.user, body.patientId);
     if (denied) return denied;
 

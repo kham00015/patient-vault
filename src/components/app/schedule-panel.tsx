@@ -17,14 +17,10 @@ import {
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, toClinicDateInputValue } from "@/lib/utils";
-import {
-  DEFAULT_SCHEDULE_PROVIDER,
-  SCHEDULE_PROVIDERS,
-  type ScheduleProviderKey,
-} from "@/lib/schedule-providers";
 import { CalendarDays, Check, Stethoscope } from "lucide-react";
 
 type PatientOption = { id: string; name: string };
+type ScheduleProviderOption = { key: string; label: string };
 
 type SelectPatientFromSchedule = (
   patient: PatientOption,
@@ -109,7 +105,8 @@ export function SchedulePanel({
   onSelectPatient: SelectPatientFromSchedule | ((p: PatientOption) => void);
 }) {
   const [date, setDate] = useState(toClinicDateInputValue(new Date()));
-  const [providerKey, setProviderKey] = useState<ScheduleProviderKey>(DEFAULT_SCHEDULE_PROVIDER);
+  const [providers, setProviders] = useState<ScheduleProviderOption[]>([]);
+  const [providerKey, setProviderKey] = useState("");
   const [scheduled, setScheduled] = useState<ScheduleEntryDTO[]>([]);
   const [patientId, setPatientId] = useState("");
   const [addVisitCategory, setAddVisitCategory] = useState<VisitCategory>(DEFAULT_VISIT_CATEGORY);
@@ -126,9 +123,34 @@ export function SchedulePanel({
 
   const canEdit = canWrite(user.role);
 
+  useEffect(() => {
+    let cancelled = false;
+    api<{ providers: ScheduleProviderOption[] }>("/api/schedule/providers")
+      .then((data) => {
+        if (cancelled) return;
+        setProviders(data.providers);
+        setProviderKey((current) => {
+          if (current && data.providers.some((provider) => provider.key === current)) {
+            return current;
+          }
+          return data.providers[0]?.key ?? "";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load clinic providers.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.officeId]);
+
   const load = useCallback(async () => {
+    if (!providerKey) {
+      setScheduled([]);
+      return;
+    }
     const data = await api<{ patients: ScheduleEntryDTO[] }>(
-      `/api/schedule?date=${date}&provider=${providerKey}`
+      `/api/schedule?date=${date}&provider=${encodeURIComponent(providerKey)}`
     );
     setScheduled(data.patients);
     setError("");
@@ -300,22 +322,26 @@ export function SchedulePanel({
         </p>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {SCHEDULE_PROVIDERS.map((provider) => (
-          <button
-            key={provider.key}
-            type="button"
-            onClick={() => setProviderKey(provider.key)}
-            className={cn(
-              "rounded-lg border px-4 py-2 text-sm font-medium transition",
-              providerKey === provider.key
-                ? "border-cyan-500/50 bg-cyan-600/20 text-cyan-100 ring-1 ring-cyan-500/30"
-                : "border-[var(--pv-border)] bg-[var(--pv-card)] text-[var(--pv-muted-2)] hover:border-[var(--pv-border-strong)] hover:text-[var(--pv-fg-soft)]"
-            )}
+      <div className="mb-4 flex max-w-md flex-col gap-1">
+        <label className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">Provider</label>
+        {providers.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-[var(--pv-border)] px-3 py-2 text-sm text-[var(--pv-muted)]">
+            No clinicians in this clinic. Add a CLINICIAN user to create a schedule.
+          </p>
+        ) : (
+          <select
+            className="h-10 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm font-medium text-[var(--pv-text)]"
+            value={providerKey}
+            onChange={(e) => setProviderKey(e.target.value)}
+            aria-label="Clinic schedule provider"
           >
-            {provider.label}
-          </button>
-        ))}
+            {providers.map((provider) => (
+              <option key={provider.key} value={provider.key}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {error && (
@@ -324,7 +350,7 @@ export function SchedulePanel({
         </p>
       )}
 
-      {canEdit && (
+      {canEdit && providerKey && (
         <div className="mb-4 flex max-w-3xl flex-wrap items-center gap-2">
           <select
             className={cn(
@@ -372,7 +398,7 @@ export function SchedulePanel({
         </div>
       )}
 
-      {canEdit && availablePatients.length === 0 && patients.length > 0 && (
+      {canEdit && providerKey && availablePatients.length === 0 && patients.length > 0 && (
         <p className="mb-4 text-xs text-[var(--pv-muted)]">
           Every patient is already scheduled for this doctor on this date. Switch doctor or date to add more.
         </p>
@@ -387,7 +413,9 @@ export function SchedulePanel({
       <div className="space-y-2">
         {scheduled.length === 0 ? (
           <p className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center text-sm text-[var(--pv-muted)]">
-            No patients scheduled for this date
+            {providerKey
+              ? "No patients scheduled for this date"
+              : "Pick a clinician to see this clinic's schedule"}
           </p>
         ) : (
           scheduled.map((entry) => {
