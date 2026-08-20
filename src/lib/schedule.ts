@@ -10,25 +10,44 @@ export type ScheduleEntryDTO = {
   visitCategory: ScheduleEntry["visitCategory"];
   checkedInAt: string | null;
   readyAt: string | null;
+  noShowAt: string | null;
   roomNumber: string | null;
   docNotes: string | null;
   docNotesAcknowledgedAt: string | null;
 };
 
-export function toScheduleEntryDTO(
-  entry: ScheduleEntry & { patient: { id: string; name: string } }
-): ScheduleEntryDTO {
+function toIsoString(value: Date | string | null | undefined) {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  return value;
+}
+
+export function toScheduleEntryDTO(entry: {
+  id: string;
+  providerKey: string;
+  visitCategory: ScheduleEntry["visitCategory"];
+  checkedInAt?: Date | string | null;
+  readyAt?: Date | string | null;
+  noShowAt?: Date | string | null;
+  roomNumber?: string | null;
+  docNotes?: string | null;
+  docNotesAcknowledgedAt?: Date | string | null;
+  patient: { id: string; name: string };
+}): ScheduleEntryDTO {
   return {
     entryId: entry.id,
     id: entry.patient.id,
     name: entry.patient.name,
     providerKey: entry.providerKey,
     visitCategory: entry.visitCategory,
-    checkedInAt: entry.checkedInAt?.toISOString() ?? null,
-    readyAt: entry.readyAt?.toISOString() ?? null,
+    checkedInAt: toIsoString(entry.checkedInAt),
+    readyAt: toIsoString(entry.readyAt),
+    noShowAt: toIsoString(entry.noShowAt),
     roomNumber: entry.roomNumber,
     docNotes: entry.docNotes,
-    docNotesAcknowledgedAt: entry.docNotesAcknowledgedAt?.toISOString() ?? null,
+    docNotesAcknowledgedAt: toIsoString(entry.docNotesAcknowledgedAt),
   };
 }
 

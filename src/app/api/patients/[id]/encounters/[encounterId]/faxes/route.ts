@@ -10,6 +10,7 @@ import { isPatientChartWritable } from "@/lib/patients";
 import { toFaxDTO } from "@/lib/fax-transmissions";
 import { getFaxProviderConfig, normalizeFaxNumber, sendFax } from "@/lib/fax";
 import { readDocument } from "@/lib/storage";
+import { getClinicNameForPatient } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -85,7 +86,8 @@ export async function POST(request: Request, { params }: Params) {
     return badRequest("Archived charts are read-only");
   }
 
-  const faxConfig = getFaxProviderConfig();
+  const clinicName = await getClinicNameForPatient(patientId);
+  const faxConfig = getFaxProviderConfig({ clinicName });
   if (!faxConfig.configured) {
     return badRequest("Fax provider is not configured. Set FAX_PROVIDER and API credentials in .env");
   }

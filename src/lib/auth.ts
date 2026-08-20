@@ -195,7 +195,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
         });
         officeId = offices.primaryId;
         officeCode = PRIMARY_OFFICE_CODE;
-        officeName = "Clinic 1";
+        officeName = "Modern Medicine";
       }
     } catch {
       // Schema may not be pushed yet; keep session working without office.

@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type Context,
+  type ReactNode,
+} from "react";
 import {
   applyTheme,
   getStoredTheme,
@@ -14,7 +23,17 @@ type ThemeContextValue = {
   toggleTheme: () => void;
 };
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+/** Keep one Context identity across Fast Refresh so ThemeToggle never loses the provider. */
+const globalForTheme = globalThis as unknown as {
+  __pvThemeContext?: Context<ThemeContextValue | null>;
+};
+
+const ThemeContext =
+  globalForTheme.__pvThemeContext ?? createContext<ThemeContextValue | null>(null);
+
+if (process.env.NODE_ENV !== "production") {
+  globalForTheme.__pvThemeContext = ThemeContext;
+}
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>("dark");
@@ -48,8 +67,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme() {
   const ctx = useContext(ThemeContext);
-  if (!ctx) {
-    throw new Error("useTheme must be used within ThemeProvider");
-  }
-  return ctx;
+  if (ctx) return ctx;
+
+  // Fallback if a hot-reload briefly disconnects context — never crash the app shell.
+  return {
+    theme: typeof window === "undefined" ? ("dark" as ThemeMode) : getStoredTheme(),
+    setTheme: (mode: ThemeMode) => persistTheme(mode),
+    toggleTheme: () => {
+      const next: ThemeMode = getStoredTheme() === "dark" ? "light" : "dark";
+      persistTheme(next);
+    },
+  };
 }

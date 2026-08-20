@@ -67,9 +67,6 @@ export function SendFaxModal({
 
   useEffect(() => {
     if (!open) return;
-    api<{ fax: FaxConfig }>("/api/fax/config")
-      .then((data) => setFaxConfig(data.fax))
-      .catch(() => undefined);
     setError("");
 
     const fromIds =
@@ -84,10 +81,34 @@ export function SendFaxModal({
     setSelectedEncounterId(encounterId || encounters?.[0]?.id || "");
     setToNumber(initialToNumber ?? "");
     setToName(initialToName ?? "");
-    setCoverSheet(
-      initialCoverSheet ??
-        (initialToName ? `Specialist referral from Modern Medicine — please see attached.` : "")
-    );
+
+    let cancelled = false;
+    api<{ fax: FaxConfig }>("/api/fax/config")
+      .then((data) => {
+        if (cancelled) return;
+        setFaxConfig(data.fax);
+        if (initialCoverSheet != null) {
+          setCoverSheet(initialCoverSheet);
+          return;
+        }
+        if (initialToName) {
+          const clinic = data.fax.fromName?.trim() || "our clinic";
+          setCoverSheet(`Specialist referral from ${clinic} — please see attached.`);
+        } else {
+          setCoverSheet("");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCoverSheet(
+          initialCoverSheet ??
+            (initialToName ? "Specialist referral from our clinic — please see attached." : "")
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     open,
     encounterId,

@@ -23,8 +23,8 @@ async function main() {
 
   const clinic1 = await prisma.office.upsert({
     where: { code: "clinic-1" },
-    update: {},
-    create: { code: "clinic-1", name: "Clinic 1" },
+    update: { name: "Modern Medicine" },
+    create: { code: "clinic-1", name: "Modern Medicine" },
   });
 
   for (const p of DEMO_PATIENTS) {

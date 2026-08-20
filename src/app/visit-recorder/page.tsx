@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CLINIC_NAME } from "@/lib/branding";
+import { clinicDisplayName } from "@/lib/branding";
 import { Check, Copy, Mic, Pause, Play, Square, UserRound } from "lucide-react";
 
 type StatusPayload = {
@@ -11,6 +11,7 @@ type StatusPayload = {
   testMode: boolean;
   authenticated: boolean;
   actorEmail?: string;
+  clinicName?: string;
   transcribeConfigured?: boolean;
   bedrockConfigured?: boolean;
   keyRequired?: boolean;
@@ -376,10 +377,12 @@ export default function VisitRecorderPage() {
     window.setTimeout(() => setCopied(null), 1500);
   }
 
+  const clinicLabel = clinicDisplayName(status?.clinicName);
+
   if (statusError && !status?.enabled) {
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-4 p-6">
-        <h1 className="text-2xl font-semibold">{CLINIC_NAME}</h1>
+        <h1 className="text-2xl font-semibold">{clinicLabel}</h1>
         <p className="text-sm text-[var(--pv-muted)]">Visit recorder</p>
         <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
           {statusError}
@@ -398,7 +401,7 @@ export default function VisitRecorderPage() {
   return (
     <main className="mx-auto min-h-screen max-w-lg px-4 py-6 pb-24">
       <header className="mb-5">
-        <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{CLINIC_NAME}</p>
+        <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{clinicLabel}</p>
         <h1 className="text-2xl font-semibold">Visit recorder</h1>
         <p className="mt-1 text-sm text-[var(--pv-muted)]">
           Record the visit → audio file + transcript + HPI draft. Same AWS Transcribe Medical / Bedrock

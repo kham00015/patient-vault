@@ -55,6 +55,7 @@ export async function GET(request: Request) {
       testMode: resolvedTestMode || (testMode && !session),
       authenticated: Boolean(session),
       actorEmail,
+      clinicName: session?.officeName ?? undefined,
       transcribeConfigured: isTranscribeConfigured(),
       bedrockConfigured: isBedrockConfigured(),
     });

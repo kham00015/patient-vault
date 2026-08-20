@@ -41,6 +41,7 @@ import { SectionDocumentUploads } from "@/components/app/note-section-uploads";
 import { SectionTextReports } from "@/components/app/section-text-reports";
 import { TextReportDocumentEditor } from "@/components/app/text-report-document-editor";
 import { ThemeToggle } from "@/components/app/theme-toggle";
+import { ProviderProfileMenu } from "@/components/app/provider-profile-menu";
 import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 import { CLINIC_NAME } from "@/lib/branding";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
@@ -1164,12 +1165,20 @@ export default function PatientVaultApp({
                   </option>
                 ))}
               </select>
-              <p className="truncate text-xs text-cyan-300">{user.name ?? user.email}</p>
+              <ProviderProfileMenu
+                displayName={user.name ?? user.email}
+                className="truncate text-left text-xs text-cyan-300 hover:text-cyan-200 hover:underline"
+              />
             </>
           ) : (
             <>
-              <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{CLINIC_NAME}</p>
-              <p className="truncate text-base font-medium text-cyan-300">{user.name ?? user.email}</p>
+              <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">
+                {user.officeName || CLINIC_NAME}
+              </p>
+              <ProviderProfileMenu
+                displayName={user.name ?? user.email}
+                className="truncate text-left text-base font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
+              />
             </>
           )}
         </div>

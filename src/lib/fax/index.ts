@@ -10,10 +10,14 @@ export function getFaxProviderName(): FaxProviderName {
   return "mock";
 }
 
-export function getFaxProviderConfig(): FaxProviderConfig {
+export function getFaxProviderConfig(options?: { clinicName?: string | null }): FaxProviderConfig {
   const provider = getFaxProviderName();
   const fromNumber = process.env.FAXPLUS_FROM_NUMBER?.trim() || null;
-  const fromName = process.env.FAX_FROM_NAME?.trim() || process.env.NEXT_PUBLIC_CLINIC_NAME?.trim() || null;
+  const fromName =
+    options?.clinicName?.trim() ||
+    process.env.FAX_FROM_NAME?.trim() ||
+    process.env.NEXT_PUBLIC_CLINIC_NAME?.trim() ||
+    null;
 
   if (provider === "faxplus") {
     const apiKey = process.env.FAXPLUS_API_KEY?.trim();

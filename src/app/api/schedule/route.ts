@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuditAction, type VisitCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAuth, badRequest, notFound, forbidden } from "@/lib/api";
+import { requireAuth, badRequest, notFound, forbidden, serverError } from "@/lib/api";
 import { canWrite, canManageScheduleReady, canWriteScheduleDocNotes } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import {
@@ -10,12 +10,52 @@ import {
   scheduleDayWhere,
   toScheduleEntryDTO,
 } from "@/lib/schedule";
+import { isScheduleDayBlocked } from "@/lib/schedule-blocks";
 import { assertScheduleProviderInOffice } from "@/lib/schedule-providers";
 import { normalizeScheduleDay } from "@/lib/utils";
-import { officeScope } from "@/lib/office";
+import { officeScope, requireOfficeId } from "@/lib/office";
 import { assertPatientReadable } from "@/lib/patient-access";
 
-const providerKeySchema = z.string().min(1);
+async function loadNoShowAtForDay(scheduleDay: string, providerKey: string) {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string; noShowAt: Date | string | null }>>`
+      SELECT id, "noShowAt" FROM "ScheduleEntry"
+      WHERE "scheduleDay" = ${scheduleDay} AND "providerKey" = ${providerKey}
+    `;
+    return new Map(rows.map((row) => [row.id, row.noShowAt]));
+  } catch (error) {
+    console.error("[schedule noShow overlay]", error);
+    return new Map<string, Date | string | null>();
+  }
+}
+
+async function loadNoShowAtById(id: string) {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ noShowAt: Date | string | null }>>`
+      SELECT "noShowAt" FROM "ScheduleEntry" WHERE id = ${id}
+    `;
+    return rows[0]?.noShowAt ?? null;
+  } catch (error) {
+    console.error("[schedule noShow lookup]", error);
+    return null;
+  }
+}
+
+async function writeNoShowAt(id: string, noShow: boolean) {
+  if (noShow) {
+    await prisma.$executeRaw`
+      UPDATE "ScheduleEntry"
+      SET "noShowAt" = ${new Date()}, "checkedInAt" = NULL, "readyAt" = NULL
+      WHERE id = ${id}
+    `;
+    return;
+  }
+  await prisma.$executeRaw`
+    UPDATE "ScheduleEntry"
+    SET "noShowAt" = NULL
+    WHERE id = ${id}
+  `;
+}
 
 async function requireClinicProvider(user: Parameters<typeof assertScheduleProviderInOffice>[0], providerKey: string) {
   const ok = await assertScheduleProviderInOffice(user, providerKey);
@@ -27,30 +67,55 @@ export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
-  const { searchParams } = new URL(request.url);
-  const dateStr = searchParams.get("date");
-  if (!dateStr) return badRequest("date parameter required");
+  try {
+    const { searchParams } = new URL(request.url);
+    const dateStr = searchParams.get("date");
+    if (!dateStr) return badRequest("date parameter required");
 
-  const provider = searchParams.get("provider")?.trim() || "";
-  if (!provider) return badRequest("provider parameter required");
-  const providerDenied = await requireClinicProvider(auth.user, provider);
-  if (providerDenied) return providerDenied;
+    const provider = searchParams.get("provider")?.trim() || "";
+    if (!provider) return badRequest("provider parameter required");
+    const providerDenied = await requireClinicProvider(auth.user, provider);
+    if (providerDenied) return providerDenied;
 
-  const entries = await prisma.scheduleEntry.findMany({
-    where: {
-      ...scheduleDayWhere(dateStr, { providerKey: provider }),
-      patient: officeScope(auth.user),
-    },
-    include: { patient: { select: { id: true, name: true } } },
-    orderBy: { patient: { name: "asc" } },
-  });
+    const scheduleDay = normalizeScheduleDay(dateStr);
+    const entries = await prisma.scheduleEntry.findMany({
+      where: {
+        ...scheduleDayWhere(dateStr, { providerKey: provider }),
+        patient: officeScope(auth.user),
+      },
+      select: {
+        id: true,
+        providerKey: true,
+        visitCategory: true,
+        checkedInAt: true,
+        readyAt: true,
+        roomNumber: true,
+        docNotes: true,
+        docNotesAcknowledgedAt: true,
+        patient: { select: { id: true, name: true } },
+      },
+      orderBy: { patient: { name: "asc" } },
+    });
 
-  return NextResponse.json({
-    date: normalizeScheduleDay(dateStr),
-    provider,
-    patients: entries.map(toScheduleEntryDTO),
-  });
+    const noShowMap = await loadNoShowAtForDay(scheduleDay, provider);
+    const officeId = requireOfficeId(auth.user);
+    const blocked = await isScheduleDayBlocked(officeId, scheduleDay, provider);
+
+    return NextResponse.json({
+      date: scheduleDay,
+      provider,
+      blocked,
+      patients: entries.map((entry) =>
+        toScheduleEntryDTO({ ...entry, noShowAt: noShowMap.get(entry.id) ?? null })
+      ),
+    });
+  } catch (error) {
+    console.error("[schedule GET]", error);
+    return serverError("Could not load schedule");
+  }
 }
+
+const providerKeySchema = z.string().min(1);
 
 const addSchema = z.object({
   date: z.string(),
@@ -75,6 +140,10 @@ export async function POST(request: Request) {
     if (denied) return denied;
 
     const scheduleDay = normalizeScheduleDay(body.date);
+    const officeId = requireOfficeId(auth.user);
+    if (await isScheduleDayBlocked(officeId, scheduleDay, body.providerKey)) {
+      return badRequest("This date is blocked for scheduling with this provider");
+    }
 
     await prisma.scheduleEntry.deleteMany({
       where: scheduleDayWhere(scheduleDay, {
@@ -169,6 +238,7 @@ const patchSchema = z.object({
   visitCategory: z.enum(["NEW_PATIENT", "FOLLOW_UP"]).optional(),
   checkedIn: z.boolean().optional(),
   ready: z.boolean().optional(),
+  noShow: z.boolean().optional(),
   roomNumber: z.string().max(20).nullable().optional(),
   docNotes: z.string().max(2000).nullable().optional(),
   acknowledgeDocNotes: z.boolean().optional(),
@@ -189,6 +259,7 @@ export async function PATCH(request: Request) {
     const hasVisitCategory = body.visitCategory !== undefined;
     const hasCheckedIn = body.checkedIn !== undefined;
     const hasReady = body.ready !== undefined;
+    const hasNoShow = body.noShow !== undefined;
     const hasRoom = body.roomNumber !== undefined;
     const hasDocNotes = body.docNotes !== undefined;
     const hasAcknowledge = body.acknowledgeDocNotes !== undefined;
@@ -197,6 +268,7 @@ export async function PATCH(request: Request) {
       !hasVisitCategory &&
       !hasCheckedIn &&
       !hasReady &&
+      !hasNoShow &&
       !hasRoom &&
       !hasDocNotes &&
       !hasAcknowledge
@@ -206,6 +278,7 @@ export async function PATCH(request: Request) {
 
     if (hasCheckedIn && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasReady && !canManageScheduleReady(auth.user.role)) return forbidden();
+    if (hasNoShow && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasRoom && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasDocNotes && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
 
@@ -236,6 +309,10 @@ export async function PATCH(request: Request) {
     if (hasReady) {
       data.readyAt = body.ready ? new Date() : null;
     }
+    if (hasNoShow && body.noShow) {
+      data.checkedInAt = null;
+      data.readyAt = null;
+    }
     if (hasRoom) {
       data.roomNumber = body.roomNumber?.trim() || null;
     }
@@ -254,11 +331,25 @@ export async function PATCH(request: Request) {
       data.docNotesAcknowledgedAt = body.acknowledgeDocNotes ? new Date() : null;
     }
 
-    const updated = await prisma.scheduleEntry.update({
-      where: { id: existing.id },
-      data,
-      include: { patient: { select: { id: true, name: true } } },
-    });
+    const updated =
+      Object.keys(data).length > 0
+        ? await prisma.scheduleEntry.update({
+            where: { id: existing.id },
+            data,
+            include: { patient: { select: { id: true, name: true } } },
+          })
+        : await prisma.scheduleEntry.findFirstOrThrow({
+            where: { id: existing.id },
+            include: { patient: { select: { id: true, name: true } } },
+          });
+
+    if (hasNoShow) {
+      await writeNoShowAt(existing.id, Boolean(body.noShow));
+    } else if ((hasCheckedIn && body.checkedIn) || (hasReady && body.ready)) {
+      await writeNoShowAt(existing.id, false);
+    }
+
+    const noShowAt = await loadNoShowAtById(existing.id);
 
     const { ipAddress, userAgent } = getClientInfo(request);
     const auditMeta: Record<string, string | number | boolean> = {
@@ -267,6 +358,7 @@ export async function PATCH(request: Request) {
     if (hasVisitCategory) auditMeta.visitCategory = body.visitCategory ?? "FOLLOW_UP";
     if (hasCheckedIn) auditMeta.checkedIn = body.checkedIn ?? false;
     if (hasReady) auditMeta.ready = body.ready ?? false;
+    if (hasNoShow) auditMeta.noShow = body.noShow ?? false;
     if (hasRoom) auditMeta.roomSet = Boolean(data.roomNumber);
     if (hasDocNotes) auditMeta.hasDocNotes = Boolean(data.docNotes);
     if (hasAcknowledge) auditMeta.docNotesAcknowledged = body.acknowledgeDocNotes ?? false;
@@ -282,9 +374,14 @@ export async function PATCH(request: Request) {
       metadata: auditMeta,
     });
 
-    return NextResponse.json({ entry: toScheduleEntryDTO(updated) });
+    return NextResponse.json({
+      entry: toScheduleEntryDTO({
+        ...updated,
+        noShowAt,
+      }),
+    });
   } catch (error) {
     console.error("[schedule PATCH]", error);
-    return badRequest("Invalid request");
+    return badRequest("Could not update the schedule visit");
   }
 }

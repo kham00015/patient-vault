@@ -17,6 +17,7 @@ import {
 import { decryptNoteContent } from "@/lib/encryption";
 import { buildFormPdfHtml } from "@/lib/form-pdf";
 import { saveDocument } from "@/lib/storage";
+import { getClinicNameForPatient } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string; formId: string }> };
 
@@ -53,6 +54,7 @@ export async function POST(request: Request, { params }: Params) {
   const templateLabel = getClinicalFormLabel(existing.templateId);
   const completedAt = new Date();
 
+  const clinicName = await getClinicNameForPatient(patientId);
   const html = buildFormPdfHtml({
     patientName: patient.name,
     mrn: patient.mrn,
@@ -61,6 +63,7 @@ export async function POST(request: Request, { params }: Params) {
     score: scored?.score ?? null,
     interpretation: scored?.interpretation ?? null,
     completedAt: completedAt.toISOString(),
+    clinicName,
   });
 
   const fileName = `${templateLabel.replace(/\s+/g, "-")}-${completedAt.toISOString().slice(0, 10)}.html`;

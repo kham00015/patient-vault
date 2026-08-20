@@ -8,6 +8,7 @@ import { decryptNoteContent } from "@/lib/encryption";
 import { buildFormPdfHtml } from "@/lib/form-pdf";
 import { parseFormResponses } from "@/lib/clinical-forms";
 import { toPatientDTO } from "@/lib/patients";
+import { getClinicNameForPatient } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string; formId: string }> };
 
@@ -29,6 +30,7 @@ export async function GET(request: Request, { params }: Params) {
   const patient = toPatientDTO(form.patient);
   const responses = parseFormResponses(decryptNoteContent(form.responses ?? ""));
 
+  const clinicName = await getClinicNameForPatient(patientId);
   const html = buildFormPdfHtml({
     patientName: patient.name,
     mrn: patient.mrn,
@@ -37,6 +39,7 @@ export async function GET(request: Request, { params }: Params) {
     score: form.score,
     interpretation: form.interpretation,
     completedAt: form.completedAt?.toISOString() ?? null,
+    clinicName,
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);

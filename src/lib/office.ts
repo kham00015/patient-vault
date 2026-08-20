@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/roles";
+import { clinicDisplayName } from "@/lib/branding";
 
 export const PRIMARY_OFFICE_CODE = "clinic-1";
 export const SECOND_OFFICE_CODE = "clinic-2";
 
 export const DEFAULT_OFFICES = [
-  { code: PRIMARY_OFFICE_CODE, name: "Clinic 1" },
-  { code: SECOND_OFFICE_CODE, name: "Clinic 2" },
+  { code: PRIMARY_OFFICE_CODE, name: "Modern Medicine" },
+  { code: SECOND_OFFICE_CODE, name: "Nevada Critical Care Consultants" },
 ] as const;
 
 let ensurePromise: Promise<{ primaryId: string; secondId: string }> | null = null;
@@ -35,7 +36,7 @@ export async function ensureOffices() {
       for (const row of DEFAULT_OFFICES) {
         const office = await prisma.office.upsert({
           where: { code: row.code },
-          update: {},
+          update: { name: row.name },
           create: { code: row.code, name: row.name },
         });
         offices.push(office);
@@ -89,6 +90,23 @@ export function requireOfficeId(user: SessionUser) {
 
 export function officeScope(user: SessionUser) {
   return { officeId: requireOfficeId(user) };
+}
+
+export async function getOfficeDisplayName(officeId: string | null | undefined) {
+  if (!officeId) return clinicDisplayName(null);
+  const office = await prisma.office.findUnique({
+    where: { id: officeId },
+    select: { name: true },
+  });
+  return clinicDisplayName(office?.name);
+}
+
+export async function getClinicNameForPatient(patientId: string) {
+  const patient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    select: { office: { select: { name: true } } },
+  });
+  return clinicDisplayName(patient?.office?.name);
 }
 
 export async function assertSameOfficeUser(actor: SessionUser, targetUserId: string) {

@@ -8,6 +8,7 @@ import { toNoteDTO } from "@/lib/patients";
 import { buildNotePdfHtml, payloadFromStored } from "@/lib/note-pdf";
 import { formatDate, formatDateOnly } from "@/lib/utils";
 import type { NoteType } from "@/lib/notes";
+import { getClinicNameForPatient } from "@/lib/office";
 
 type Params = { params: Promise<{ id: string; noteId: string }> };
 
@@ -24,8 +25,8 @@ export async function GET(request: Request, { params }: Params) {
     where: { id: noteId, patientId },
     include: {
       patient: { select: { name: true, mrn: true } },
-      createdBy: { select: { id: true, name: true, email: true } },
-      signedBy: { select: { id: true, name: true, email: true } },
+      createdBy: { select: { id: true, name: true, email: true, signatureImage: true } },
+      signedBy: { select: { id: true, name: true, email: true, signatureImage: true } },
       lastRevisedBy: { select: { id: true, name: true, email: true } },
       revisions: {
         orderBy: { version: "asc" },
@@ -41,6 +42,18 @@ export async function GET(request: Request, { params }: Params) {
 
   const dto = toNoteDTO(note);
   const { sections, vitals } = payloadFromStored(note.type as NoteType, dto.content);
+  const clinicName = await getClinicNameForPatient(patientId);
+  const signatureUser =
+    note.status === "SIGNED" && note.signedBy ? note.signedBy : note.createdBy;
+  const signatureImage = signatureUser.signatureImage?.startsWith("data:image/")
+    ? signatureUser.signatureImage
+    : null;
+  const signatureLabel =
+    signatureUser.name?.trim() ||
+    dto.signedByName ||
+    dto.authorName ||
+    signatureUser.email;
+
   const html = buildNotePdfHtml({
     patientName: note.patient.name,
     mrn: note.patient.mrn,
@@ -58,6 +71,9 @@ export async function GET(request: Request, { params }: Params) {
     vitals,
     authorName: dto.authorName,
     signedByName: dto.signedByName,
+    clinicName,
+    signatureImage,
+    signatureLabel,
   });
 
   const { ipAddress, userAgent } = getClientInfo(request);

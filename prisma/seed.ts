@@ -16,13 +16,13 @@ const SEED_USERS: { email: string; name: string; role: Role }[] = [
 async function main() {
   const clinic1 = await prisma.office.upsert({
     where: { code: "clinic-1" },
-    update: { name: "Clinic 1" },
-    create: { code: "clinic-1", name: "Clinic 1" },
+    update: { name: "Modern Medicine" },
+    create: { code: "clinic-1", name: "Modern Medicine" },
   });
   await prisma.office.upsert({
     where: { code: "clinic-2" },
-    update: { name: "Clinic 2" },
-    create: { code: "clinic-2", name: "Clinic 2" },
+    update: { name: "Nevada Critical Care Consultants" },
+    create: { code: "clinic-2", name: "Nevada Critical Care Consultants" },
   });
 
   const passwordHash = await hashPassword(DEV_PASSWORD);
@@ -68,7 +68,7 @@ async function main() {
   console.log("  Dr Khamis — firas.khamis@clinic.local");
   console.log("  Dr Kalayeh — nicholas.kalayeh@clinic.local");
   console.log(`  Password (all): ${DEV_PASSWORD}`);
-  console.log("  Offices: Clinic 1 (existing data), Clinic 2 (empty)");
+  console.log("  Offices: Modern Medicine (existing data), Nevada Critical Care Consultants");
 }
 
 main()

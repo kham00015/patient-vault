@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { SessionUser } from "@/lib/roles";
 import { canWrite } from "@/lib/roles";
 import { api } from "@/lib/api-client";
@@ -17,7 +17,7 @@ import {
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, toClinicDateInputValue } from "@/lib/utils";
-import { CalendarDays, Check, Search, Stethoscope } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Search, Stethoscope, UserX } from "lucide-react";
 
 type PatientOption = {
   id: string;
@@ -36,6 +36,42 @@ type SelectPatientFromSchedule = (
 
 const SCHEDULE_TOOLBAR_HEIGHT = "h-10";
 const SCHEDULE_TOOLBAR_TEXT = "text-sm font-medium";
+const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+
+function monthKeyFromDate(dateStr: string) {
+  return dateStr.slice(0, 7);
+}
+
+function shiftMonth(monthKey: string, delta: number) {
+  const [y, m] = monthKey.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildMonthCells(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: Array<{ day: number; iso: string } | null> = [];
+  for (let i = 0; i < firstWeekday; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      day,
+      iso: `${monthKey}-${String(day).padStart(2, "0")}`,
+    });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function monthTitle(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 function getDocNotesButtonStyles(entry: ScheduleEntryDTO) {
   const hasNotes = Boolean(entry.docNotes?.trim());
@@ -255,13 +291,24 @@ export function SchedulePanel({
   const [savingDocNotes, setSavingDocNotes] = useState(false);
   const [savingCheckedInId, setSavingCheckedInId] = useState<string | null>(null);
   const [savingReadyId, setSavingReadyId] = useState<string | null>(null);
+  const [savingNoShowId, setSavingNoShowId] = useState<string | null>(null);
   const [savingRoomId, setSavingRoomId] = useState<string | null>(null);
   const [savingVisitId, setSavingVisitId] = useState<string | null>(null);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [blocked, setBlocked] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => monthKeyFromDate(toClinicDateInputValue(new Date())));
+  const [blockedDays, setBlockedDays] = useState<Set<string>>(new Set());
+  const [dayMenu, setDayMenu] = useState<{ day: string; x: number; y: number } | null>(null);
+  const [blockingDate, setBlockingDate] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const dateFieldRef = useRef<HTMLDivElement>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const dayMenuRef = useRef<HTMLDivElement>(null);
 
   const canEdit = canWrite(user.role);
+  const monthCells = useMemo(() => buildMonthCells(calendarMonth), [calendarMonth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -287,18 +334,117 @@ export function SchedulePanel({
   const load = useCallback(async () => {
     if (!providerKey) {
       setScheduled([]);
+      setBlocked(false);
       return;
     }
-    const data = await api<{ patients: ScheduleEntryDTO[] }>(
+    const data = await api<{ patients: ScheduleEntryDTO[]; blocked?: boolean }>(
       `/api/schedule?date=${date}&provider=${encodeURIComponent(providerKey)}`
     );
     setScheduled(data.patients);
+    setBlocked(Boolean(data.blocked));
     setError("");
   }, [date, providerKey]);
 
   useEffect(() => {
     load().catch(() => setError("Could not load schedule."));
   }, [load]);
+
+  const loadBlockedDays = useCallback(async (monthKey: string, provider: string) => {
+    if (!provider) {
+      setBlockedDays(new Set());
+      return;
+    }
+    const data = await api<{ days: string[] }>(
+      `/api/schedule/blocks?provider=${encodeURIComponent(provider)}&month=${monthKey}`
+    );
+    setBlockedDays(new Set(data.days));
+  }, []);
+
+  useEffect(() => {
+    if (!calendarOpen || !providerKey) return;
+    loadBlockedDays(calendarMonth, providerKey).catch(() => undefined);
+  }, [calendarOpen, calendarMonth, providerKey, loadBlockedDays]);
+
+  useEffect(() => {
+    if (!calendarOpen && !dayMenu) return;
+    function onPointerDown(event: MouseEvent) {
+      if (event.button !== 0) return;
+      const target = event.target as Node;
+      if (calendarRef.current?.contains(target)) return;
+      if (dayMenuRef.current?.contains(target)) return;
+      if (dateFieldRef.current?.contains(target)) return;
+      setCalendarOpen(false);
+      setDayMenu(null);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setCalendarOpen(false);
+        setDayMenu(null);
+      }
+    }
+    const timer = window.setTimeout(() => {
+      window.addEventListener("mousedown", onPointerDown);
+    }, 0);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [calendarOpen, dayMenu]);
+
+  function openCalendar() {
+    setCalendarMonth(monthKeyFromDate(date));
+    setDayMenu(null);
+    setCalendarOpen((open) => !open);
+  }
+
+  function selectCalendarDay(iso: string) {
+    setDate(iso);
+    setCalendarOpen(false);
+    setDayMenu(null);
+  }
+
+  function openDayBlockMenu(event: ReactMouseEvent, iso: string) {
+    if (!canEdit || !providerKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDayMenu({ day: iso, x: event.clientX, y: event.clientY });
+  }
+
+  async function toggleDayBlock(iso: string) {
+    if (!canEdit || !providerKey || blockingDate) return;
+    const isBlocked = blockedDays.has(iso);
+    setBlockingDate(true);
+    setDayMenu(null);
+    setError("");
+    try {
+      if (isBlocked) {
+        await api("/api/schedule/blocks", {
+          method: "DELETE",
+          json: { date: iso, providerKey },
+        });
+        setBlockedDays((prev) => {
+          const next = new Set(prev);
+          next.delete(iso);
+          return next;
+        });
+        if (iso === date) setBlocked(false);
+      } else {
+        await api("/api/schedule/blocks", {
+          method: "POST",
+          json: { date: iso, providerKey },
+        });
+        setBlockedDays((prev) => new Set(prev).add(iso));
+        if (iso === date) setBlocked(true);
+      }
+      if (iso === date) await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update date block.");
+    } finally {
+      setBlockingDate(false);
+    }
+  }
 
   const availablePatients = patients.filter((p) => !scheduled.some((s) => s.id === p.id));
 
@@ -333,6 +479,7 @@ export function SchedulePanel({
     patch: {
       checkedIn?: boolean;
       ready?: boolean;
+      noShow?: boolean;
       roomNumber?: string | null;
       docNotes?: string | null;
       visitCategory?: VisitCategory;
@@ -369,6 +516,19 @@ export function SchedulePanel({
       setError(e instanceof Error ? e.message : "Could not update ready status.");
     } finally {
       setSavingReadyId(null);
+    }
+  }
+
+  async function toggleNoShow(entry: ScheduleEntryDTO) {
+    const isNoShow = Boolean(entry.noShowAt);
+    setSavingNoShowId(entry.id);
+    setError("");
+    try {
+      await patchEntry(entry.id, { noShow: !isNoShow });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update no-show status.");
+    } finally {
+      setSavingNoShowId(null);
     }
   }
 
@@ -449,29 +609,113 @@ export function SchedulePanel({
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs text-[var(--pv-muted)]">Date</label>
-          <div className="relative max-w-[200px]">
+          <div ref={dateFieldRef} className="relative max-w-[200px]">
             <Input
               ref={dateInputRef}
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="pr-11 [&::-webkit-calendar-picker-indicator]:hidden"
+              className={cn(
+                "pr-11 [&::-webkit-calendar-picker-indicator]:hidden",
+                blocked && "font-semibold text-rose-400 [&::-webkit-datetime-edit]:text-rose-400"
+              )}
             />
             <button
               type="button"
               aria-label="Open calendar"
+              aria-expanded={calendarOpen}
               className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-cyan-200 transition hover:bg-cyan-500/10 hover:text-cyan-100"
-              onClick={() => {
-                const input = dateInputRef.current;
-                if (!input) return;
-                const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
-                pickerInput.showPicker?.();
-                if (!pickerInput.showPicker) pickerInput.focus();
-              }}
+              onClick={openCalendar}
             >
               <CalendarDays size={17} strokeWidth={2.2} />
             </button>
+            {calendarOpen && (
+              <div
+                ref={calendarRef}
+                className="absolute left-0 top-[calc(100%+0.35rem)] z-[80] w-[17.5rem] rounded-xl border border-[var(--pv-border-strong)] bg-[var(--pv-surface)] p-3 shadow-xl"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-[var(--pv-muted-2)] hover:bg-white/5 hover:text-[var(--pv-fg)]"
+                    aria-label="Previous month"
+                    onClick={() => setCalendarMonth((m) => shiftMonth(m, -1))}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <p className="text-sm font-medium text-[var(--pv-fg-soft)]">{monthTitle(calendarMonth)}</p>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-[var(--pv-muted-2)] hover:bg-white/5 hover:text-[var(--pv-fg)]"
+                    aria-label="Next month"
+                    onClick={() => setCalendarMonth((m) => shiftMonth(m, 1))}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-[10px] uppercase tracking-wide text-[var(--pv-muted)]">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <div key={label} className="py-1">
+                      {label}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-0.5">
+                  {monthCells.map((cell, index) => {
+                    if (!cell) {
+                      return <div key={`empty-${index}`} className="h-8" />;
+                    }
+                    const isSelected = cell.iso === date;
+                    const isDayBlocked = blockedDays.has(cell.iso);
+                    return (
+                      <button
+                        key={cell.iso}
+                        type="button"
+                        onClick={() => selectCalendarDay(cell.iso)}
+                        onContextMenu={(event) => openDayBlockMenu(event, cell.iso)}
+                        title={
+                          canEdit
+                            ? isDayBlocked
+                              ? "Right-click to unblock"
+                              : "Right-click to block"
+                            : undefined
+                        }
+                        className={cn(
+                          "h-8 rounded-md text-sm transition",
+                          isSelected && "ring-1 ring-cyan-400/70",
+                          isDayBlocked
+                            ? "font-semibold text-rose-400 hover:bg-rose-500/15"
+                            : "text-[var(--pv-fg-soft)] hover:bg-white/5"
+                        )}
+                      >
+                        {cell.day}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
+          {dayMenu && (
+            <div
+              ref={dayMenuRef}
+              className="fixed z-[90] min-w-[11rem] rounded-md border border-[var(--pv-border-strong)] bg-[var(--pv-surface)] py-1 shadow-lg"
+              style={{ left: dayMenu.x, top: dayMenu.y }}
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                disabled={blockingDate}
+                className="block w-full px-3 py-1.5 text-left text-sm text-[var(--pv-fg-soft)] hover:bg-white/5 disabled:opacity-50"
+                onClick={() => {
+                  void toggleDayBlock(dayMenu.day);
+                }}
+              >
+                {blockedDays.has(dayMenu.day) ? "Unblock this date" : "Block this date"}
+              </button>
+            </div>
+          )}
         </div>
         <p className="text-sm text-[var(--pv-muted-2)]">
           {scheduled.length} patient{scheduled.length === 1 ? "" : "s"} scheduled
@@ -483,6 +727,11 @@ export function SchedulePanel({
           {scheduled.some((s) => s.readyAt) && (
             <span className="ml-2 text-emerald-400">
               · {scheduled.filter((s) => s.readyAt).length} ready
+            </span>
+          )}
+          {scheduled.some((s) => s.noShowAt) && (
+            <span className="ml-2 text-rose-400">
+              · {scheduled.filter((s) => s.noShowAt).length} no show
             </span>
           )}
         </p>
@@ -562,9 +811,11 @@ export function SchedulePanel({
           scheduled.map((entry) => {
             const isCheckedIn = Boolean(entry.checkedInAt);
             const isReady = Boolean(entry.readyAt);
+            const isNoShow = Boolean(entry.noShowAt);
             const patient = patients.find((x) => x.id === entry.id);
             const checkedInBusy = savingCheckedInId === entry.id;
             const readyBusy = savingReadyId === entry.id;
+            const noShowBusy = savingNoShowId === entry.id;
             const visitStyles = getScheduleVisitStyles(entry.visitCategory ?? "FOLLOW_UP");
             const hasDocNotes = Boolean(entry.docNotes?.trim());
 
@@ -573,7 +824,9 @@ export function SchedulePanel({
                 key={entry.entryId}
                 className={cn(
                   "rounded-xl border px-4 py-3 transition-colors",
-                  isReady
+                  isNoShow
+                    ? "border-rose-500/45 bg-rose-950/25 ring-1 ring-rose-500/15"
+                    : isReady
                     ? "border-emerald-500/50 bg-emerald-950/30 ring-1 ring-emerald-500/20"
                     : isCheckedIn
                       ? "border-sky-500/45 bg-sky-950/25 ring-1 ring-sky-500/15"
@@ -652,6 +905,25 @@ export function SchedulePanel({
                           "Not Ready"
                         )}
                       </Button>
+                      <Button
+                        type="button"
+                        className={cn(
+                          "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
+                          isNoShow
+                            ? "!border-rose-400/60 !bg-rose-700 !text-white hover:!bg-rose-600"
+                            : "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]"
+                        )}
+                        disabled={noShowBusy}
+                        onClick={() => toggleNoShow(entry)}
+                      >
+                        {noShowBusy ? (
+                          "..."
+                        ) : (
+                          <>
+                            <UserX size={14} /> No show
+                          </>
+                        )}
+                      </Button>
                       <Input
                         placeholder="Room #"
                         defaultValue={entry.roomNumber ?? ""}
@@ -709,6 +981,11 @@ export function SchedulePanel({
                       >
                         {isReady ? "Ready" : "Not Ready"}
                       </span>
+                      {isNoShow && (
+                        <span className="shrink-0 rounded-full bg-rose-600/30 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-rose-300">
+                          No show
+                        </span>
+                      )}
                       {entry.roomNumber && (
                         <span className="shrink-0 rounded bg-[var(--pv-btn)] px-2 py-1 text-xs text-[var(--pv-muted-2)]">
                           Room {entry.roomNumber}

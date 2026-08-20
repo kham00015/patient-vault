@@ -53,6 +53,7 @@ model Office {
   potentialPatients  PotentialPatient[]
   patientLists       PatientList[]
   aiBrainSources     AiBrainSource[]
+  scheduleDayBlocks  ScheduleDayBlock[]
 }
 
 model User {
@@ -72,6 +73,8 @@ model User {
   isActive            Boolean   @default(true)
   lastLoginAt         DateTime?
   chartUi             Json?
+  /** Provider drawn signature as PNG data URL for note PDFs */
+  signatureImage      String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   sessions     Session[]
@@ -512,6 +515,7 @@ model ScheduleEntry {
   visitCategory          VisitCategory @default(FOLLOW_UP)
   checkedInAt            DateTime?
   readyAt                DateTime?
+  noShowAt               DateTime?
   roomNumber             String?
   docNotes               String?
   docNotesAcknowledgedAt DateTime?
@@ -519,6 +523,20 @@ model ScheduleEntry {
   @@unique([scheduleDay, patientId, providerKey])
   @@index([scheduleDay, providerKey])
   @@index([date])
+}
+
+model ScheduleDayBlock {
+  id          String   @id @default(cuid())
+  officeId    String
+  office      Office   @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  scheduleDay String
+  providerKey String
+  reason      String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([officeId, scheduleDay, providerKey])
+  @@index([officeId, scheduleDay])
 }
 
 model PatientList {

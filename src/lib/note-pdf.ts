@@ -1,4 +1,4 @@
-import { CLINIC_NAME } from "./branding";
+import { clinicDisplayName } from "./branding";
 import type { NoteType } from "./notes";
 import { getNoteTypeLabel } from "./notes";
 import { flattenNoteForDisplay, parseNotePayload, type NoteSections } from "./note-content";
@@ -19,6 +19,9 @@ export function buildNotePdfHtml({
   vitals,
   authorName,
   signedByName,
+  clinicName,
+  signatureImage,
+  signatureLabel,
 }: {
   patientName: string;
   mrn?: string | null;
@@ -32,7 +35,11 @@ export function buildNotePdfHtml({
   vitals?: VitalsData;
   authorName?: string | null;
   signedByName?: string | null;
+  clinicName?: string | null;
+  signatureImage?: string | null;
+  signatureLabel?: string | null;
 }) {
+  const clinic = clinicDisplayName(clinicName);
   const tabs = getNoteTabs(noteType);
   const blocks: string[] = [];
 
@@ -111,6 +118,10 @@ export function buildNotePdfHtml({
     .rich u { text-decoration: underline; }
     pre .ai { color: #6d28d9; }
     .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; }
+    .provider-signature { margin-top: 36px; page-break-inside: avoid; }
+    .provider-signature img { max-width: 280px; max-height: 90px; display: block; }
+    .provider-signature .sig-line { margin-top: 4px; border-top: 1px solid #111; width: 280px; }
+    .provider-signature .sig-name { margin-top: 6px; font-size: 13px; }
     @media print { body { padding: 20px; } button { display: none; } }
     .toolbar { position: fixed; top: 16px; right: 16px; }
     button { background: #0e7490; color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }
@@ -119,7 +130,7 @@ export function buildNotePdfHtml({
 <body>
   <div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
   <div class="header">
-    <div class="clinic">${escapeHtml(CLINIC_NAME)}</div>
+    <div class="clinic">${escapeHtml(clinic)}</div>
     <h1>${escapeHtml(getNoteTypeLabel(noteType))}</h1>
     <div class="meta">
       <div><strong>Patient:</strong> ${escapeHtml(patientName)}${mrn ? ` · MRN ${escapeHtml(mrn)}` : ""}</div>
@@ -134,7 +145,16 @@ export function buildNotePdfHtml({
     </div>
   </div>
   ${blocks.join("\n")}
-  <div class="footer">${escapeHtml(CLINIC_NAME)} · Confidential medical record</div>
+  ${
+    signatureImage && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(signatureImage.replace(/\s/g, ""))
+      ? `<section class="provider-signature">
+          <img src="${signatureImage.replace(/\s/g, "")}" alt="Provider signature" />
+          <div class="sig-line"></div>
+          ${signatureLabel ? `<div class="sig-name">${escapeHtml(signatureLabel)}</div>` : ""}
+        </section>`
+      : ""
+  }
+  <div class="footer">${escapeHtml(clinic)} · Confidential medical record</div>
 </body>
 </html>`;
 }

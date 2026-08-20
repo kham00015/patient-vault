@@ -1,10 +1,5 @@
-import { CLINIC_NAME } from "./branding";
-import {
-  buildFormSummary,
-  FORM_META_KEYS,
-  getClinicalFormTemplate,
-  type ClinicalFormTemplate,
-} from "./clinical-forms";
+import { clinicDisplayName } from "./branding";
+import { FORM_META_KEYS, getClinicalFormTemplate } from "./clinical-forms";
 
 function escapeHtml(text: string) {
   return text
@@ -22,6 +17,7 @@ export function buildFormPdfHtml({
   score,
   interpretation,
   completedAt,
+  clinicName,
 }: {
   patientName: string;
   mrn?: string | null;
@@ -30,9 +26,11 @@ export function buildFormPdfHtml({
   score?: number | null;
   interpretation?: string | null;
   completedAt?: string | null;
+  clinicName?: string | null;
 }) {
   const template = getClinicalFormTemplate(templateId);
   if (!template) return "<html><body>Unknown form</body></html>";
+  const clinic = clinicDisplayName(clinicName);
 
   const questionBlocks = template.fields
     .map((field, index) => {
@@ -81,7 +79,7 @@ export function buildFormPdfHtml({
 <body>
   <h1>${escapeHtml(template.label)}</h1>
   <div class="meta">
-    <div>${escapeHtml(CLINIC_NAME)}</div>
+    <div>${escapeHtml(clinic)}</div>
     <div>Patient: ${escapeHtml(patientName)}${mrn ? ` · MRN ${escapeHtml(mrn)}` : ""}</div>
     ${completedAt ? `<div>Completed: ${escapeHtml(new Date(completedAt).toLocaleString())}</div>` : ""}
   </div>

@@ -8,10 +8,13 @@ export function SignaturePad({
   value,
   onChange,
   readOnly,
+  strokeColor = "#67e8f9",
 }: {
   value: string;
   onChange: (dataUrl: string) => void;
   readOnly?: boolean;
+  /** Canvas ink color (use dark for printable note PDFs). */
+  strokeColor?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
@@ -45,7 +48,7 @@ export function SignaturePad({
     drawing.current = true;
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    ctx.strokeStyle = "#67e8f9";
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
     const { x, y } = getPoint(e);

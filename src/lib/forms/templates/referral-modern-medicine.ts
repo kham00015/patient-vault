@@ -1,9 +1,8 @@
 import type { ClinicalFormTemplate } from "@/lib/clinical-forms";
-import { CLINIC_NAME } from "@/lib/branding";
 
 export const REFERRAL_MODERN_MEDICINE_FORM: ClinicalFormTemplate = {
   id: "REFERRAL_MODERN_MEDICINE",
-  label: `${CLINIC_NAME} — Specialist Referral`,
+  label: "Specialist Referral",
   description: "Refer a patient to an outside specialist. Complete, sign, attach to encounter, then fax from Comms.",
   category: "Referrals",
   tags: ["referral", "specialist", "consult", "fax"],
@@ -14,7 +13,7 @@ export const REFERRAL_MODERN_MEDICINE_FORM: ClinicalFormTemplate = {
       label: "Referring provider",
       type: "text",
       required: true,
-      helpText: `Sending physician at ${CLINIC_NAME}`,
+      helpText: "Sending physician at this clinic",
     },
     {
       id: "specialty",
