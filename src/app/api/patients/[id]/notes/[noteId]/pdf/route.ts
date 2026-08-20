@@ -44,15 +44,17 @@ export async function GET(request: Request, { params }: Params) {
   const { sections, vitals } = payloadFromStored(note.type as NoteType, dto.content);
   const clinicName = await getClinicNameForPatient(patientId);
   const signatureUser =
-    note.status === "SIGNED" && note.signedBy ? note.signedBy : note.createdBy;
-  const signatureImage = signatureUser.signatureImage?.startsWith("data:image/")
-    ? signatureUser.signatureImage
-    : null;
+    (note.status === "SIGNED" && note.signedBy ? note.signedBy : note.createdBy) ?? null;
+  const signatureImage =
+    signatureUser?.signatureImage?.startsWith("data:image/")
+      ? signatureUser.signatureImage
+      : null;
   const signatureLabel =
-    signatureUser.name?.trim() ||
+    signatureUser?.name?.trim() ||
     dto.signedByName ||
     dto.authorName ||
-    signatureUser.email;
+    signatureUser?.email ||
+    null;
 
   const html = buildNotePdfHtml({
     patientName: note.patient.name,
