@@ -76,14 +76,55 @@ export async function saveDocument(
   const localKey = key.split("/").pop()!;
   const fullPath = path.join(dir, localKey);
   await writeFile(fullPath, buffer);
-  return `local:${patientId}/${localKey}`;
+  return `local:patients/${patientId}/${localKey}`;
+}
+
+/** Referral intake uploads (not yet on a patient chart).
+ * S3 keys stay under `patients/*` so existing IAM PutObject policies apply.
+ */
+export async function saveReferralDocument(
+  referralId: string,
+  fileName: string,
+  buffer: Buffer,
+  mimeType?: string
+): Promise<string> {
+  const storageType = process.env.STORAGE_TYPE ?? "local";
+  const key = `patients/_referrals/${referralId}/${randomBytes(8).toString("hex")}_${sanitizeFileName(fileName)}`;
+  const contentType = mimeType || guessContentType(fileName);
+
+  if (storageType === "s3") {
+    const client = getS3Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: key,
+        Body: buffer,
+        ServerSideEncryption: process.env.AWS_KMS_KEY_ID ? "aws:kms" : "AES256",
+        ...(process.env.AWS_KMS_KEY_ID
+          ? { SSEKMSKeyId: process.env.AWS_KMS_KEY_ID }
+          : {}),
+        ContentType: contentType,
+      })
+    );
+    return `s3:${key}`;
+  }
+
+  const dir = path.join(LOCAL_PATH, "patients", "_referrals", referralId);
+  await mkdir(dir, { recursive: true });
+  const localKey = key.split("/").pop()!;
+  const fullPath = path.join(dir, localKey);
+  await writeFile(fullPath, buffer);
+  return `local:patients/_referrals/${referralId}/${localKey}`;
 }
 
 export async function readDocument(storageKey: string): Promise<Buffer> {
   if (storageKey.startsWith("local:")) {
     const relative = storageKey.replace("local:", "");
-    const fullPath = path.join(LOCAL_PATH, "patients", relative);
-    return readFile(fullPath);
+    // New keys: patients/... or referrals/... ; legacy: patientId/file under patients/
+    if (relative.startsWith("patients/") || relative.startsWith("referrals/")) {
+      return readFile(path.join(LOCAL_PATH, relative));
+    }
+    return readFile(path.join(LOCAL_PATH, "patients", relative));
   }
 
   if (storageKey.startsWith("s3:")) {

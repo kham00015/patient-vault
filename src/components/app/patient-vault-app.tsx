@@ -35,6 +35,7 @@ import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
 import { PotentialsPanel } from "@/components/app/potentials-panel";
 import { SchedulePanel } from "@/components/app/schedule-panel";
+import { ChartReferralsPanel } from "@/components/app/chart-referrals-panel";
 import { OrdersPanel } from "@/components/app/orders-panel";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { SectionDocumentUploads } from "@/components/app/note-section-uploads";
@@ -99,6 +100,7 @@ import {
   UserCog,
   UserRoundSearch,
   Users,
+  Share2,
   GripVertical,
   Check,
   ChevronDown,
@@ -356,7 +358,7 @@ function writeChartTabLocal(userId: string, order: ChartTab[], visible: Record<C
   }
 }
 
-type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes" | "potentials";
+type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes" | "potentials" | "referrals";
 
 const MAIN_VIEW_LABELS: Record<MainView, string> = {
   chart: "Patient Chart",
@@ -367,6 +369,7 @@ const MAIN_VIEW_LABELS: Record<MainView, string> = {
   contacts: "Contacts",
   unsignedNotes: "Notes to Sign",
   potentials: "Potentials",
+  referrals: "Referrals",
 };
 
 type ModalType =
@@ -411,7 +414,9 @@ export default function PatientVaultApp({
   openChartsRef.current = openCharts;
   const openingPatientIdsRef = useRef(new Set<string>());
   const [modal, setModal] = useState<ModalType>(null);
-  const [mainView, setMainView] = useState<MainView>("schedule");
+  const [mainView, setMainView] = useState<MainView>(
+    initialUser.role === "CONSULTANT" ? "referrals" : "schedule"
+  );
   const [viewHistory, setViewHistory] = useState<MainView[]>([]);
   const mainViewRef = useRef<MainView>(mainView);
   mainViewRef.current = mainView;
@@ -431,6 +436,7 @@ export default function PatientVaultApp({
   const [includeArchived, setIncludeArchived] = useState(false);
   const [masterOffices, setMasterOffices] = useState<{ id: string; name: string }[]>([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadReferrals, setUnreadReferrals] = useState(0);
   const [pendingReminders, setPendingReminders] = useState(0);
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [unsignedNotesCount, setUnsignedNotesCount] = useState(0);
@@ -737,6 +743,27 @@ export default function PatientVaultApp({
     refreshUnreadMessages().catch(() => undefined);
   }, [refreshUnreadMessages]);
 
+  const refreshUnreadReferrals = useCallback(async () => {
+    if (user.role === "READONLY") {
+      setUnreadReferrals(0);
+      return;
+    }
+    try {
+      const data = await api<{ unread: number }>("/api/referrals/unread");
+      setUnreadReferrals(data.unread);
+    } catch {
+      // non-critical
+    }
+  }, [user.role]);
+
+  useEffect(() => {
+    refreshUnreadReferrals().catch(() => undefined);
+    const id = window.setInterval(() => {
+      refreshUnreadReferrals().catch(() => undefined);
+    }, 45000);
+    return () => window.clearInterval(id);
+  }, [refreshUnreadReferrals]);
+
   const refreshReminderSummary = useCallback(async () => {
     try {
       const data = await api<{ pending: number; overdue: number }>("/api/reminders/summary");
@@ -870,7 +897,9 @@ export default function PatientVaultApp({
   const visibleChartTabs = useMemo(
     () =>
       orderedChartTabs.filter((tab) => {
-        if (user.role === "CONSULTANT") return tab.id === "documents";
+        if (user.role === "CONSULTANT") {
+          if (tab.id !== "documents") return false;
+        }
         return chartTabVisible[tab.id] !== false;
       }),
     [orderedChartTabs, chartTabVisible, user.role]
@@ -878,10 +907,12 @@ export default function PatientVaultApp({
 
   useEffect(() => {
     if (!current) return;
-    if (chartTabVisible[chartTab] === false) {
-      setChartTab("encounters");
-    }
-  }, [chartTab, chartTabVisible, current, setChartTab]);
+    if (visibleChartTabs.some((tab) => tab.id === chartTab)) return;
+    const fallback =
+      visibleChartTabs[0]?.id ??
+      (user.role === "CONSULTANT" ? "documents" : "encounters");
+    setChartTab(fallback);
+  }, [chartTab, current, setChartTab, user.role, visibleChartTabs]);
 
   const reorderChartTab = useCallback(
     (fromId: ChartTab, toId: ChartTab) => {
@@ -900,20 +931,21 @@ export default function PatientVaultApp({
     [persistChartUi]
   );
 
+  const canRemoveRecords = user.role === "ADMIN" || user.role === "CLINICIAN";
+  const isConsultantUser = user.role === "CONSULTANT";
+
   const toggleChartTabVisible = useCallback(
     (id: ChartTab) => {
       if (ALWAYS_VISIBLE_CHART_TABS.includes(id)) return;
+      if (isConsultantUser && id === "documents") return;
       setChartTabVisible((prev) => {
         const next = { ...prev, [id]: prev[id] === false };
         persistChartUi(chartTabOrderRef.current, next);
         return next;
       });
     },
-    [persistChartUi]
+    [isConsultantUser, persistChartUi]
   );
-
-  const canRemoveRecords = user.role === "ADMIN" || user.role === "CLINICIAN";
-  const isConsultantUser = user.role === "CONSULTANT";
   const canGrantAccess =
     user.role === "ADMIN" || user.role === "CLINICIAN" || user.role === "STAFF";
 
@@ -1043,6 +1075,13 @@ export default function PatientVaultApp({
       hidden: isConsultantUser,
     },
     {
+      id: "referrals",
+      label: "Referrals",
+      icon: Share2,
+      color: "text-cyan-300",
+      hidden: user.role === "READONLY",
+    },
+    {
       id: "archive",
       label: "Archive Chart",
       icon: Archive,
@@ -1107,6 +1146,10 @@ export default function PatientVaultApp({
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
     if (id === "potentials") {
       goToView("potentials");
+      return;
+    }
+    if (id === "referrals") {
+      goToView("referrals");
       return;
     }
     if (id === "schedule") {
@@ -1199,7 +1242,8 @@ export default function PatientVaultApp({
                   (item.id === "reminders" && mainView === "reminders") ||
                   (item.id === "unsignedNotes" && mainView === "unsignedNotes") ||
                   (item.id === "contacts" && mainView === "contacts") ||
-                  (item.id === "potentials" && mainView === "potentials"))
+                  (item.id === "potentials" && mainView === "potentials") ||
+                  (item.id === "referrals" && mainView === "referrals"))
                   ? "border-cyan-500/40 bg-cyan-500/10"
                   : "border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
               )}
@@ -1211,6 +1255,11 @@ export default function PatientVaultApp({
               {item.id === "messages" && unreadMessages > 0 && (
                 <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-xs font-bold text-white">
                   {unreadMessages > 9 ? "9+" : unreadMessages}
+                </span>
+              )}
+              {item.id === "referrals" && unreadReferrals > 0 && (
+                <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {unreadReferrals > 9 ? "9+" : unreadReferrals}
                 </span>
               )}
               {item.id === "reminders" && pendingReminders > 0 && (
@@ -1316,6 +1365,11 @@ export default function PatientVaultApp({
                 <>
                   <UserRoundSearch className="text-teal-300" size={20} />
                   <h1 className="text-lg font-semibold">Potentials</h1>
+                </>
+              ) : mainView === "referrals" ? (
+                <>
+                  <Share2 className="text-cyan-300" size={20} />
+                  <h1 className="text-lg font-semibold">Referrals</h1>
                 </>
               ) : (
                 <>
@@ -1436,7 +1490,8 @@ export default function PatientVaultApp({
               mainView === "reminders" ||
               mainView === "unsignedNotes" ||
               mainView === "contacts" ||
-              mainView === "potentials") &&
+              mainView === "potentials" ||
+              mainView === "referrals") &&
               current && (
               <Button className="!py-2 !text-xs" onClick={() => goToView("chart")}>
                 Open {formatDisplayName(current)}&apos;s Chart
@@ -1497,7 +1552,7 @@ export default function PatientVaultApp({
           )}
           {mainView === "chart" && current && isConsultantUser && current.status === "ACTIVE" && (
             <div className="mt-3 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-200">
-              Consultant access — documents only (view / print). Other chart areas are locked.
+              Consultant access — documents (view / print). Use Referrals in the top bar to send packages. Other chart areas are locked.
             </div>
           )}
         </header>
@@ -1529,8 +1584,12 @@ export default function PatientVaultApp({
               </div>
               {chartSectionsSettingsOpen ? (
                 <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-                  {orderedChartTabs.map((tab) => {
-                    const locked = ALWAYS_VISIBLE_CHART_TABS.includes(tab.id);
+                  {orderedChartTabs
+                    .filter((tab) => !isConsultantUser || tab.id === "documents")
+                    .map((tab) => {
+                    const locked =
+                      ALWAYS_VISIBLE_CHART_TABS.includes(tab.id) ||
+                      (isConsultantUser && tab.id === "documents");
                     const checked = locked || chartTabVisible[tab.id] !== false;
                     return (
                       <button
@@ -1559,7 +1618,7 @@ export default function PatientVaultApp({
                         <span className="min-w-0 leading-snug">{tab.label}</span>
                       </button>
                     );
-                  })}
+                    })}
                   <Button
                     variant="ghost"
                     className="mt-2 !h-8 !text-xs text-[var(--pv-muted-2)]"
@@ -1623,7 +1682,7 @@ export default function PatientVaultApp({
                     )}
                   >
                     <GripVertical size={12} className="shrink-0 text-[var(--pv-muted)] opacity-60" />
-                    <span className="min-w-0 leading-snug">{tab.label}</span>
+                    <span className="min-w-0 flex-1 leading-snug">{tab.label}</span>
                   </button>
                 ))}
               </nav>
@@ -1672,6 +1731,13 @@ export default function PatientVaultApp({
             <ContactsPanel canEdit={user.role !== "READONLY"} />
           ) : mainView === "potentials" ? (
             <PotentialsPanel canEdit={user.role !== "READONLY"} />
+          ) : mainView === "referrals" ? (
+            <ChartReferralsPanel
+              user={user}
+              patients={patients}
+              defaultPatientId={current?.id}
+              onUnreadChange={setUnreadReferrals}
+            />
           ) : !current ? (
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--pv-muted)]">
               Select a patient to view chart

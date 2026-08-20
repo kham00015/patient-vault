@@ -13,6 +13,7 @@ import {
 import {
   applyTheme,
   getStoredTheme,
+  nextTheme,
   persistTheme,
   type ThemeMode,
 } from "@/lib/theme";
@@ -51,7 +52,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const toggleTheme = useCallback(() => {
     setThemeState((prev) => {
-      const next: ThemeMode = prev === "dark" ? "light" : "dark";
+      const next = nextTheme(prev);
       persistTheme(next);
       return next;
     });
@@ -74,8 +75,7 @@ export function useTheme() {
     theme: typeof window === "undefined" ? ("dark" as ThemeMode) : getStoredTheme(),
     setTheme: (mode: ThemeMode) => persistTheme(mode),
     toggleTheme: () => {
-      const next: ThemeMode = getStoredTheme() === "dark" ? "light" : "dark";
-      persistTheme(next);
+      persistTheme(nextTheme(getStoredTheme()));
     },
   };
 }

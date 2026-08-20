@@ -54,6 +54,7 @@ model Office {
   patientLists       PatientList[]
   aiBrainSources     AiBrainSource[]
   scheduleDayBlocks  ScheduleDayBlock[]
+  referralIntakes    ReferralIntake[]
 }
 
 model User {
@@ -104,6 +105,10 @@ model User {
   aiBrainSources AiBrainSource[] @relation("CreatedAiBrainSources")
   accessGrantsReceived PatientAccessGrant[] @relation("AccessGrantUser")
   accessGrantsGiven    PatientAccessGrant[] @relation("AccessGrantGrantedBy")
+  referralIntakesCreated ReferralIntake[] @relation("CreatedReferralIntakes")
+  referralIntakesAssigned ReferralIntake[] @relation("AssignedReferralIntakes")
+  referralIntakesAcknowledged ReferralIntake[] @relation("AcknowledgedReferralIntakes")
+  referralDocumentsUploaded ReferralDocument[] @relation("UploadedReferralDocuments")
   office               Office?              @relation(fields: [officeId], references: [id], onDelete: Restrict)
 
   @@index([officeId])
@@ -217,6 +222,7 @@ model Patient {
   personalNotes   PatientPersonalNote[]
   aiListenSaves   PatientAiListenSave[]
   accessGrants    PatientAccessGrant[]
+  referralIntakes ReferralIntake[]
 
   @@unique([officeId, mrn])
   @@index([officeId])
@@ -537,6 +543,57 @@ model ScheduleDayBlock {
 
   @@unique([officeId, scheduleDay, providerKey])
   @@index([officeId, scheduleDay])
+}
+
+model ReferralIntake {
+  id          String             @id @default(cuid())
+  officeId    String
+  office      Office             @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  /** Set when clinic staff picks a chart patient; consultants use patientName only. */
+  patientId   String?
+  patient     Patient?           @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  patientName String
+  notes       String?
+  status      String             @default("OPEN")
+  createdById String
+  createdBy   User               @relation("CreatedReferralIntakes", fields: [createdById], references: [id])
+  /** Clinic user who should receive / acknowledge this package. */
+  assignedToId String?
+  assignedTo   User?             @relation("AssignedReferralIntakes", fields: [assignedToId], references: [id])
+  /** Set when the assigned receiver confirms receipt. */
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?         @relation("AcknowledgedReferralIntakes", fields: [acknowledgedById], references: [id])
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  documents   ReferralDocument[]
+
+  @@index([officeId, createdAt])
+  @@index([officeId, acknowledgedAt])
+  @@index([assignedToId, acknowledgedAt])
+  @@index([createdById])
+  @@index([patientId])
+  @@index([status])
+}
+
+model ReferralDocument {
+  id           String         @id @default(cuid())
+  referralId   String
+  referral     ReferralIntake @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  name         String
+  fileName     String
+  storageKey   String
+  mimeType     String
+  fileSize     Int
+  uploadedById String
+  uploadedBy   User           @relation("UploadedReferralDocuments", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime       @default(now())
+  /** Set when copied into a patient chart Document */
+  importedDocumentId String?
+  importedAt   DateTime?
+
+  @@index([referralId])
+  @@index([uploadedById])
 }
 
 model PatientList {

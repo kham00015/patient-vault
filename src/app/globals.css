@@ -38,6 +38,12 @@ html[data-theme="dark"] {
   --pv-overlay: rgba(0, 0, 0, 0.7);
   --pv-selection: rgba(34, 211, 238, 0.25);
   --pv-scroll: #334155;
+  --pv-ref-in-bg: rgba(8, 145, 178, 0.28);
+  --pv-ref-in-border: #22d3ee;
+  --pv-ref-in-badge: rgba(8, 145, 178, 0.45);
+  --pv-ref-out-bg: rgba(217, 119, 6, 0.28);
+  --pv-ref-out-border: #f59e0b;
+  --pv-ref-out-badge: rgba(217, 119, 6, 0.45);
 }
 
 html[data-theme="light"] {
@@ -78,6 +84,61 @@ html[data-theme="light"] {
   --pv-overlay: rgba(15, 23, 42, 0.5);
   --pv-selection: rgba(29, 78, 216, 0.22);
   --pv-scroll: #64748b;
+  --pv-ref-in-bg: #cffafe;
+  --pv-ref-in-border: #0e7490;
+  --pv-ref-in-badge: #a5f3fc;
+  --pv-ref-out-bg: #ffedd5;
+  --pv-ref-out-border: #c2410c;
+  --pv-ref-out-badge: #fed7aa;
+}
+
+/*
+ * Cream / book-paper theme.
+ * Warm paper surfaces + ink teal accents (not terracotta, not purple glow).
+ */
+html[data-theme="cream"] {
+  --background: #efe9df;
+  --foreground: #1c1917;
+  --card: #faf7f1;
+  --card-hover: #f3eee6;
+  --border: #9a9185;
+  --primary: #0f766e;
+  --primary-dim: #115e59;
+  --accent: #115e59;
+  --success: #166534;
+  --danger: #991b1b;
+  --warning: #92400e;
+  --muted: #5c564e;
+
+  --pv-bg: #e8e1d4;
+  --pv-bg-deep: #ddd5c6;
+  --pv-bg-grad: #f7f3eb;
+  --pv-surface: #faf7f1;
+  --pv-panel: #f7f3eb;
+  --pv-panel-deep: #efe9df;
+  --pv-input: #fffdf9;
+  --pv-card: #faf7f1;
+  --pv-hover: #ebe4d8;
+  --pv-btn: #e4dccf;
+  --pv-border: #b0a698;
+  --pv-border-strong: #857c70;
+  --pv-muted: #6b645a;
+  --pv-muted-2: #3f3a34;
+  --pv-fg: #1c1917;
+  --pv-fg-soft: #2c2824;
+  --pv-accent: #0f766e;
+  --pv-accent-strong: #115e59;
+  /* Distinct from chart ink — deep indigo, not lavender */
+  --pv-ai-text: #3730a3;
+  --pv-overlay: rgba(28, 25, 23, 0.48);
+  --pv-selection: rgba(15, 118, 110, 0.22);
+  --pv-scroll: #9a9185;
+  --pv-ref-in-bg: #d8f5f7;
+  --pv-ref-in-border: #0f766e;
+  --pv-ref-in-badge: #99e9e4;
+  --pv-ref-out-bg: #f3e0c8;
+  --pv-ref-out-border: #9a3412;
+  --pv-ref-out-badge: #e7c09a;
 }
 
 @theme inline {
@@ -108,6 +169,10 @@ body {
 
 html[data-theme="light"] body {
   background: linear-gradient(180deg, #ffffff 0%, #eef3fa 48%, #e2eaf4 100%);
+}
+
+html[data-theme="cream"] body {
+  background: linear-gradient(180deg, #faf7f1 0%, #f0eadf 48%, #e5ddd0 100%);
 }
 
 ::selection {
@@ -172,7 +237,8 @@ input[type="date"] {
   color-scheme: dark;
 }
 
-html[data-theme="light"] input[type="date"] {
+html[data-theme="light"] input[type="date"],
+html[data-theme="cream"] input[type="date"] {
   color-scheme: light;
 }
 
@@ -182,7 +248,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.9;
 }
 
-html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator {
+html[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+html[data-theme="cream"] input[type="date"]::-webkit-calendar-picker-indicator {
   filter: none;
   opacity: 0.8;
 }
@@ -351,6 +418,173 @@ html[data-theme="light"] .shadow-2xl {
 html[data-theme="light"] input,
 html[data-theme="light"] textarea,
 html[data-theme="light"] select {
+  border-color: var(--pv-border-strong);
+}
+
+/*
+ * Cream mode: map neon utilities → ink teal / forest / umber on paper.
+ * Keeps clinical contrast without terracotta or purple-on-cream.
+ */
+html[data-theme="cream"] [class*="text-cyan-"],
+html[data-theme="cream"] [class*="text-sky-"],
+html[data-theme="cream"] [class*="text-teal-"],
+html[data-theme="cream"] [class*="text-blue-"] {
+  color: #115e59 !important;
+}
+
+html[data-theme="cream"] [class*="text-emerald-"] {
+  color: #166534 !important;
+}
+
+html[data-theme="cream"] [class*="text-rose-"],
+html[data-theme="cream"] [class*="text-red-"] {
+  color: #991b1b !important;
+}
+
+html[data-theme="cream"] [class*="text-amber-"],
+html[data-theme="cream"] [class*="text-yellow-"] {
+  color: #78350f !important;
+}
+
+html[data-theme="cream"] [class*="text-orange-"] {
+  color: #9a3412 !important;
+}
+
+html[data-theme="cream"] [class*="text-violet-"],
+html[data-theme="cream"] [class*="text-purple-"],
+html[data-theme="cream"] [class*="text-fuchsia-"] {
+  color: #3730a3 !important;
+}
+
+html[data-theme="cream"] [class*="text-lime-"] {
+  color: #3f6212 !important;
+}
+
+html[data-theme="cream"] :is(
+  button.bg-cyan-600,
+  a.bg-cyan-600,
+  button.bg-blue-600,
+  a.bg-blue-600,
+  button.bg-emerald-700,
+  button.bg-rose-700
+) {
+  color: #ffffff !important;
+}
+
+html[data-theme="cream"] .hover\:bg-cyan-500:hover,
+html[data-theme="cream"] .hover\:bg-blue-500:hover {
+  background-color: #0f766e !important;
+}
+
+html[data-theme="cream"] .bg-cyan-600,
+html[data-theme="cream"] .bg-blue-600 {
+  background-color: #0f766e !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-cyan-500/"],
+  [class*=" bg-cyan-500/"],
+  [class*="!bg-cyan-500/"],
+  [class^="bg-blue-500/"],
+  [class*=" bg-blue-500/"],
+  [class*="!bg-blue-500/"]
+) {
+  background-color: rgba(15, 118, 110, 0.12) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-cyan-600/"],
+  [class*=" bg-cyan-600/"],
+  [class*="!bg-cyan-600/"],
+  [class^="bg-blue-600/"],
+  [class*=" bg-blue-600/"],
+  [class*="!bg-blue-600/"]
+) {
+  background-color: rgba(15, 118, 110, 0.16) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="border-cyan-"],
+  [class*=" border-cyan-"],
+  [class*="!border-cyan-"],
+  [class^="border-blue-"],
+  [class*=" border-blue-"],
+  [class*="!border-blue-"]
+) {
+  border-color: rgba(17, 94, 89, 0.55) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-emerald-500/"],
+  [class*=" bg-emerald-500/"]
+) {
+  background-color: rgba(22, 101, 52, 0.14) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-rose-500/"],
+  [class*=" bg-rose-500/"]
+) {
+  background-color: rgba(153, 27, 27, 0.12) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-amber-500/"],
+  [class*=" bg-amber-500/"],
+  [class^="bg-amber-600/"],
+  [class*=" bg-amber-600/"],
+  [class*="!bg-amber-500/"],
+  [class*="!bg-amber-600/"]
+) {
+  background-color: rgba(146, 64, 14, 0.12) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="border-amber-"],
+  [class*=" border-amber-"],
+  [class*="!border-amber-"]
+) {
+  border-color: rgba(146, 64, 14, 0.5) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-violet-500/"],
+  [class*=" bg-violet-500/"]
+) {
+  background-color: rgba(55, 48, 163, 0.1) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class^="bg-orange-500/"],
+  [class*=" bg-orange-500/"]
+) {
+  background-color: rgba(154, 52, 18, 0.12) !important;
+}
+
+html[data-theme="cream"] :is(
+  [class*="hover:bg-cyan-500/"]:hover,
+  [class*="hover:bg-cyan-500\/"]:hover,
+  [class*="hover:bg-blue-500/"]:hover
+) {
+  background-color: rgba(15, 118, 110, 0.16) !important;
+}
+
+html[data-theme="cream"] header.rounded-2xl,
+html[data-theme="cream"] main.rounded-2xl {
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.05), 0 1px 3px rgba(28, 25, 23, 0.08);
+  border-color: #b0a698 !important;
+}
+
+html[data-theme="cream"] .shadow-xl,
+html[data-theme="cream"] .shadow-2xl {
+  box-shadow:
+    0 10px 15px -3px rgba(28, 25, 23, 0.1),
+    0 4px 6px -4px rgba(28, 25, 23, 0.08) !important;
+}
+
+html[data-theme="cream"] input,
+html[data-theme="cream"] textarea,
+html[data-theme="cream"] select {
   border-color: var(--pv-border-strong);
 }
 

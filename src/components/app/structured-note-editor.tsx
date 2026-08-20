@@ -827,7 +827,8 @@ export function StructuredNoteEditor({
           <Button
             className={cn(
               "!h-7 !px-2 !text-[11px]",
-              isFixed && "!border-amber-500/50 !bg-amber-500/20 !text-amber-200 hover:!bg-amber-500/30"
+              isFixed &&
+                "!border-[color-mix(in_srgb,var(--warning)_50%,transparent)] !bg-[color-mix(in_srgb,var(--warning)_16%,transparent)] !text-[var(--pv-fg)] hover:!bg-[color-mix(in_srgb,var(--warning)_26%,transparent)]"
             )}
             disabled={fixSaving === fieldKey}
             onClick={() => toggleFix(fieldKey)}
@@ -922,7 +923,8 @@ export function StructuredNoteEditor({
           <Button
             className={cn(
               "!h-7 !px-2 !text-[11px]",
-              fitMode && "!border-amber-500/50 !bg-amber-500/20 !text-amber-200 hover:!bg-amber-500/30"
+              fitMode &&
+                "!border-[color-mix(in_srgb,var(--warning)_50%,transparent)] !bg-[color-mix(in_srgb,var(--warning)_16%,transparent)] !text-[var(--pv-fg)] hover:!bg-[color-mix(in_srgb,var(--warning)_26%,transparent)]"
             )}
             title={
               fitMode
