@@ -1,5 +1,5 @@
 import { clinicDisplayName } from "./branding";
-import { FORM_META_KEYS, getClinicalFormTemplate } from "./clinical-forms";
+import { buildFormSummary, FORM_META_KEYS, getClinicalFormTemplate } from "./clinical-forms";
 
 function escapeHtml(text: string) {
   return text

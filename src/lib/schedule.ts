@@ -45,8 +45,8 @@ export function toScheduleEntryDTO(entry: {
     checkedInAt: toIsoString(entry.checkedInAt),
     readyAt: toIsoString(entry.readyAt),
     noShowAt: toIsoString(entry.noShowAt),
-    roomNumber: entry.roomNumber,
-    docNotes: entry.docNotes,
+    roomNumber: entry.roomNumber ?? null,
+    docNotes: entry.docNotes ?? null,
     docNotesAcknowledgedAt: toIsoString(entry.docNotesAcknowledgedAt),
   };
 }
