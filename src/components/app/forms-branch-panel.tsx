@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, FileText, Loader2, Plus } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ClinicalFormEditor, type EncounterFormData } from "@/components/app/clinical-form-editor";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
-import { FORM_REGISTRY } from "@/lib/forms/registry";
+import { listFormRegistry } from "@/lib/forms/registry";
 import { formatDate } from "@/lib/utils";
 
 type Workspace =
@@ -19,16 +19,21 @@ export function FormsBranchPanel({
   encounterId,
   forms,
   isReadOnly,
+  officeCode,
   onRefresh,
 }: {
   patientId: string;
   encounterId: string;
   forms: EncounterFormData[];
   isReadOnly: boolean;
+  /** Active clinic code — used to filter office-specific templates (e.g. NCCC 6MWT). */
+  officeCode?: string | null;
   onRefresh: () => Promise<void>;
 }) {
+  const availableTemplates = listFormRegistry(officeCode);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [faxTarget, setFaxTarget] = useState<{
     documentId: string;
@@ -79,6 +84,26 @@ export function FormsBranchPanel({
       setError(e instanceof Error ? e.message : "Failed to create form");
     } finally {
       setCreating(null);
+    }
+  };
+
+  const handleDeleteDraft = async (form: EncounterFormData) => {
+    if (form.status !== "DRAFT") return;
+    if (!window.confirm(`Delete draft “${form.templateLabel}”? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingId(form.id);
+    setError(null);
+    try {
+      await api(`/api/patients/${patientId}/forms/${form.id}`, { method: "DELETE" });
+      if (workspace?.type === "editor" && workspace.form.id === form.id) {
+        closeWorkspace();
+      }
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete draft form");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -144,29 +169,47 @@ export function FormsBranchPanel({
         <ul className="flex flex-col gap-1.5 overflow-y-auto">
           {forms.map((form) => (
             <li key={form.id}>
-              <button
-                type="button"
-                onClick={() => openEditor(form)}
-                className="flex w-full items-center gap-3 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2.5 text-left transition-colors hover:border-cyan-900/60 hover:bg-[#141c28]"
-              >
-                <FileText
-                  size={16}
-                  className={
-                    form.status === "COMPLETED"
-                      ? "shrink-0 text-emerald-400"
-                      : "shrink-0 text-cyan-400"
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-[#d4dce8]">
-                    {form.templateLabel}
-                  </p>
-                  <p className="text-xs text-[var(--pv-muted)]">
-                    {form.status === "COMPLETED" && form.completedAt
-                      ? `Attached ${formatDate(form.completedAt)}`
-                      : "Draft"}
-                  </p>
-                </div>
+              <div className="flex w-full items-center gap-2 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2.5 transition-colors hover:border-cyan-900/60 hover:bg-[#141c28]">
+                <button
+                  type="button"
+                  onClick={() => openEditor(form)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <FileText
+                    size={16}
+                    className={
+                      form.status === "COMPLETED"
+                        ? "shrink-0 text-emerald-400"
+                        : "shrink-0 text-cyan-400"
+                    }
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-[#d4dce8]">
+                      {form.templateLabel}
+                    </p>
+                    <p className="text-xs text-[var(--pv-muted)]">
+                      {form.status === "COMPLETED" && form.completedAt
+                        ? `Attached ${formatDate(form.completedAt)}`
+                        : "Draft"}
+                    </p>
+                  </div>
+                </button>
+                {!isReadOnly && form.status === "DRAFT" && (
+                  <button
+                    type="button"
+                    disabled={deletingId === form.id}
+                    title="Delete draft"
+                    aria-label="Delete draft"
+                    onClick={() => void handleDeleteDraft(form)}
+                    className="shrink-0 rounded p-1 text-[var(--pv-muted)] transition-colors hover:bg-rose-950/50 hover:text-rose-300 disabled:opacity-50"
+                  >
+                    {deletingId === form.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={14} />
+                    )}
+                  </button>
+                )}
                 {form.status === "COMPLETED" ? (
                   <CheckCircle2
                     size={16}
@@ -177,7 +220,7 @@ export function FormsBranchPanel({
                     Draft
                   </span>
                 )}
-              </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -196,7 +239,7 @@ export function FormsBranchPanel({
               Choose a template to start a new form for this encounter.
             </p>
             <ul className="grid gap-2 sm:grid-cols-2">
-              {FORM_REGISTRY.map((template) => (
+              {availableTemplates.map((template) => (
                 <li key={template.id}>
                   <button
                     type="button"
@@ -220,6 +263,11 @@ export function FormsBranchPanel({
                 </li>
               ))}
             </ul>
+            {availableTemplates.length === 0 && (
+              <p className="text-sm text-[var(--pv-muted)]">
+                No form templates are available for this clinic.
+              </p>
+            )}
           </div>
         )}
 

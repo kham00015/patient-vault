@@ -37,9 +37,11 @@ import {
 import {
   isNotePanelCollapsed,
   loadCollapsedNotePanels,
+  persistCollapsedNotePanels,
   toggleNotePanelCollapsed,
   type CollapsibleNotePanelKey,
 } from "@/lib/note-section-layout";
+import { readUserScopedItem, writeUserScopedItem } from "@/lib/user-local-storage";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -69,31 +71,25 @@ const FIT_GROUP_GROW_DEFAULTS: Record<string, number> = {
   medications: 1.1,
 };
 
-function loadNoteFitMode() {
-  if (typeof window === "undefined") return false;
+function loadNoteFitMode(userId?: string | null) {
   try {
-    return window.localStorage.getItem(NOTE_FIT_KEY) === "1";
+    return readUserScopedItem(NOTE_FIT_KEY, userId) === "1";
   } catch {
     return false;
   }
 }
 
-function persistNoteFitMode(on: boolean) {
-  try {
-    window.localStorage.setItem(NOTE_FIT_KEY, on ? "1" : "0");
-  } catch {
-    // ignore
-  }
+function persistNoteFitMode(on: boolean, userId?: string | null) {
+  writeUserScopedItem(NOTE_FIT_KEY, on ? "1" : "0", userId);
 }
 
 function defaultFitGroupGrow(groupId: string) {
   return FIT_GROUP_GROW_DEFAULTS[groupId] ?? 1;
 }
 
-function loadFitGroupGrow(): Record<string, number> {
-  if (typeof window === "undefined") return {};
+function loadFitGroupGrow(userId?: string | null): Record<string, number> {
   try {
-    const raw = window.localStorage.getItem(FIT_GROUP_GROW_KEY);
+    const raw = readUserScopedItem(FIT_GROUP_GROW_KEY, userId);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -107,12 +103,8 @@ function loadFitGroupGrow(): Record<string, number> {
   }
 }
 
-function persistFitGroupGrow(grow: Record<string, number>) {
-  try {
-    window.localStorage.setItem(FIT_GROUP_GROW_KEY, JSON.stringify(grow));
-  } catch {
-    // ignore
-  }
+function persistFitGroupGrow(grow: Record<string, number>, userId?: string | null) {
+  writeUserScopedItem(FIT_GROUP_GROW_KEY, JSON.stringify(grow), userId);
 }
 
 function FitGroupResizeHandle({
@@ -384,6 +376,7 @@ function fitStackedRowTemplate(
 
 export function StructuredNoteEditor({
   patientId,
+  userId,
   note,
   chartInsertData,
   patientDiagnosis,
@@ -396,6 +389,7 @@ export function StructuredNoteEditor({
   backLabel = "Back to Encounter",
 }: {
   patientId: string;
+  userId: string;
   note: StructuredNoteData;
   chartInsertData: PatientChartInsertSnapshot;
   patientDiagnosis?: string | null;
@@ -465,19 +459,53 @@ export function StructuredNoteEditor({
   const hasDiagnosis = Boolean(diagnosisText);
 
   useEffect(() => {
-    setCollapsedPanels(loadCollapsedNotePanels());
-    setFitMode(loadNoteFitMode());
-    setFitGroupGrow(loadFitGroupGrow());
-  }, []);
+    setCollapsedPanels(loadCollapsedNotePanels(userId));
+    setFitMode(loadNoteFitMode(userId));
+    setFitGroupGrow(loadFitGroupGrow(userId));
+
+    let cancelled = false;
+    api<{
+      noteFit?: boolean;
+      fitGroupGrow?: Record<string, number>;
+      collapsedPanels?: string[];
+    }>("/api/me/chart-ui")
+      .then((data) => {
+        if (cancelled) return;
+        if (typeof data.noteFit === "boolean") {
+          setFitMode(data.noteFit);
+          persistNoteFitMode(data.noteFit, userId);
+        }
+        if (data.fitGroupGrow && Object.keys(data.fitGroupGrow).length) {
+          setFitGroupGrow(data.fitGroupGrow);
+          persistFitGroupGrow(data.fitGroupGrow, userId);
+        }
+        if (data.collapsedPanels) {
+          const next = new Set(data.collapsedPanels) as Set<CollapsibleNotePanelKey>;
+          setCollapsedPanels(next);
+          persistCollapsedNotePanels(next, userId);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (fitGrowSaveTimer.current) window.clearTimeout(fitGrowSaveTimer.current);
     if (!Object.keys(fitGroupGrow).length) return;
-    fitGrowSaveTimer.current = setTimeout(() => persistFitGroupGrow(fitGroupGrow), 200);
+    fitGrowSaveTimer.current = setTimeout(() => {
+      persistFitGroupGrow(fitGroupGrow, userId);
+      api("/api/me/chart-ui", {
+        method: "PATCH",
+        json: { fitGroupGrow },
+      }).catch(() => undefined);
+    }, 200);
     return () => {
       if (fitGrowSaveTimer.current) window.clearTimeout(fitGrowSaveTimer.current);
     };
-  }, [fitGroupGrow]);
+  }, [fitGroupGrow, userId]);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -524,7 +552,14 @@ export function StructuredNoteEditor({
   );
 
   function togglePanel(key: CollapsibleNotePanelKey) {
-    setCollapsedPanels((prev) => toggleNotePanelCollapsed(prev, key));
+    setCollapsedPanels((prev) => {
+      const next = toggleNotePanelCollapsed(prev, key, userId);
+      api("/api/me/chart-ui", {
+        method: "PATCH",
+        json: { collapsedPanels: [...next] },
+      }).catch(() => undefined);
+      return next;
+    });
   }
 
   function previewText(value: string | undefined) {
@@ -908,6 +943,9 @@ export function StructuredNoteEditor({
           <Button className="!h-8 !shrink-0 !text-xs" onClick={onBack}>
             <ArrowLeft size={14} /> {backLabel}
           </Button>
+          <span className="shrink-0 text-sm font-semibold text-cyan-200">
+            {getNoteTypeLabel(note.type)}
+          </span>
           <span
             className={cn(
               "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -934,7 +972,11 @@ export function StructuredNoteEditor({
             onClick={() => {
               setFitMode((on) => {
                 const next = !on;
-                persistNoteFitMode(next);
+                persistNoteFitMode(next, userId);
+                api("/api/me/chart-ui", {
+                  method: "PATCH",
+                  json: { noteFit: next },
+                }).catch(() => undefined);
                 return next;
               });
             }}
@@ -942,9 +984,6 @@ export function StructuredNoteEditor({
             <Maximize2 size={12} className={cn(fitMode && "rotate-45")} />
             Fit
           </Button>
-          <span className="shrink-0 text-sm font-semibold text-cyan-200">
-            {getNoteTypeLabel(note.type)}
-          </span>
           {!readOnly ? (
             <Input
               type="date"

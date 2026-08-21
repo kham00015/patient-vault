@@ -82,6 +82,8 @@ function formatEncounterTimelineDate(iso: string) {
 
 export function ChartEncountersPanel({
   patientId,
+  userId,
+  officeCode,
   chartInsertData,
   patientDiagnosis,
   isReadOnly,
@@ -89,8 +91,12 @@ export function ChartEncountersPanel({
   navigationIntent,
   onNavigationComplete,
   onPatientDataChange,
+  dataRevision = 0,
+  onDataChange,
 }: {
   patientId: string;
+  userId: string;
+  officeCode?: string | null;
   chartInsertData: PatientChartInsertSnapshot;
   patientDiagnosis?: string | null;
   isReadOnly: boolean;
@@ -98,6 +104,9 @@ export function ChartEncountersPanel({
   navigationIntent?: ChartNavigationIntent | null;
   onNavigationComplete?: () => void;
   onPatientDataChange?: () => Promise<void>;
+  /** Bumped by Documents (or other tabs) when chart content changes so forms stay in sync. */
+  dataRevision?: number;
+  onDataChange?: () => void;
 }) {
   const [encounters, setEncounters] = useState<EncounterSummary[]>([]);
   const [details, setDetails] = useState<Record<string, EncounterDetail>>({});
@@ -147,6 +156,18 @@ export function ChartEncountersPanel({
       .catch(() => setLoadError("Could not load encounters. Try refreshing the page."))
       .finally(() => setLoading(false));
   }, [loadEncounters]);
+
+  useEffect(() => {
+    if (!dataRevision) return;
+    void (async () => {
+      try {
+        await loadEncounters();
+        if (expandedId) await loadDetail(expandedId);
+      } catch {
+        /* keep existing UI */
+      }
+    })();
+  }, [dataRevision, loadEncounters, loadDetail, expandedId]);
 
   useEffect(() => {
     navigationHandledRef.current = false;
@@ -358,6 +379,7 @@ export function ChartEncountersPanel({
       <StructuredNoteEditor
         key={activeNote.id}
         patientId={patientId}
+        userId={userId}
         note={activeNote}
         chartInsertData={chartInsertData}
         patientDiagnosis={patientDiagnosis}
@@ -644,7 +666,11 @@ export function ChartEncountersPanel({
                               encounterId={enc.id}
                               forms={detail.forms}
                               isReadOnly={isReadOnly}
-                              onRefresh={() => refreshEncounter(enc.id)}
+                              officeCode={officeCode}
+                              onRefresh={async () => {
+                                await refreshEncounter(enc.id);
+                                onDataChange?.();
+                              }}
                             />
                           )}
 

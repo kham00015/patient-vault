@@ -110,7 +110,7 @@ export async function DELETE(request: Request, { params }: Params) {
   if (auth instanceof NextResponse) return auth;
   const consultantBlocked = await assertNotConsultantDocumentsOnly(auth.user);
   if (consultantBlocked) return consultantBlocked;
-  if (!canDelete(auth.user.role)) return forbidden();
+  if (!canWrite(auth.user.role)) return forbidden();
   const { id: patientId, formId } = await params;
   const officeDenied = await assertPatientReadable(auth.user, patientId);
   if (officeDenied) return officeDenied;
@@ -122,6 +122,10 @@ export async function DELETE(request: Request, { params }: Params) {
   if (!existing) return notFound();
   if (!isPatientChartWritable(existing.patient.status)) {
     return badRequest("Archived charts are read-only");
+  }
+  // Drafts: any writer can remove. Completed forms need delete privilege.
+  if (existing.status === "COMPLETED" && !canDelete(auth.user.role)) {
+    return forbidden();
   }
 
   if (existing.document) {
@@ -140,6 +144,7 @@ export async function DELETE(request: Request, { params }: Params) {
     patientId,
     ipAddress,
     userAgent,
+    metadata: { status: existing.status, templateId: existing.templateId },
   });
 
   return NextResponse.json({ ok: true });

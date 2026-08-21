@@ -187,7 +187,7 @@ export async function GET(request: Request, { params }: Params) {
       noteId: null,
       sectionKey: null,
       encounter: mapEncounter(form.encounter),
-      canDelete: false,
+      canDelete: form.status === "DRAFT",
       canRename: false,
       canFax: false,
       openUrl: `/api/patients/${patientId}/forms/${form.id}/pdf`,

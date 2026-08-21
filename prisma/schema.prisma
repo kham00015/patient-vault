@@ -92,6 +92,7 @@ model User {
   threadMessagesSent ThreadMessage[] @relation("SentThreadMessages")
   threadParticipations ThreadParticipant[] @relation("MessageThreadParticipants")
   remindersCreated Reminder[] @relation("CreatedReminders")
+  remindersAssigned Reminder[] @relation("AssignedReminders")
   contactsCreated Contact[] @relation("CreatedContacts")
   potentialsCreated PotentialPatient[] @relation("CreatedPotentialPatients")
   notesCreated Note[] @relation("CreatedNotes")
@@ -424,6 +425,7 @@ model Document {
   uploadedBy   User       @relation(fields: [uploadedById], references: [id])
   encounterForm EncounterForm?
   faxTransmissions FaxTransmission[]
+  reviewReminders Reminder[] @relation("ReminderReviewDocument")
 
   @@index([patientId])
   @@index([encounterId])
@@ -692,22 +694,32 @@ enum ReminderStatus {
 }
 
 model Reminder {
-  id          String         @id @default(cuid())
-  patientId   String
-  title       String
-  body        String?
-  dueDate     DateTime
-  status      ReminderStatus @default(PENDING)
-  completedAt DateTime?
-  createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  patient     Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  createdBy   User           @relation("CreatedReminders", fields: [createdById], references: [id])
+  id                String         @id @default(cuid())
+  patientId         String
+  title             String
+  body              String?
+  dueDate           DateTime
+  status            ReminderStatus @default(PENDING)
+  completedAt       DateTime?
+  createdById       String
+  assignedToId      String?
+  /** Real Document row when the review target is an upload/report snapshot. */
+  documentId        String?
+  /** Chart documents-list id (may be `form:…` / `note:…` or a Document id). */
+  reviewTargetId    String?
+  reviewTargetName  String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  patient           Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  createdBy         User           @relation("CreatedReminders", fields: [createdById], references: [id])
+  assignedTo        User?          @relation("AssignedReminders", fields: [assignedToId], references: [id], onDelete: SetNull)
+  document          Document?      @relation("ReminderReviewDocument", fields: [documentId], references: [id], onDelete: SetNull)
 
   @@index([patientId])
   @@index([dueDate])
   @@index([status])
+  @@index([assignedToId, status])
+  @@index([documentId])
 }
 
 /** Private per-user scratchpad — not part of the clinical chart */

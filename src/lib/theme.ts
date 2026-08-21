@@ -8,10 +8,25 @@ export function isThemeMode(value: unknown): value is ThemeMode {
   return value === "dark" || value === "light" || value === "cream";
 }
 
-export function getStoredTheme(): ThemeMode {
+export function themeStorageKey(userId?: string | null) {
+  return userId ? `${THEME_STORAGE_KEY}:${userId}` : THEME_STORAGE_KEY;
+}
+
+export function getStoredTheme(userId?: string | null): ThemeMode {
   if (typeof window === "undefined") return "dark";
-  const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return isThemeMode(raw) ? raw : "dark";
+  const scoped = window.localStorage.getItem(themeStorageKey(userId));
+  if (isThemeMode(scoped)) return scoped;
+
+  // One-time migrate from the old shared browser key into this user's key.
+  if (userId) {
+    const legacy = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (isThemeMode(legacy)) {
+      window.localStorage.setItem(themeStorageKey(userId), legacy);
+      return legacy;
+    }
+  }
+
+  return "dark";
 }
 
 export function nextTheme(mode: ThemeMode): ThemeMode {
@@ -36,7 +51,7 @@ export function applyTheme(mode: ThemeMode) {
   document.documentElement.style.colorScheme = themeColorScheme(mode);
 }
 
-export function persistTheme(mode: ThemeMode) {
+export function persistTheme(mode: ThemeMode, userId?: string | null) {
   applyTheme(mode);
-  window.localStorage.setItem(THEME_STORAGE_KEY, mode);
+  window.localStorage.setItem(themeStorageKey(userId), mode);
 }

@@ -8,7 +8,7 @@ import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { isPatientChartWritable } from "@/lib/patients";
 import { toFormDTO } from "@/lib/forms";
-import { getClinicalFormTemplate } from "@/lib/clinical-forms";
+import { formAvailableForOffice, getClinicalFormTemplate } from "@/lib/clinical-forms";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -77,6 +77,9 @@ export async function POST(request: Request, { params }: Params) {
     const body = createSchema.parse(await request.json());
     const template = getClinicalFormTemplate(body.templateId);
     if (!template) return badRequest("Unknown form template");
+    if (!formAvailableForOffice(template, auth.user.officeCode)) {
+      return forbidden();
+    }
 
     const form = await prisma.encounterForm.create({
       data: {

@@ -13,6 +13,8 @@ export type FormField = {
   options?: FormFieldOption[];
   required?: boolean;
   helpText?: string;
+  /** Groups fields under a heading in the editor / PDF. */
+  section?: string;
 };
 
 export type FormScoreResult = {
@@ -30,6 +32,11 @@ export type ClinicalFormTemplate = {
   fields: FormField[];
   requiresPatientSignature?: boolean;
   requiresProviderSignature?: boolean;
+  /**
+   * When set, template is only offered for these office codes
+   * (e.g. clinic-2 = Nevada Critical Care Consultants).
+   */
+  officeCodes?: string[];
   scoreResponses: (responses: Record<string, string>) => FormScoreResult | null;
 };
 
@@ -58,6 +65,21 @@ export function getClinicalFormLabel(templateId: string) {
 
 export function listClinicalFormTemplates() {
   return CLINICAL_FORM_TEMPLATES.map(({ scoreResponses: _, ...rest }) => rest);
+}
+
+export function listClinicalFormTemplatesForOffice(officeCode?: string | null) {
+  return CLINICAL_FORM_TEMPLATES.filter((t) => formAvailableForOffice(t, officeCode)).map(
+    ({ scoreResponses: _, ...rest }) => rest
+  );
+}
+
+export function formAvailableForOffice(
+  template: ClinicalFormTemplate,
+  officeCode?: string | null
+) {
+  if (!template.officeCodes?.length) return true;
+  if (!officeCode) return false;
+  return template.officeCodes.includes(officeCode);
 }
 
 export function suggestFormTemplates(patientContext?: { diagnosis?: string | null }) {

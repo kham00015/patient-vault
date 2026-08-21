@@ -1,13 +1,13 @@
 import type { NoteSectionKey } from "./note-content";
+import { readUserScopedItem, writeUserScopedItem } from "./user-local-storage";
 
 const STORAGE_KEY = "pv-note-section-collapsed";
 
 export type CollapsibleNotePanelKey = NoteSectionKey | "vitals";
 
-function readCollapsedSet(): Set<string> {
-  if (typeof window === "undefined") return new Set();
+function readCollapsedSet(userId?: string | null): Set<string> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readUserScopedItem(STORAGE_KEY, userId);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Set();
@@ -17,17 +17,12 @@ function readCollapsedSet(): Set<string> {
   }
 }
 
-function writeCollapsedSet(keys: Set<string>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify([...keys]));
-  } catch {
-    // Ignore quota / private-mode failures.
-  }
+function writeCollapsedSet(keys: Set<string>, userId?: string | null) {
+  writeUserScopedItem(STORAGE_KEY, JSON.stringify([...keys]), userId);
 }
 
-export function loadCollapsedNotePanels(): Set<CollapsibleNotePanelKey> {
-  return readCollapsedSet() as Set<CollapsibleNotePanelKey>;
+export function loadCollapsedNotePanels(userId?: string | null): Set<CollapsibleNotePanelKey> {
+  return readCollapsedSet(userId) as Set<CollapsibleNotePanelKey>;
 }
 
 export function isNotePanelCollapsed(
@@ -39,11 +34,19 @@ export function isNotePanelCollapsed(
 
 export function toggleNotePanelCollapsed(
   collapsed: Set<CollapsibleNotePanelKey>,
-  key: CollapsibleNotePanelKey
+  key: CollapsibleNotePanelKey,
+  userId?: string | null
 ): Set<CollapsibleNotePanelKey> {
   const next = new Set(collapsed);
   if (next.has(key)) next.delete(key);
   else next.add(key);
-  writeCollapsedSet(next);
+  writeCollapsedSet(next, userId);
   return next;
+}
+
+export function persistCollapsedNotePanels(
+  collapsed: Set<CollapsibleNotePanelKey>,
+  userId?: string | null
+) {
+  writeCollapsedSet(collapsed, userId);
 }

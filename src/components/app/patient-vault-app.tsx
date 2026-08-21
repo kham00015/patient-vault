@@ -42,6 +42,7 @@ import { SectionDocumentUploads } from "@/components/app/note-section-uploads";
 import { SectionTextReports } from "@/components/app/section-text-reports";
 import { TextReportDocumentEditor } from "@/components/app/text-report-document-editor";
 import { ThemeToggle } from "@/components/app/theme-toggle";
+import { useTheme } from "@/components/app/theme-provider";
 import { ProviderProfileMenu } from "@/components/app/provider-profile-menu";
 import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 import { CLINIC_NAME } from "@/lib/branding";
@@ -58,6 +59,7 @@ import {
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { IdleSessionGuard } from "@/components/app/idle-session-guard";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
+import { SendDocumentReviewModal } from "@/components/app/send-document-review-modal";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import type { CreatePatientInput } from "@/lib/patient-registration";
 import type { ArchivePatientInput } from "@/lib/patient-lifecycle";
@@ -75,6 +77,7 @@ import {
   NOTES_LIST_WIDTH_MIN,
   persistNotesListWidth,
 } from "@/lib/notes-list-layout";
+import { loadIdleLockEnabled, persistIdleLockEnabled } from "@/lib/idle-lock";
 import { cn, formatDate, formatDateOnly, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import {
@@ -86,6 +89,7 @@ import {
   FileText,
   FileWarning,
   List,
+  Loader2,
   LogOut,
   MessageSquare,
   Bell,
@@ -395,6 +399,8 @@ type SelectPatientOptions = {
   encounterId?: string;
   openNotesBranch?: boolean;
   openNote?: boolean;
+  chartTab?: ChartTab;
+  documentId?: string;
 };
 
 export default function PatientVaultApp({
@@ -405,6 +411,7 @@ export default function PatientVaultApp({
   sessionTimeoutMinutes?: number;
 }) {
   const router = useRouter();
+  const { setThemeUser } = useTheme();
   const [user, setUser] = useState(initialUser);
   const [mustChangePassword, setMustChangePassword] = useState(!!initialUser.mustChangePassword);
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -441,6 +448,13 @@ export default function PatientVaultApp({
   const [remindersRefreshKey, setRemindersRefreshKey] = useState(0);
   const [unsignedNotesCount, setUnsignedNotesCount] = useState(0);
   const [unsignedNotesRefreshKey, setUnsignedNotesRefreshKey] = useState(0);
+  const [idleLockEnabled, setIdleLockEnabled] = useState(true);
+
+  useEffect(() => {
+    setThemeUser(user.id);
+    setIdleLockEnabled(loadIdleLockEnabled(user.id));
+    return () => setThemeUser(null);
+  }, [user.id, setThemeUser]);
 
   const activeChart = useMemo(
     () => openCharts.find((c) => c.patient.id === activePatientId) ?? null,
@@ -642,6 +656,21 @@ export default function PatientVaultApp({
                 : c
             )
           );
+        } else if (options?.documentId || options?.chartTab === "documents") {
+          setOpenCharts((prev) =>
+            prev.map((c) =>
+              c.patient.id === patient.id
+                ? {
+                    ...c,
+                    chartTab: "documents",
+                    chartNavigationIntent: {
+                      chartTab: "documents",
+                      documentId: options.documentId,
+                    },
+                  }
+                : c
+            )
+          );
         }
         notify(`Switched to ${formatDisplayName(existing.patient)}`, "success");
         return;
@@ -662,6 +691,7 @@ export default function PatientVaultApp({
         }
 
         let intent: ChartNavigationIntent | null = null;
+        let initialTab: ChartTab = user.role === "CONSULTANT" ? "documents" : "encounters";
         if (user.role !== "CONSULTANT") {
           if (options?.fromSchedule && options.scheduleDate) {
             intent = {
@@ -676,13 +706,24 @@ export default function PatientVaultApp({
               openNotesBranch: options.openNotesBranch ?? true,
               openNote: options.openNote ?? false,
             };
+          } else if (options?.documentId || options?.chartTab === "documents") {
+            initialTab = "documents";
+            intent = {
+              chartTab: "documents",
+              documentId: options.documentId,
+            };
           }
+        } else if (options?.documentId) {
+          intent = {
+            chartTab: "documents",
+            documentId: options.documentId,
+          };
         }
 
         const nextChart: OpenChart = {
           patient: data.patient,
           notes,
-          chartTab: user.role === "CONSULTANT" ? "documents" : "encounters",
+          chartTab: initialTab,
           chartNavigationIntent: intent,
         };
 
@@ -777,6 +818,11 @@ export default function PatientVaultApp({
     setRemindersRefreshKey((k) => k + 1);
     refreshReminderSummary().catch(() => undefined);
   }, [refreshReminderSummary]);
+
+  const [chartDataRevision, setChartDataRevision] = useState(0);
+  const bumpChartData = useCallback(() => {
+    setChartDataRevision((k) => k + 1);
+  }, []);
 
   useEffect(() => {
     refreshReminderSummary().catch(() => undefined);
@@ -951,6 +997,7 @@ export default function PatientVaultApp({
 
   async function logout() {
     await flushChartUi();
+    setThemeUser(null);
     await api("/api/auth/login", { method: "DELETE" });
     router.push("/login");
     router.refresh();
@@ -958,10 +1005,11 @@ export default function PatientVaultApp({
 
   const idleLogout = useCallback(async () => {
     await flushChartUi();
+    setThemeUser(null);
     await api("/api/auth/login", { method: "DELETE" });
     router.push("/login?reason=idle");
     router.refresh();
-  }, [flushChartUi, router]);
+  }, [flushChartUi, router, setThemeUser]);
 
   async function addPatient(data: CreatePatientInput) {
     const result = await api<{ patient: Patient }>("/api/patients", {
@@ -1184,7 +1232,11 @@ export default function PatientVaultApp({
 
   return (
     <>
-    <IdleSessionGuard timeoutMinutes={sessionTimeoutMinutes} onIdleLogout={idleLogout} />
+    <IdleSessionGuard
+      timeoutMinutes={sessionTimeoutMinutes}
+      enabled={idleLockEnabled}
+      onIdleLogout={idleLogout}
+    />
     <div className={cn("flex h-screen flex-col gap-3 p-3 md:p-4", mustChangePassword && "pointer-events-none opacity-40")}>
       <header className="flex shrink-0 items-center gap-3 rounded-2xl border border-[var(--pv-border)] bg-[var(--pv-surface)] px-3 py-2.5 md:px-4">
         <div className="min-w-0 shrink-0 pr-1">
@@ -1211,6 +1263,11 @@ export default function PatientVaultApp({
               <ProviderProfileMenu
                 displayName={user.name ?? user.email}
                 className="truncate text-left text-xs text-cyan-300 hover:text-cyan-200 hover:underline"
+                idleLockEnabled={idleLockEnabled}
+                onIdleLockChange={(enabled) => {
+                  persistIdleLockEnabled(enabled, user.id);
+                  setIdleLockEnabled(enabled);
+                }}
               />
             </>
           ) : (
@@ -1221,12 +1278,17 @@ export default function PatientVaultApp({
               <ProviderProfileMenu
                 displayName={user.name ?? user.email}
                 className="truncate text-left text-base font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
+                idleLockEnabled={idleLockEnabled}
+                onIdleLockChange={(enabled) => {
+                  persistIdleLockEnabled(enabled, user.id);
+                  setIdleLockEnabled(enabled);
+                }}
               />
             </>
           )}
         </div>
 
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-sm">
           {menuItems
             .filter((item) => !("hidden" in item && item.hidden))
             .map((item) => (
@@ -1235,7 +1297,7 @@ export default function PatientVaultApp({
               variant="ghost"
               title={item.label}
               className={cn(
-                "!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border",
+                "!h-10 !shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-sm border",
                 ((item.id === "schedule" && mainView === "schedule") ||
                   (item.id === "lists" && mainView === "lists") ||
                   (item.id === "messages" && mainView === "messages") ||
@@ -1250,25 +1312,25 @@ export default function PatientVaultApp({
               disabled={Boolean("disabled" in item && item.disabled)}
               onClick={() => handleNavClick(item.id)}
             >
-              <item.icon size={18} className={item.color} />
+              <item.icon size={16} className={item.color} />
               <span className="whitespace-nowrap">{item.label}</span>
               {item.id === "messages" && unreadMessages > 0 && (
-                <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {unreadMessages > 9 ? "9+" : unreadMessages}
                 </span>
               )}
               {item.id === "referrals" && unreadReferrals > 0 && (
-                <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                <span className="rounded-full bg-cyan-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {unreadReferrals > 9 ? "9+" : unreadReferrals}
                 </span>
               )}
               {item.id === "reminders" && pendingReminders > 0 && (
-                <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {pendingReminders > 9 ? "9+" : pendingReminders}
                 </span>
               )}
               {item.id === "unsignedNotes" && unsignedNotesCount > 0 && (
-                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   {unsignedNotesCount > 9 ? "9+" : unsignedNotesCount}
                 </span>
               )}
@@ -1277,27 +1339,27 @@ export default function PatientVaultApp({
           {(user.role === "ADMIN" || user.isPlatformOwner) && (
             <Button
               variant="ghost"
-              className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+              className="!h-10 !shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-sm border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
               onClick={() => handleNavClick("users")}
             >
-              <UserCog size={18} className="text-cyan-400" /> Users
+              <UserCog size={16} className="text-cyan-400" /> Users
             </Button>
           )}
           {(user.role === "ADMIN" || user.isPlatformOwner) && (
             <Button
               variant="ghost"
-              className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+              className="!h-10 !shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-sm border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
               onClick={() => handleNavClick("audit")}
             >
-              <ClipboardList size={18} className="text-cyan-400" /> Audit Log
+              <ClipboardList size={16} className="text-cyan-400" /> Audit Log
             </Button>
           )}
           <Button
             variant="ghost"
-            className="!h-11 !shrink-0 !gap-2 !px-3 !py-2 !text-base border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+            className="!h-10 !shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-sm border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
             onClick={() => setModal("security")}
           >
-            <Shield size={18} className="text-violet-400" /> Account security
+            <Shield size={16} className="text-violet-400" /> Account security
           </Button>
         </nav>
 
@@ -1707,7 +1769,7 @@ export default function PatientVaultApp({
               patients={patients}
               refreshKey={remindersRefreshKey}
               onMutate={bumpReminders}
-              onSelectPatient={selectPatient}
+              onSelectPatient={(p, opts) => void selectPatient(p, opts)}
               canEdit={user.role !== "READONLY"}
             />
           ) : mainView === "unsignedNotes" ? (
@@ -1747,6 +1809,8 @@ export default function PatientVaultApp({
               <div className={cn("flex min-h-0 flex-1 flex-col", chartTab !== "encounters" && "hidden")}>
                 <ChartEncountersPanel
                   patientId={current.id}
+                  userId={user.id}
+                  officeCode={user.officeCode}
                   chartInsertData={chartInsertData}
                   patientDiagnosis={current.diagnosis}
                   isReadOnly={!!isChartReadOnly}
@@ -1754,12 +1818,15 @@ export default function PatientVaultApp({
                   navigationIntent={chartNavigationIntent}
                   onNavigationComplete={() => setChartNavigationIntent(null)}
                   onPatientDataChange={refreshNotes}
+                  dataRevision={chartDataRevision}
+                  onDataChange={bumpChartData}
                 />
               </div>
               <div className={cn("flex min-h-0 flex-1 flex-col", chartTab !== "notes" && "hidden")}>
                 <ChartNotesPanel
                   isReadOnly={!!isChartReadOnly}
                   patientId={current.id}
+                  userId={user.id}
                   notes={notes}
                   chartInsertData={chartInsertData}
                   patientDiagnosis={current.diagnosis}
@@ -1815,6 +1882,16 @@ export default function PatientVaultApp({
                   canRemoveRecords={canRemoveRecords && !isConsultantUser}
                   showEncounterBadge={!isConsultantUser}
                   documentsOnly={isConsultantUser}
+                  canSendForReview={user.role !== "READONLY"}
+                  openDocumentId={
+                    chartNavigationIntent?.chartTab === "documents"
+                      ? chartNavigationIntent.documentId ?? null
+                      : null
+                  }
+                  onOpenDocumentHandled={() => setChartNavigationIntent(null)}
+                  onReviewSent={bumpReminders}
+                  dataRevision={chartDataRevision}
+                  onDataChange={bumpChartData}
                 />
               </div>
             </>
@@ -2038,6 +2115,7 @@ function PatientsModal({
 function ChartNotesPanel({
   notes,
   patientId,
+  userId,
   chartInsertData,
   patientDiagnosis,
   isReadOnly,
@@ -2045,6 +2123,7 @@ function ChartNotesPanel({
   onRefresh,
 }: {
   patientId: string;
+  userId: string;
   notes: Note[];
   chartInsertData: PatientChartInsertSnapshot;
   patientDiagnosis?: string | null;
@@ -2065,8 +2144,20 @@ function ChartNotesPanel({
   const listFontPx = Math.round(11 * listFontScale);
 
   useEffect(() => {
-    setListWidth(loadNotesListWidth());
-  }, []);
+    setListWidth(loadNotesListWidth(userId));
+    let cancelled = false;
+    api<{ notesListWidth?: number }>("/api/me/chart-ui")
+      .then((data) => {
+        if (cancelled || typeof data.notesListWidth !== "number") return;
+        const next = clampNotesListWidth(data.notesListWidth);
+        setListWidth(next);
+        persistNotesListWidth(next, userId);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!resizingList) return;
@@ -2081,7 +2172,11 @@ function ChartNotesPanel({
     function onUp() {
       setResizingList(false);
       setListWidth((w) => {
-        persistNotesListWidth(w);
+        persistNotesListWidth(w, userId);
+        api("/api/me/chart-ui", {
+          method: "PATCH",
+          json: { notesListWidth: w },
+        }).catch(() => undefined);
         return w;
       });
     }
@@ -2098,7 +2193,7 @@ function ChartNotesPanel({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [resizingList]);
+  }, [resizingList, userId]);
 
   useEffect(() => {
     if (activeNoteId && !notes.some((n) => n.id === activeNoteId)) {
@@ -2268,14 +2363,22 @@ function ChartNotesPanel({
             e.preventDefault();
             setListWidth((w) => {
               const next = clampNotesListWidth(w - 16);
-              persistNotesListWidth(next);
+              persistNotesListWidth(next, userId);
+              api("/api/me/chart-ui", {
+                method: "PATCH",
+                json: { notesListWidth: next },
+              }).catch(() => undefined);
               return next;
             });
           } else if (e.key === "ArrowRight") {
             e.preventDefault();
             setListWidth((w) => {
               const next = clampNotesListWidth(w + 16);
-              persistNotesListWidth(next);
+              persistNotesListWidth(next, userId);
+              api("/api/me/chart-ui", {
+                method: "PATCH",
+                json: { notesListWidth: next },
+              }).catch(() => undefined);
               return next;
             });
           }
@@ -2305,6 +2408,7 @@ function ChartNotesPanel({
           <StructuredNoteEditor
             key={activeNote.id}
             patientId={patientId}
+            userId={userId}
             note={{
               id: activeNote.id,
               type: activeNote.type,
@@ -2531,12 +2635,24 @@ function ChartDocumentsPanel({
   canRemoveRecords,
   showEncounterBadge,
   documentsOnly,
+  canSendForReview = false,
+  openDocumentId = null,
+  onOpenDocumentHandled,
+  onReviewSent,
+  dataRevision = 0,
+  onDataChange,
 }: {
   patientId: string;
   isReadOnly: boolean;
   canRemoveRecords?: boolean;
   showEncounterBadge?: boolean;
   documentsOnly?: boolean;
+  canSendForReview?: boolean;
+  openDocumentId?: string | null;
+  onOpenDocumentHandled?: () => void;
+  onReviewSent?: () => void;
+  dataRevision?: number;
+  onDataChange?: () => void;
 }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [encounters, setEncounters] = useState<{ id: string; label: string }[]>([]);
@@ -2546,6 +2662,7 @@ function ChartDocumentsPanel({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -2555,6 +2672,7 @@ function ChartDocumentsPanel({
   const [faxDocIds, setFaxDocIds] = useState<string[]>([]);
   const [faxNotice, setFaxNotice] = useState("");
   const [viewerDoc, setViewerDoc] = useState<DocumentItem | null>(null);
+  const [reviewDoc, setReviewDoc] = useState<DocumentItem | null>(null);
 
   const load = useCallback(async () => {
     const docData = await api<{ documents: DocumentItem[] }>(
@@ -2591,6 +2709,24 @@ function ChartDocumentsPanel({
   useEffect(() => {
     load().catch(() => undefined);
   }, [load]);
+
+  useEffect(() => {
+    if (!dataRevision) return;
+    load().catch(() => undefined);
+  }, [dataRevision, load]);
+
+  useEffect(() => {
+    if (!openDocumentId || docs.length === 0) return;
+    const match =
+      docs.find((d) => d.id === openDocumentId) ||
+      docs.find((d) => d.sourceId === openDocumentId) ||
+      docs.find((d) => d.id === `form:${openDocumentId}`) ||
+      docs.find((d) => d.id === `note:${openDocumentId}`);
+    if (match) {
+      setViewerDoc(match);
+    }
+    onOpenDocumentHandled?.();
+  }, [openDocumentId, docs, onOpenDocumentHandled]);
 
   const faxableDocs = docs.filter((d) => d.canFax === true);
 
@@ -2635,6 +2771,27 @@ function ChartDocumentsPanel({
 
   function openDocument(doc: DocumentItem) {
     setViewerDoc(doc);
+  }
+
+  async function deleteDraftForm(doc: DocumentItem) {
+    if (doc.kind !== "form" || doc.status !== "DRAFT") return;
+    const formId = doc.id.startsWith("form:") ? doc.id.slice("form:".length) : doc.sourceId;
+    if (!formId) return;
+    if (!window.confirm(`Delete draft “${doc.name}”? This removes it from Documents and the encounter.`)) {
+      return;
+    }
+    setDeletingDraftId(doc.id);
+    setFaxNotice("");
+    try {
+      await api(`/api/patients/${patientId}/forms/${formId}`, { method: "DELETE" });
+      if (viewerDoc?.id === doc.id) setViewerDoc(null);
+      await load();
+      onDataChange?.();
+    } catch (e) {
+      setFaxNotice(e instanceof Error ? e.message : "Could not delete draft form.");
+    } finally {
+      setDeletingDraftId(null);
+    }
   }
 
   function onFileSelected(selected: File | null) {
@@ -2914,6 +3071,25 @@ function ChartDocumentsPanel({
                             {getDocumentSectionLabel(d.sectionKey)}
                           </span>
                         )}
+                        {!isReadOnly && d.kind === "form" && d.status === "DRAFT" && (
+                          <button
+                            type="button"
+                            disabled={deletingDraftId === d.id}
+                            title="Delete draft"
+                            aria-label="Delete draft form"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deleteDraftForm(d);
+                            }}
+                            className="shrink-0 rounded p-0.5 text-[var(--pv-muted)] transition-colors hover:bg-rose-950/50 hover:text-rose-300 disabled:opacity-50"
+                          >
+                            {deletingDraftId === d.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={12} />
+                            )}
+                          </button>
+                        )}
                         {d.status && (
                           <span className="text-[10px] uppercase tracking-wide text-[var(--pv-muted-2)]">
                             {d.status}
@@ -2948,7 +3124,7 @@ function ChartDocumentsPanel({
                   )}
                 </div>
               </div>
-              <div className="flex shrink-0 gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex shrink-0 flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                 {!isReadOnly && canRename && renamingId !== d.id && (
                   <Button className="!text-xs" onClick={() => startRename(d)}>
                     Rename
@@ -2957,7 +3133,20 @@ function ChartDocumentsPanel({
                 <Button className="!text-xs" onClick={() => openDocument(d)}>
                   Open
                 </Button>
-                {!isReadOnly && canRemoveRecords && canDelete && (
+                {canSendForReview && !isReadOnly && (
+                  <Button
+                    className="!gap-1 !text-xs !border-[var(--pv-accent)]/40 !bg-[color-mix(in_srgb,var(--pv-accent)_14%,transparent)] !text-[var(--pv-fg)] hover:!bg-[color-mix(in_srgb,var(--pv-accent)_24%,transparent)]"
+                    onClick={() => setReviewDoc(d)}
+                  >
+                    <Share2 size={12} className="text-[var(--pv-accent)]" />
+                    Send for review
+                  </Button>
+                )}
+                {!isReadOnly &&
+                  canRemoveRecords &&
+                  canDelete &&
+                  !String(d.id).startsWith("form:") &&
+                  !String(d.id).startsWith("note:") && (
                   <Button variant="danger" className="!text-xs" onClick={() => setDeleteDocId(d.id)}>
                     Delete
                   </Button>
@@ -2982,7 +3171,24 @@ function ChartDocumentsPanel({
           });
           setDeleteDocId(null);
           await load();
+          onDataChange?.();
         }}
+      />
+
+      <SendDocumentReviewModal
+        open={!!reviewDoc}
+        onClose={() => setReviewDoc(null)}
+        patientId={patientId}
+        documentId={
+          reviewDoc && !String(reviewDoc.id).includes(":")
+            ? reviewDoc.sourceId ?? reviewDoc.id
+            : reviewDoc?.kind === "upload" || reviewDoc?.kind === "report"
+              ? reviewDoc.sourceId ?? reviewDoc.id
+              : null
+        }
+        reviewTargetId={reviewDoc?.id ?? ""}
+        documentName={reviewDoc?.name ?? ""}
+        onSent={onReviewSent}
       />
 
       {viewerDoc &&

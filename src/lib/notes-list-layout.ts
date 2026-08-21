@@ -1,3 +1,5 @@
+import { readUserScopedItem, writeUserScopedItem } from "./user-local-storage";
+
 const STORAGE_KEY = "pv-notes-list-width";
 
 export const NOTES_LIST_WIDTH_DEFAULT = 240;
@@ -10,10 +12,9 @@ export function clampNotesListWidth(width: number) {
   );
 }
 
-export function loadNotesListWidth(): number {
-  if (typeof window === "undefined") return NOTES_LIST_WIDTH_DEFAULT;
+export function loadNotesListWidth(userId?: string | null): number {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readUserScopedItem(STORAGE_KEY, userId);
     if (!raw) return NOTES_LIST_WIDTH_DEFAULT;
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return NOTES_LIST_WIDTH_DEFAULT;
@@ -23,13 +24,8 @@ export function loadNotesListWidth(): number {
   }
 }
 
-export function persistNotesListWidth(width: number) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, String(clampNotesListWidth(width)));
-  } catch {
-    // Ignore quota / private-mode failures.
-  }
+export function persistNotesListWidth(width: number, userId?: string | null) {
+  writeUserScopedItem(STORAGE_KEY, String(clampNotesListWidth(width)), userId);
 }
 
 /** Scale list typography with panel width (1 = default 240px). */

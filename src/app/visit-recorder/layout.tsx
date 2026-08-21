@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { CLINIC_NAME } from "@/lib/branding";
+import { APP_NAME } from "@/lib/branding";
 
 export const metadata: Metadata = {
-  title: `Visit recorder — ${CLINIC_NAME}`,
+  title: `Visit recorder — ${APP_NAME}`,
   description: "Record a visit for audio, transcript, and HPI draft",
   robots: { index: false, follow: false },
 };

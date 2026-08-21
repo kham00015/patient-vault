@@ -43,7 +43,13 @@ export function buildFormPdfHtml({
           : field.type === "radio"
             ? escapeHtml(optionLabel)
             : `<pre style="margin:0;white-space:pre-wrap;font-family:inherit;">${escapeHtml(value)}</pre>`;
+      const prevSection = index > 0 ? template.fields[index - 1]?.section : undefined;
+      const sectionHtml =
+        field.section && field.section !== prevSection
+          ? `<h2 class="section">${escapeHtml(field.section)}</h2>`
+          : "";
       return `
+        ${sectionHtml}
         <section class="block">
           <h3>${index + 1}. ${escapeHtml(field.label)}</h3>
           <div class="answer">${answerHtml}</div>
@@ -67,6 +73,7 @@ export function buildFormPdfHtml({
   <style>
     body { font-family: Georgia, serif; max-width: 720px; margin: 2rem auto; color: #111; line-height: 1.5; }
     h1 { font-size: 1.35rem; margin-bottom: 0.25rem; }
+    h2.section { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: #0f766e; border-bottom: 1px solid #99f6e4; padding-bottom: 0.25rem; }
     .meta { color: #555; font-size: 0.9rem; margin-bottom: 1.5rem; }
     .score-box { background: #f0f9ff; border: 1px solid #7dd3fc; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
     .block { margin-bottom: 1.25rem; }

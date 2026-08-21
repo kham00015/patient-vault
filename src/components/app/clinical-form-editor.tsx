@@ -195,16 +195,26 @@ export function ClinicalFormEditor({
       )}
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-        {template.fields.map((field, index) => (
-          <FormFieldInput
-            key={field.id}
-            field={field}
-            index={index}
-            value={responses[field.id] ?? ""}
-            readOnly={readOnly}
-            onChange={(value) => updateField(field.id, value)}
-          />
-        ))}
+        {template.fields.map((field, index) => {
+          const prevSection = index > 0 ? template.fields[index - 1]?.section : undefined;
+          const showSection = Boolean(field.section && field.section !== prevSection);
+          return (
+            <div key={field.id}>
+              {showSection && (
+                <h4 className="mb-2 mt-1 border-b border-[var(--pv-border)] pb-1 text-xs font-semibold uppercase tracking-wide text-[var(--pv-accent)]">
+                  {field.section}
+                </h4>
+              )}
+              <FormFieldInput
+                field={field}
+                index={index}
+                value={responses[field.id] ?? ""}
+                readOnly={readOnly}
+                onChange={(value) => updateField(field.id, value)}
+              />
+            </div>
+          );
+        })}
 
         {template.requiresPatientSignature && (
           <div className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3">

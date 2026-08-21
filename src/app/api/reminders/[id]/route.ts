@@ -17,6 +17,8 @@ const updateSchema = z.object({
 
 const reminderInclude = {
   patient: { select: { id: true, name: true } },
+  createdBy: { select: { id: true, name: true, email: true } },
+  assignedTo: { select: { id: true, name: true, email: true } },
 };
 
 export async function PATCH(request: Request, { params }: Params) {

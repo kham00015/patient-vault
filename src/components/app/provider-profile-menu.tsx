@@ -5,13 +5,18 @@ import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SignaturePad } from "@/components/app/signature-pad";
+import { cn } from "@/lib/utils";
 
 export function ProviderProfileMenu({
   displayName,
   className,
+  idleLockEnabled,
+  onIdleLockChange,
 }: {
   displayName: string;
   className?: string;
+  idleLockEnabled?: boolean;
+  onIdleLockChange?: (enabled: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [signing, setSigning] = useState(false);
@@ -99,6 +104,31 @@ export function ProviderProfileMenu({
               <p className="text-xs text-[var(--pv-muted)]">
                 Draw a signature to place at the bottom of your note PDFs.
               </p>
+            )}
+            {typeof idleLockEnabled === "boolean" && onIdleLockChange && (
+              <div className="rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel-deep)] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[var(--pv-fg)]">5-minute idle lock</p>
+                    <p className="mt-0.5 text-xs text-[var(--pv-muted)]">
+                      {idleLockEnabled
+                        ? "Signs you out after inactivity (clinic default)."
+                        : "Off for this account on this device — use only in a trusted place."}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    className={cn(
+                      "!shrink-0 !text-xs",
+                      !idleLockEnabled &&
+                        "!border-amber-700/40 !bg-amber-500/20 !text-amber-950 dark:!text-amber-100"
+                    )}
+                    onClick={() => onIdleLockChange(!idleLockEnabled)}
+                  >
+                    {idleLockEnabled ? "Turn off" : "Turn on"}
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         ) : (

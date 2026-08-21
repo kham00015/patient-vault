@@ -2,7 +2,7 @@ import { generateSecret, generateURI, verifySync } from "otplib";
 import QRCode from "qrcode";
 import { randomBytes, createHash } from "crypto";
 import { encryptField, decryptField } from "./encryption";
-import { CLINIC_NAME } from "./branding";
+import { APP_NAME } from "./branding";
 
 const BACKUP_CODE_COUNT = 8;
 
@@ -16,7 +16,7 @@ export function generateMfaSecret() {
 
 export function buildOtpAuthUri(email: string, secret: string) {
   return generateURI({
-    issuer: CLINIC_NAME,
+    issuer: APP_NAME,
     label: email,
     secret,
   });

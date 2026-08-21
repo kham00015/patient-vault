@@ -168,8 +168,16 @@ export async function DELETE(request: Request, { params }: Params) {
       return badRequest("Archived charts are read-only");
     }
 
-    const doc = await prisma.document.findFirst({ where: { id: docId, patientId } });
+    const doc = await prisma.document.findFirst({
+      where: { id: docId, patientId },
+      include: { encounterForm: { select: { id: true, status: true, templateId: true } } },
+    });
     if (!doc) return notFound();
+
+    // Keep Documents ↔ Encounter Forms in sync: removing a form PDF removes the form too.
+    if (doc.encounterForm) {
+      await prisma.encounterForm.delete({ where: { id: doc.encounterForm.id } });
+    }
 
     await deleteDocument(doc.storageKey);
     await prisma.document.delete({ where: { id: docId } });
@@ -187,6 +195,13 @@ export async function DELETE(request: Request, { params }: Params) {
         reason: body.reason,
         documentName: doc.name,
         fileName: doc.fileName,
+        ...(doc.encounterForm
+          ? {
+              encounterFormId: doc.encounterForm.id,
+              formStatus: doc.encounterForm.status,
+              templateId: doc.encounterForm.templateId,
+            }
+          : {}),
       },
     });
 

@@ -14,6 +14,11 @@ export function getFormFromRegistry(templateId: string) {
   return registryMap.get(templateId);
 }
 
-export function listFormRegistry() {
-  return FORM_REGISTRY;
+/** Forms offered for a clinic. Templates without officeCodes are shared. */
+export function listFormRegistry(officeCode?: string | null) {
+  return FORM_REGISTRY.filter((t) => {
+    if (!t.officeCodes?.length) return true;
+    if (!officeCode) return false;
+    return t.officeCodes.includes(officeCode);
+  });
 }

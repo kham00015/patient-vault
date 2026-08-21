@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { APP_TAGLINE, CLINIC_NAME } from "@/lib/branding";
+import { APP_NAME, APP_TAGLINE } from "@/lib/branding";
 import { Shield, Stethoscope } from "lucide-react";
 
 type LoginResponse = {
@@ -101,7 +101,7 @@ export default function LoginPage() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10 ring-1 ring-cyan-500/30">
             <Stethoscope className="text-cyan-400" size={28} />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">{CLINIC_NAME}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{APP_NAME}</h1>
           <p className="mt-2 text-sm text-[var(--pv-muted-2)]">{APP_TAGLINE}</p>
         </div>
 
