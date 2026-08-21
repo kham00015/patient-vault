@@ -26,7 +26,7 @@ $vars["NODE_ENV"] = "production"
 $vars["APP_ENV"] = "production"
 $vars["SESSION_TIMEOUT_MINUTES"] = "5"
 $vars["APP_HOSTNAME"] = "app.patientvault.care"
-$vars["NEXT_PUBLIC_APP_NAME"] = "Patient Vault"
+$vars["NEXT_PUBLIC_APP_NAME"] = "AICLIN EMR"
 $vars["NEXT_PUBLIC_CLINIC_NAME"] = "Modern Medicine"
 $vars["COOKIE_SECURE"] = "true"
 
