@@ -276,14 +276,16 @@ export function ClinicalFormEditor({
               onClick={() =>
                 setViewer({
                   title: form.templateLabel,
-                  url: `/api/patients/${patientId}/forms/${form.id}/pdf`,
-                  mimeType: "application/pdf",
+                  url: form.documentId
+                    ? `/api/patients/${patientId}/documents/${form.documentId}`
+                    : `/api/patients/${patientId}/forms/${form.id}/pdf`,
+                  mimeType: form.document?.mimeType ?? "application/pdf",
                 })
               }
             >
               <FileText size={14} /> View / Print
             </Button>
-            {form.documentId && (
+            {form.documentId && form.source !== "UPLOAD" && (
               <Button
                 className="!h-8 !text-xs"
                 onClick={() =>

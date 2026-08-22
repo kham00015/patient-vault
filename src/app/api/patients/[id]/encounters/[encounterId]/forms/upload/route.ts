@@ -8,7 +8,7 @@ import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { saveDocument } from "@/lib/storage";
 import { isPatientChartWritable } from "@/lib/patients";
 import { toFormDTO } from "@/lib/forms";
-import { getClinicalFormTemplate } from "@/lib/clinical-forms";
+import { formAvailableForOffice, getClinicalFormTemplate } from "@/lib/clinical-forms";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -36,10 +36,14 @@ export async function POST(request: Request, { params }: Params) {
   const templateId = (formData.get("templateId") as string | null)?.trim();
 
   if (!file || !templateId) return badRequest("File and templateId required");
-  if (!getClinicalFormTemplate(templateId)) return badRequest("Unknown form template");
+  const template = getClinicalFormTemplate(templateId);
+  if (!template) return badRequest("Unknown form template");
+  if (!formAvailableForOffice(template, auth.user.officeCode)) {
+    return forbidden();
+  }
   if (file.size > MAX_SIZE) return badRequest("File too large (max 25MB)");
 
-  const templateLabel = getClinicalFormTemplate(templateId)!.label;
+  const templateLabel = template.label;
   const buffer = Buffer.from(await file.arrayBuffer());
   const storageKey = await saveDocument(patientId, file.name, buffer);
 

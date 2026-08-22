@@ -37,6 +37,11 @@ export type ClinicalFormTemplate = {
    * (e.g. clinic-2 = Nevada Critical Care Consultants).
    */
   officeCodes?: string[];
+  /**
+   * Blank fillable PDF path (served from /public). When set, the Forms UI
+   * downloads this PDF for completion and uploads the filled copy — no online editor.
+   */
+  fillablePdfUrl?: string;
   scoreResponses: (responses: Record<string, string>) => FormScoreResult | null;
 };
 

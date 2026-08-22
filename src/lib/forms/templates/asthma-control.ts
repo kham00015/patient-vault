@@ -21,6 +21,8 @@ export const ASTHMA_CONTROL_FORM: ClinicalFormTemplate = {
   description: "Validated 5-question asthma control questionnaire. Score 5–25; 20+ is well controlled.",
   category: "Pulmonary",
   tags: ["asthma", "pulmonary", "respiratory"],
+  // Online chips for Modern Medicine; NCCC uses NCCC_ACT fillable PDF
+  officeCodes: ["clinic-1"],
   requiresPatientSignature: true,
   fields: [
     {

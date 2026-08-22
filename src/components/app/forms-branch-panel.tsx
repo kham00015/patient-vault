@@ -6,13 +6,18 @@ import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ClinicalFormEditor, type EncounterFormData } from "@/components/app/clinical-form-editor";
+import { FillablePdfChartEditor } from "@/components/app/fillable-pdf-chart-editor";
+import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
 import { listFormRegistry } from "@/lib/forms/registry";
+import { getClinicalFormTemplate } from "@/lib/clinical-forms";
 import { formatDate } from "@/lib/utils";
 
 type Workspace =
   | { type: "library" }
-  | { type: "editor"; form: EncounterFormData; loading?: boolean };
+  | { type: "editor"; form: EncounterFormData; loading?: boolean }
+  | { type: "fillable-pdf"; templateId: string; label: string; pdfUrl: string }
+  | { type: "viewer"; title: string; url: string; mimeType?: string };
 
 export function FormsBranchPanel({
   patientId,
@@ -52,8 +57,22 @@ export function FormsBranchPanel({
 
   const openEditor = useCallback(
     async (form: EncounterFormData) => {
-      setWorkspace({ type: "editor", form, loading: true });
       setError(null);
+      // Uploaded fillable PDFs: open the saved file, not the empty online editor.
+      if (form.documentId || form.source === "UPLOAD") {
+        const docId = form.documentId ?? form.document?.id;
+        setWorkspace({
+          type: "viewer",
+          title: form.templateLabel,
+          url: docId
+            ? `/api/patients/${patientId}/documents/${docId}`
+            : `/api/patients/${patientId}/forms/${form.id}/pdf`,
+          mimeType: form.document?.mimeType ?? "application/pdf",
+        });
+        return;
+      }
+
+      setWorkspace({ type: "editor", form, loading: true });
       try {
         const data = await api<{ form: EncounterFormData }>(
           `/api/patients/${patientId}/forms/${form.id}`
@@ -68,6 +87,17 @@ export function FormsBranchPanel({
   );
 
   const handlePickTemplate = async (templateId: string) => {
+    const template = getClinicalFormTemplate(templateId);
+    if (template?.fillablePdfUrl) {
+      setWorkspace({
+        type: "fillable-pdf",
+        templateId,
+        label: template.label,
+        pdfUrl: template.fillablePdfUrl,
+      });
+      return;
+    }
+
     setCreating(templateId);
     setError(null);
     try {
@@ -131,7 +161,11 @@ export function FormsBranchPanel({
       ? "Clinic Form Library"
       : workspace?.type === "editor"
         ? workspace.form.templateLabel
-        : "";
+        : workspace?.type === "fillable-pdf"
+          ? workspace.label
+          : workspace?.type === "viewer"
+            ? workspace.title
+            : "";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -230,8 +264,18 @@ export function FormsBranchPanel({
         open={workspace !== null}
         onClose={closeWorkspace}
         title={modalTitle}
-        xl={workspace?.type === "editor"}
-        className={workspace?.type === "editor" ? "max-h-[90vh] overflow-hidden flex flex-col" : undefined}
+        xl={
+          workspace?.type === "editor" ||
+          workspace?.type === "fillable-pdf" ||
+          workspace?.type === "viewer"
+        }
+        className={
+          workspace?.type === "editor" ||
+          workspace?.type === "fillable-pdf" ||
+          workspace?.type === "viewer"
+            ? "max-h-[90vh] overflow-hidden flex flex-col max-w-6xl"
+            : undefined
+        }
       >
         {workspace?.type === "library" && (
           <div className="space-y-3">
@@ -247,8 +291,13 @@ export function FormsBranchPanel({
                     onClick={() => handlePickTemplate(template.id)}
                     className="flex h-full w-full flex-col gap-1 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] p-4 text-left transition-colors hover:border-violet-700/50 hover:bg-[#141c28] disabled:opacity-50"
                   >
-                    <span className="text-sm font-medium text-violet-200">
+                    <span className="flex items-center gap-2 text-sm font-medium text-violet-200">
                       {template.label}
+                      {template.fillablePdfUrl ? (
+                        <span className="rounded bg-amber-900/35 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                          PDF
+                        </span>
+                      ) : null}
                     </span>
                     <span className="text-xs text-[var(--pv-muted)]">
                       {template.description}
@@ -269,6 +318,31 @@ export function FormsBranchPanel({
               </p>
             )}
           </div>
+        )}
+
+        {workspace?.type === "fillable-pdf" && (
+          <FillablePdfChartEditor
+            pdfUrl={workspace.pdfUrl}
+            patientId={patientId}
+            encounterId={encounterId}
+            templateId={workspace.templateId}
+            label={workspace.label}
+            onCancel={closeWorkspace}
+            onSaved={async () => {
+              await onRefresh();
+              closeWorkspace();
+            }}
+          />
+        )}
+
+        {workspace?.type === "viewer" && (
+          <FullPageDocumentViewer
+            title={workspace.title}
+            url={workspace.url}
+            mimeType={workspace.mimeType}
+            onClose={closeWorkspace}
+            backLabel="Back to Forms"
+          />
         )}
 
         {workspace?.type === "editor" && workspace.loading && (
