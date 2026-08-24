@@ -10,6 +10,7 @@ import {
   AI_CHART_CHAT_RULES,
   AI_GUIDELINES_CLINIC_RULES,
   AI_GUIDELINES_RULES,
+  AI_HPI_CHART_RULES,
   AI_HPI_FOLLOWUP_RULES,
   AI_HPI_NEW_RULES,
   AI_ORGANIZE_RULES,
@@ -227,7 +228,7 @@ export async function organizeChartWithAI(chartText: string) {
 }
 
 export async function draftNoteSectionWithAI(params: {
-  target: "assessment" | "plan";
+  target: "assessment" | "plan" | "hpi";
   noteContext: string;
   patientData?: string;
   attachments?: ChartDocumentAttachment[];
@@ -239,21 +240,30 @@ export async function draftNoteSectionWithAI(params: {
     );
   }
 
-  const isAssessment = params.target === "assessment";
-  const systemPrompt = appendMyBrainToPrompt(
-    isAssessment ? AI_ASSESSMENT_RULES : AI_PLAN_RULES,
-    params.brainData
-  );
+  const target = params.target;
+  const systemRules =
+    target === "assessment"
+      ? AI_ASSESSMENT_RULES
+      : target === "plan"
+        ? AI_PLAN_RULES
+        : AI_HPI_CHART_RULES;
+  const systemPrompt = appendMyBrainToPrompt(systemRules, params.brainData);
 
   const chartBlock = params.patientData?.trim()
     ? `\n\n=== FULL PATIENT CHART (review thoroughly) ===\n${params.patientData.trim()}`
     : "";
 
-  const userText = `Draft the ${isAssessment ? "Assessment" : "Plan"} for this visit note after reviewing the FULL chart, PDFs/documents, forms, orders, prior notes, and the current visit note below.${
-    isAssessment
+  const sectionLabel =
+    target === "assessment" ? "Assessment" : target === "plan" ? "Plan" : "complete HPI";
+
+  const extraInstruction =
+    target === "assessment"
       ? " Every assessment diagnosis line must start with an ICD-10-CM code, then the diagnosis (example: J45.51 Uncontrolled asthma with recent exacerbation)."
-      : ""
-  } If there is a MAJOR conflict between sources, keep your best draft and add a parenthetical conflict note at the bottom after one blank line.
+      : target === "hpi"
+        ? " Write narrative prose suitable for the HPI box. Do not title it HPI. Use prior notes, PDFs, forms, and chart sections to produce a complete history focused on today's visit."
+        : "";
+
+  const userText = `Draft the ${sectionLabel} for this visit note after reviewing the FULL chart, PDFs/documents, forms, orders, prior notes, and the current visit note below.${extraInstruction} If there is a MAJOR conflict between sources, keep your best draft and add a parenthetical conflict note at the bottom after one blank line.
 
 === CURRENT VISIT NOTE ===
 ${params.noteContext}${chartBlock}`;
@@ -266,7 +276,7 @@ ${params.noteContext}${chartBlock}`;
     messages: toBedrockMessages([{ role: "user", content: userText }], attachments),
     inferenceConfig: {
       temperature: 0.25,
-      maxTokens: 2500,
+      maxTokens: target === "hpi" ? 3200 : 2500,
     },
   });
 
@@ -274,8 +284,10 @@ ${params.noteContext}${chartBlock}`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await client.send(command);
+      const raw = extractText(response.output?.message?.content);
       return {
-        text: normalizeSectionList(extractText(response.output?.message?.content)),
+        text:
+          target === "hpi" ? normalizeHpiDraft(raw) : normalizeSectionList(raw),
         provider: "bedrock" as const,
       };
     } catch (error) {
@@ -419,6 +431,17 @@ function normalizeGuidelinesText(raw: string) {
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\*\*/g, "")
     .replace(/^\s*[*•]\s+/gm, "- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Narrative HPI draft — keep paragraphs; strip title/markdown noise. */
+function normalizeHpiDraft(raw: string) {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*HPI:\s*/i, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

@@ -439,7 +439,7 @@ export function StructuredNoteEditor({
   const [expandedSection, setExpandedSection] = useState<NoteSectionKey | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
-  const [aiTarget, setAiTarget] = useState<"assessment" | "plan" | null>(null);
+  const [aiTarget, setAiTarget] = useState<"assessment" | "plan" | "hpi" | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiDraft, setAiDraft] = useState("");
   const [aiError, setAiError] = useState("");
@@ -724,17 +724,23 @@ export function StructuredNoteEditor({
     return noteSectionToPlainText(text).trim();
   }
 
-  function buildAiNoteContext(target: "assessment" | "plan") {
+  function buildAiNoteContext(target: "assessment" | "plan" | "hpi") {
     const s = sectionsRef.current;
     const parts: string[] = [];
     if (ctx(s.chiefComplaint)) parts.push(`=== CHIEF COMPLAINT ===\n${ctx(s.chiefComplaint)}`);
-    if (ctx(s.hpi)) parts.push(`=== HPI ===\n${ctx(s.hpi)}`);
+    if (ctx(s.hpi)) {
+      parts.push(
+        target === "hpi"
+          ? `=== CURRENT HPI DRAFT (incorporate and complete) ===\n${ctx(s.hpi)}`
+          : `=== HPI ===\n${ctx(s.hpi)}`
+      );
+    }
     if (ctx(s.reviewOfSystems)) parts.push(`=== ROS ===\n${ctx(s.reviewOfSystems)}`);
     if (ctx(s.physicalExam)) parts.push(`=== EXAM ===\n${ctx(s.physicalExam)}`);
     if (ctx(s.pastMedicalHistory)) parts.push(`=== NOTE PMH ===\n${ctx(s.pastMedicalHistory)}`);
     if (target === "plan") {
       if (ctx(s.assessment)) parts.push(`=== ASSESSMENT ===\n${ctx(s.assessment)}`);
-    } else if (ctx(s.assessment)) {
+    } else if (target === "assessment" && ctx(s.assessment)) {
       parts.push(`=== CURRENT ASSESSMENT DRAFT (optional reference) ===\n${ctx(s.assessment)}`);
     }
     if (target === "plan" && ctx(s.plan)) {
@@ -742,21 +748,19 @@ export function StructuredNoteEditor({
     }
     if (diagnosisText) parts.push(`=== CHART DIAGNOSES (visit list) ===\n${diagnosisText}`);
     parts.push(
-      "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Use all of that with this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
+      target === "hpi"
+        ? "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Produce a COMPLETE HPI from all of that plus this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
+        : "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Use all of that with this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
     );
     return parts.join("\n\n");
   }
 
-  async function runSectionAi(target: "assessment" | "plan") {
+  async function runSectionAi(target: "assessment" | "plan" | "hpi") {
     const noteContext = buildAiNoteContext(target);
-    if (!noteContext.trim() || (!ctx(sectionsRef.current.hpi) && target === "assessment")) {
+    if (target === "assessment" && !ctx(sectionsRef.current.hpi)) {
       setAiTarget(target);
       setAiDraft("");
-      setAiError(
-        target === "assessment"
-          ? "Add HPI first so AI can draft an Assessment."
-          : "Add HPI (and ideally Assessment) first so AI can draft a Plan."
-      );
+      setAiError("Add HPI first so AI can draft an Assessment.");
       setAiCopied(false);
       return;
     }
@@ -764,6 +768,13 @@ export function StructuredNoteEditor({
       setAiTarget(target);
       setAiDraft("");
       setAiError("Add HPI or Assessment first so AI can draft a Plan.");
+      setAiCopied(false);
+      return;
+    }
+    if (target === "hpi" && !noteContext.trim()) {
+      setAiTarget(target);
+      setAiDraft("");
+      setAiError("Add a chief complaint or some visit text, or ensure the chart has records for AI to review.");
       setAiCopied(false);
       return;
     }
@@ -818,7 +829,7 @@ export function StructuredNoteEditor({
     const includeCollapse = options?.includeCollapse !== false;
     const showDiagnosis = fieldKey === "assessment";
     const showPmhDx = fieldKey === "pastMedicalHistory";
-    const showAi = fieldKey === "assessment" || fieldKey === "plan";
+    const showAi = fieldKey === "assessment" || fieldKey === "plan" || fieldKey === "hpi";
 
     return (
       <div className={cn("flex flex-wrap items-center gap-1", fitMode && "max-w-[min(100%,36rem)] flex-nowrap overflow-x-auto")}>
@@ -909,10 +920,12 @@ export function StructuredNoteEditor({
             title={
               fieldKey === "assessment"
                 ? "Draft Assessment from full chart + HPI with AI"
-                : "Draft Plan from full chart + HPI/Assessment with AI"
+                : fieldKey === "plan"
+                  ? "Draft Plan from full chart + HPI/Assessment with AI"
+                  : "Draft complete HPI from full chart, PDFs, and prior notes"
             }
             disabled={aiLoading && aiTarget === fieldKey}
-            onClick={() => runSectionAi(fieldKey as "assessment" | "plan")}
+            onClick={() => runSectionAi(fieldKey as "assessment" | "plan" | "hpi")}
           >
             <Bot size={12} />
             {aiLoading && aiTarget === fieldKey ? "..." : "AI"}
@@ -1303,13 +1316,21 @@ export function StructuredNoteEditor({
           setAiError("");
           setAiCopied(false);
         }}
-        title={aiTarget === "plan" ? "AI Plan draft" : "AI Assessment draft"}
+        title={
+          aiTarget === "plan"
+            ? "AI Plan draft"
+            : aiTarget === "hpi"
+              ? "AI HPI draft"
+              : "AI Assessment draft"
+        }
         wide
       >
         <p className="mb-3 text-sm text-[var(--pv-muted)]">
-          {aiTarget === "assessment"
-            ? "Reviews the full chart (notes, forms, orders, PDFs) plus this visit’s HPI. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
-            : "Reviews the full chart (notes, forms, orders, PDFs) plus HPI/Assessment. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."}
+          {aiTarget === "hpi"
+            ? "Reviews the full chart (prior notes, forms, orders, PDFs) plus this visit’s HPI/CC. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
+            : aiTarget === "assessment"
+              ? "Reviews the full chart (notes, forms, orders, PDFs) plus this visit’s HPI. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
+              : "Reviews the full chart (notes, forms, orders, PDFs) plus HPI/Assessment. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."}
         </p>
         {aiError && (
           <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
@@ -1345,7 +1366,9 @@ export function StructuredNoteEditor({
             title={
               aiTarget === "plan"
                 ? "Append this draft to Plan in the AI color"
-                : "Append this draft to Assessment in the AI color"
+                : aiTarget === "hpi"
+                  ? "Append this draft to HPI in the AI color"
+                  : "Append this draft to Assessment in the AI color"
             }
           >
             <ArrowRightFromLine size={14} />

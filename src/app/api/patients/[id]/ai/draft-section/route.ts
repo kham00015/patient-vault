@@ -15,7 +15,7 @@ export const maxDuration = 180;
 type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
-  target: z.enum(["assessment", "plan"]),
+  target: z.enum(["assessment", "plan", "hpi"]),
   noteContext: z.string().min(1).max(80_000),
 });
 
