@@ -204,7 +204,7 @@ export async function GET(request: Request, { params }: Params) {
       fileName: `${typeLabel}.pdf`,
       mimeType: "application/pdf",
       fileSize: 0,
-      uploadedAt: (note.updatedAt ?? note.date).toISOString(),
+      uploadedAt: note.date.toISOString(),
       status: note.status,
       noteType: note.type,
       authorName: getNoteAuthorLabel(note),

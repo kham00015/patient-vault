@@ -29,7 +29,7 @@ import { getNoteTypeLabel, NOTE_TYPES, type NoteType } from "@/lib/notes";
 import { getNoteAuthorLabel, getNoteStatusLabel } from "@/lib/note-authors";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
-import { cn, formatDate, toDateInputValue } from "@/lib/utils";
+import { cn, formatDate, formatClinicDateOnly, toClinicDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { Calendar, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList, FileText, Lock, Paperclip, Pill, Plus, Printer, Trash2 } from "lucide-react";
 
@@ -215,7 +215,7 @@ export function ChartEncountersPanel({
         onNavigationComplete?.();
         return;
       }
-      const sameDay = encounters.filter((e) => toDateInputValue(e.date) === targetDate);
+      const sameDay = encounters.filter((e) => toClinicDateInputValue(e.date) === targetDate);
       if (sameDay.length === 0) {
         onNavigationComplete?.();
         return;
@@ -253,7 +253,7 @@ export function ChartEncountersPanel({
     const data = await api<{ note: EncounterNote }>(`/api/patients/${patientId}/notes`, {
       method: "POST",
       json: {
-        date: encounterDate ? toDateInputValue(encounterDate) : toDateInputValue(new Date()),
+        date: encounterDate ? toClinicDateInputValue(encounterDate) : toClinicDateInputValue(new Date()),
         type,
         encounterId,
       },
@@ -308,7 +308,7 @@ export function ChartEncountersPanel({
   async function createEncounter(visitCategory: VisitCategory, modality: EncounterModality) {
     const data = await api<{ encounter: EncounterSummary }>(`/api/patients/${patientId}/encounters`, {
       method: "POST",
-      json: { visitCategory, modality, date: toDateInputValue(new Date()) },
+      json: { visitCategory, modality, date: toClinicDateInputValue(new Date()) },
     });
     setPickingEncounter(false);
     setSelectedVisitCategory(null);
@@ -794,13 +794,13 @@ function EncounterDateRow({
   onDelete?: () => void;
   onDateChange: (date: string) => Promise<void>;
 }) {
-  const [date, setDate] = useState(() => toDateInputValue(visitDate));
+  const [date, setDate] = useState(() => toClinicDateInputValue(visitDate));
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const savedDateRef = useRef(toDateInputValue(visitDate));
+  const savedDateRef = useRef(toClinicDateInputValue(visitDate));
 
   useEffect(() => {
-    const next = toDateInputValue(visitDate);
+    const next = toClinicDateInputValue(visitDate);
     savedDateRef.current = next;
     setDate(next);
     setDirty(false);
@@ -824,7 +824,7 @@ function EncounterDateRow({
   const { debounced: debouncedPersist } = useDebouncedCallback(persist, 600);
 
   const visitDiffersFromCreated =
-    toDateInputValue(visitDate) !== toDateInputValue(createdAt);
+    toClinicDateInputValue(visitDate) !== toClinicDateInputValue(createdAt);
 
   return (
     <div className="mb-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/60 px-2.5 py-2">
@@ -1035,7 +1035,7 @@ function EncounterNoteRow({ note, onOpen }: { note: EncounterNote; onOpen: () =>
         </div>
         <span className="truncate text-[10px] text-[var(--pv-muted-2)]">Author: {authorLabel}</span>
       </div>
-      <span className="shrink-0 text-[10px] text-[var(--pv-muted)]">{formatDate(note.date)}</span>
+      <span className="shrink-0 text-[10px] text-[var(--pv-muted)]">{formatClinicDateOnly(note.date)}</span>
     </button>
   );
 }

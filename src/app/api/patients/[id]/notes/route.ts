@@ -18,6 +18,7 @@ import {
 import { createEmptyVitals, type VitalsData } from "@/lib/vitals";
 import type { NoteType } from "@/lib/notes";
 import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
+import { scheduleDateFromInput } from "@/lib/utils";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -85,7 +86,11 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const body = noteSchema.parse(await request.json());
-    const date = new Date(body.date);
+    // Date-only strings are clinic calendar days (Pacific), not UTC midnight.
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date.trim())
+      ? scheduleDateFromInput(body.date.trim())
+      : new Date(body.date);
+    if (Number.isNaN(date.getTime())) return badRequest("Invalid note date");
     const noteType = (body.type ?? DEFAULT_NOTE_TYPE) as NoteType;
 
     if (body.encounterId) {

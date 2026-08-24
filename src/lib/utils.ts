@@ -1,6 +1,8 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+export const CLINIC_TIME_ZONE = "America/Los_Angeles";
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -23,6 +25,16 @@ export function formatDateOnly(date: Date | string) {
   });
 }
 
+/** Calendar day for notes/visits in clinic timezone (no misleading local UTC shift). */
+export function formatClinicDateOnly(date: Date | string) {
+  return new Date(date).toLocaleDateString("en-US", {
+    timeZone: CLINIC_TIME_ZONE,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function toDateInputValue(date: Date | string) {
   const d = new Date(date);
   return d.toISOString().split("T")[0];
@@ -33,8 +45,6 @@ export function startOfDay(date: Date | string) {
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
-export const CLINIC_TIME_ZONE = "America/Los_Angeles";
 
 function clinicDateParts(date: Date | string) {
   const d = new Date(date);

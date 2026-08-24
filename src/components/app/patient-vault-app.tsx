@@ -79,7 +79,7 @@ import {
   persistNotesListWidth,
 } from "@/lib/notes-list-layout";
 import { loadIdleLockEnabled, persistIdleLockEnabled } from "@/lib/idle-lock";
-import { cn, formatDate, formatDateOnly, toDateInputValue } from "@/lib/utils";
+import { cn, formatDate, formatDateOnly, formatClinicDateOnly, toClinicDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import {
   Archive,
@@ -1092,6 +1092,13 @@ export default function PatientVaultApp({
     setCurrent(patientData.patient);
     refreshUnsignedNotesSummary().catch(() => undefined);
   }
+
+  // Encounter notes and Notes tab share the same Note rows — refresh when opening Notes.
+  useEffect(() => {
+    if (!current || chartTab !== "notes") return;
+    refreshNotes().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional on tab enter
+  }, [chartTab, current?.id]);
 
   const chartCopyText = useMemo(
     () => (current ? buildChartCopyText(current, notes) : ""),
@@ -2233,7 +2240,7 @@ function ChartNotesPanel({
       const data = await api<{ note: Note }>(`/api/patients/${patientId}/notes`, {
         method: "POST",
         json: {
-          date: toDateInputValue(new Date()),
+          date: toClinicDateInputValue(new Date()),
           type,
         },
       });
@@ -2351,7 +2358,7 @@ function ChartNotesPanel({
                     </span>
                   </div>
                   <span className="truncate text-[0.9em] text-[var(--pv-muted-2)]">
-                    {formatDate(n.date)}
+                    {formatClinicDateOnly(n.date)}
                     {n.encounter
                       ? ` · ${formatEncounterLabel(n.encounter.visitCategory, n.encounter.modality)}`
                       : ""}
@@ -3155,7 +3162,9 @@ function ChartDocumentsPanel({
                         {d.fileName}
                         {d.fileSize > 0 ? ` · ${(d.fileSize / 1024).toFixed(1)} KB` : ""}
                         {" · "}
-                        {formatDate(d.uploadedAt)}
+                        {d.kind === "note"
+                          ? formatClinicDateOnly(d.uploadedAt)
+                          : formatDate(d.uploadedAt)}
                       </div>
                     </>
                   )}

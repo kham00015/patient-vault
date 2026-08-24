@@ -14,6 +14,7 @@ import { deleteDocument } from "@/lib/storage";
 import { ENCOUNTER_MODALITIES, ENCOUNTER_STATUSES, getEncounterDeleteBlockReason, VISIT_CATEGORIES } from "@/lib/encounters";
 import { NOTE_WITH_AUTHORS_INCLUDE } from "@/lib/note-authors";
 import { toOrderDTO } from "@/lib/orders";
+import { scheduleDateFromInput, toClinicDateInputValue } from "@/lib/utils";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -165,15 +166,17 @@ export async function PATCH(request: Request, { params }: Params) {
     if (body.chiefComplaint !== undefined) data.chiefComplaint = body.chiefComplaint.trim() || null;
     if (body.summary !== undefined) data.summary = body.summary.trim() || null;
     if (body.date) {
-      const date = new Date(body.date);
-      date.setHours(12, 0, 0, 0);
+      const raw = body.date.trim();
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? scheduleDateFromInput(raw)
+        : new Date(raw);
+      if (Number.isNaN(date.getTime())) return badRequest("Invalid encounter date");
       data.date = date;
     }
 
     const dateChanged =
       body.date &&
-      existing.date.toISOString().split("T")[0] !==
-        (data.date as Date).toISOString().split("T")[0];
+      toClinicDateInputValue(existing.date) !== toClinicDateInputValue(data.date as Date);
 
     const encounter = await prisma.encounter.update({
       where: { id: encounterId },

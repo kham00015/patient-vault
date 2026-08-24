@@ -8,6 +8,11 @@ import {
   applyPatientNamePrefill,
   type PatientNamePrefill,
 } from "@/lib/fillable-pdf-prefill";
+import {
+  applyScoredCheckboxChange,
+  formHasScoredOptions,
+  isAutoScoreField,
+} from "@/lib/fillable-pdf-scoring";
 
 type OverlayField = {
   name: string;
@@ -225,7 +230,12 @@ export function FillablePdfChartEditor({
   }, [fields]);
 
   const setFieldValue = useCallback((name: string, value: string | boolean) => {
-    setValues((prev) => ({ ...prev, [name]: value }));
+    setValues((prev) => {
+      if (typeof value === "boolean" && formHasScoredOptions(prev)) {
+        return applyScoredCheckboxChange(prev, name, value);
+      }
+      return { ...prev, [name]: value };
+    });
   }, []);
 
   const handleSaveToChart = async () => {
@@ -403,11 +413,17 @@ function PageFieldOverlay({
           <input
             key={f.name}
             type="text"
-            className="pointer-events-auto absolute box-border rounded-[1px] border border-amber-600/35 bg-amber-100/80 px-0.5 text-[clamp(7px,1.05vw,10px)] leading-tight text-black outline-none focus:border-cyan-600 focus:bg-amber-50"
+            readOnly={isAutoScoreField(f.name)}
+            className={
+              isAutoScoreField(f.name)
+                ? "pointer-events-none absolute box-border rounded-[1px] border border-emerald-700/40 bg-emerald-50/90 px-0.5 text-center text-[clamp(8px,1.15vw,12px)] font-semibold leading-tight text-black outline-none"
+                : "pointer-events-auto absolute box-border rounded-[1px] border border-amber-600/35 bg-amber-100/80 px-0.5 text-[clamp(7px,1.05vw,10px)] leading-tight text-black outline-none focus:border-cyan-600 focus:bg-amber-50"
+            }
             style={style}
             value={String(values[f.name] ?? "")}
             disabled={disabled}
             onChange={(e) => onChange(f.name, e.target.value)}
+            title={isAutoScoreField(f.name) ? "Auto-calculated from choices" : undefined}
           />
         );
       })}

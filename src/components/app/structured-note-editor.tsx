@@ -23,7 +23,7 @@ import { getNormalNoteText } from "@/lib/normal-note-text";
 import { parseFixedNoteSections, type FixedNoteSections } from "@/lib/fixed-note-sections";
 import { getNoteTypeLabel, type NoteType } from "@/lib/notes";
 import { getNoteAuthorLabel, getNoteStatusLabel } from "@/lib/note-authors";
-import { cn, formatDate, toDateInputValue } from "@/lib/utils";
+import { cn, formatDate, toClinicDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
@@ -427,7 +427,7 @@ export function StructuredNoteEditor({
     };
   });
   const [vitals, setVitals] = useState<VitalsData>(() => initial.vitals);
-  const [date, setDate] = useState(toDateInputValue(note.date));
+  const [date, setDate] = useState(toClinicDateInputValue(note.date));
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [signing, setSigning] = useState(false);

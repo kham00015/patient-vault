@@ -16,6 +16,7 @@ import {
   type EncounterModality,
   type VisitCategory,
 } from "@/lib/encounters";
+import { scheduleDateFromInput } from "@/lib/utils";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -144,8 +145,11 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const body = createSchema.parse(await request.json());
-    const date = new Date(body.date);
-    date.setHours(12, 0, 0, 0);
+    const rawDate = body.date.trim();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+      ? scheduleDateFromInput(rawDate)
+      : new Date(rawDate);
+    if (Number.isNaN(date.getTime())) return badRequest("Invalid encounter date");
 
     const encounter = await prisma.encounter.create({
       data: {
