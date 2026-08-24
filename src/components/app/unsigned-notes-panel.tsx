@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { formatEncounterLabel } from "@/lib/encounters";
 import { getNoteTypeLabel } from "@/lib/notes";
 import type { UnsignedNoteAlertDTO } from "@/lib/unsigned-notes";
-import { cn, formatDateOnly } from "@/lib/utils";
+import { cn, formatClinicDateOnly } from "@/lib/utils";
 import { FileWarning } from "lucide-react";
 
 export function UnsignedNotesPanel({
@@ -51,11 +51,10 @@ export function UnsignedNotesPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <p className="mb-4 text-xs text-[var(--pv-muted)]">
-        Physician visit encounters missing a signed note (draft or not started). Phone calls and
-        patient letters are excluded.
+        Draft notes waiting to be signed, plus open physician visits with no note started yet.
         {isAdmin
           ? " Showing incomplete notes for all physicians."
-          : " Showing your encounters only."}
+          : " Showing your drafts and encounters only."}
       </p>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -98,11 +97,11 @@ export function UnsignedNotesPanel({
       {!loading && filtered.length === 0 && (
         <div className="rounded-xl border border-dashed border-[var(--pv-border)] px-4 py-8 text-center">
           <FileWarning size={22} className="mx-auto mb-2 text-emerald-400/80" />
-          <p className="text-sm text-[var(--pv-fg-soft)]">No unsigned physician notes</p>
+          <p className="text-sm text-[var(--pv-fg-soft)]">No unsigned notes</p>
           <p className="mt-1 text-xs text-[var(--pv-muted)]">
             {scope === "all_physicians"
-              ? "All open physician visits have a signed note."
-              : "Your open physician visits are up to date."}
+              ? "No draft notes or incomplete physician visits."
+              : "Your drafts and open physician visits are up to date."}
           </p>
         </div>
       )}
@@ -110,7 +109,7 @@ export function UnsignedNotesPanel({
       <div className="space-y-2">
         {filtered.map((alert) => (
           <button
-            key={alert.encounterId}
+            key={alert.id}
             type="button"
             onClick={() => onOpenEncounter(alert)}
             className="flex w-full flex-col gap-1 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] px-4 py-3 text-left transition hover:border-amber-500/40 hover:bg-[var(--pv-btn)]"
@@ -120,8 +119,10 @@ export function UnsignedNotesPanel({
                 <div className="font-medium text-cyan-100">{alert.patientName}</div>
                 <div className="text-xs text-[var(--pv-muted)]">
                   {alert.patientMrn ? `MRN ${alert.patientMrn} · ` : ""}
-                  {formatEncounterLabel(alert.visitCategory, alert.modality)} ·{" "}
-                  {formatDateOnly(alert.date)}
+                  {alert.visitCategory && alert.modality
+                    ? `${formatEncounterLabel(alert.visitCategory, alert.modality)} · `
+                    : "Chart note · "}
+                  {formatClinicDateOnly(alert.date)}
                 </div>
               </div>
               <span

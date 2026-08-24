@@ -10,7 +10,9 @@ export type ChartNavigationIntent = {
   openNotesBranch?: boolean;
   /** Open the primary note for the encounter. */
   openNote?: boolean;
-  /** Jump to the Documents tab. */
+  /** Open a specific note id (draft from Notes to Sign). */
+  noteId?: string;
+  /** Jump to the Documents / Notes / Encounters tab. */
   chartTab?: "documents" | "encounters" | "notes" | "orders" | "studies";
   /** Open a document from the chart documents list (id may be `form:…` / `note:…`). */
   documentId?: string;

@@ -179,7 +179,7 @@ export function ChartEncountersPanel({
 
   useEffect(() => {
     navigationHandledRef.current = false;
-  }, [patientId]);
+  }, [patientId, navigationIntent]);
 
   useEffect(() => {
     if (loading || navigationHandledRef.current) return;
@@ -199,7 +199,7 @@ export function ChartEncountersPanel({
           setActiveBranch({ encounterId, branch: "notes" });
         }
         if (navigationIntent!.openNote) {
-          await openPrimaryNote(encounterId, detail);
+          await openPrimaryNote(encounterId, detail, navigationIntent!.noteId);
         }
         onNavigationComplete?.();
       }
@@ -261,11 +261,20 @@ export function ChartEncountersPanel({
     return data.note;
   }
 
-  async function openPrimaryNote(encounterId: string, detail?: EncounterDetail) {
+  async function openPrimaryNote(
+    encounterId: string,
+    detail?: EncounterDetail,
+    preferredNoteId?: string | null
+  ) {
     const enc = detail ?? (await ensureEncounterOpen(encounterId));
     setActiveBranch({ encounterId, branch: "notes" });
 
-    let note = enc.notes.find((n) => (n.status ?? "DRAFT") === "DRAFT") ?? enc.notes[0];
+    let note =
+      (preferredNoteId
+        ? enc.notes.find((n) => n.id === preferredNoteId)
+        : undefined) ??
+      enc.notes.find((n) => (n.status ?? "DRAFT") === "DRAFT") ??
+      enc.notes[0];
 
     if (!note && !isReadOnly) {
       const noteType = getDefaultNoteTypeForEncounter(enc.visitCategory, enc.modality);
@@ -405,6 +414,7 @@ export function ChartEncountersPanel({
         onSigned={async () => {
           const encId = activeNote.encounterId ?? expandedId;
           if (encId) await refreshEncounter(encId);
+          await onPatientDataChange?.();
         }}
         onDeleted={async () => {
           const encId = activeNote.encounterId ?? expandedId;

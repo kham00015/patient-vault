@@ -70,9 +70,19 @@ export function asChartUi(value: unknown): ChartUi {
 }
 
 function mergeChartUi(current: ChartUi, body: z.infer<typeof chartUiSchema>): ChartUi {
+  // Only replace order/visible when the client sent them — theme / noteFit /
+  // notesListWidth patches must not wipe section prefs with empty defaults.
   return {
-    order: body.order ?? current.order ?? [],
-    visible: { ...(current.visible ?? {}), ...(body.visible ?? {}) },
+    ...(body.order !== undefined
+      ? { order: body.order }
+      : current.order
+        ? { order: current.order }
+        : {}),
+    ...(body.visible !== undefined
+      ? { visible: { ...(current.visible ?? {}), ...body.visible } }
+      : current.visible
+        ? { visible: current.visible }
+        : {}),
     ...(body.theme !== undefined
       ? { theme: body.theme }
       : current.theme

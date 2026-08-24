@@ -404,6 +404,7 @@ type SelectPatientOptions = {
   encounterId?: string;
   openNotesBranch?: boolean;
   openNote?: boolean;
+  noteId?: string;
   chartTab?: ChartTab;
   documentId?: string;
 };
@@ -652,10 +653,28 @@ export default function PatientVaultApp({
               c.patient.id === patient.id
                 ? {
                     ...c,
+                    chartTab: options.chartTab === "notes" ? "notes" : "encounters",
                     chartNavigationIntent: {
                       encounterId: options.encounterId,
                       openNotesBranch: options.openNotesBranch ?? true,
                       openNote: options.openNote ?? false,
+                      noteId: options.noteId,
+                      chartTab: options.chartTab === "notes" ? "notes" : "encounters",
+                    },
+                  }
+                : c
+            )
+          );
+        } else if (options?.noteId || options?.chartTab === "notes") {
+          setOpenCharts((prev) =>
+            prev.map((c) =>
+              c.patient.id === patient.id
+                ? {
+                    ...c,
+                    chartTab: "notes",
+                    chartNavigationIntent: {
+                      chartTab: "notes",
+                      noteId: options.noteId,
                     },
                   }
                 : c
@@ -710,6 +729,15 @@ export default function PatientVaultApp({
               encounterId: options.encounterId,
               openNotesBranch: options.openNotesBranch ?? true,
               openNote: options.openNote ?? false,
+              noteId: options.noteId,
+              chartTab: options.chartTab === "notes" ? "notes" : "encounters",
+            };
+            initialTab = options.chartTab === "notes" ? "notes" : "encounters";
+          } else if (options?.noteId || options?.chartTab === "notes") {
+            initialTab = "notes";
+            intent = {
+              chartTab: "notes",
+              noteId: options.noteId,
             };
           } else if (options?.documentId || options?.chartTab === "documents") {
             initialTab = "documents";
@@ -857,12 +885,16 @@ export default function PatientVaultApp({
 
   const persistChartUi = useCallback(
     (order: ChartTab[], visible: Record<ChartTab, boolean>) => {
+      // Keep refs in sync immediately so logout/pagehide flush writes the latest choice.
+      chartTabOrderRef.current = order;
+      chartTabVisibleRef.current = visible;
       writeChartTabLocal(user.id, order, visible);
       if (chartUiSaveTimer.current) window.clearTimeout(chartUiSaveTimer.current);
       const payload = { order, visible };
       chartUiSaveTimer.current = setTimeout(() => {
+        chartUiSaveTimer.current = null;
         api("/api/me/chart-ui", { method: "PATCH", json: payload }).catch(() => undefined);
-      }, 50);
+      }, 100);
     },
     [user.id]
   );
@@ -891,34 +923,34 @@ export default function PatientVaultApp({
     api<{ order?: string[]; visible?: Record<string, boolean> }>("/api/me/chart-ui")
       .then((data) => {
         if (cancelled) return;
-        const serverOrder = data.order?.length ? normalizeChartTabOrder(data.order) : null;
-        const serverVisible =
-          data.visible && Object.keys(data.visible).length
-            ? normalizeChartTabVisibility(data.visible)
-            : null;
-
-        let nextOrder = localOrder;
-        let nextVisible = localVisible;
-        if (
-          serverOrder &&
-          (!isDefaultChartTabOrder(serverOrder) || isDefaultChartTabOrder(localOrder))
-        ) {
-          nextOrder = serverOrder;
-        }
-        if (
-          serverVisible &&
-          (!isDefaultChartTabVisibility(serverVisible) || isDefaultChartTabVisibility(localVisible))
-        ) {
-          nextVisible = serverVisible;
-        }
+        const serverHasOrder = Array.isArray(data.order) && data.order.length > 0;
+        const serverHasVisible =
+          !!data.visible && Object.keys(data.visible).length > 0;
+        // Prefer the per-user server copy whenever it exists — do not overwrite
+        // saved prefs with browser defaults on login.
+        const nextOrder = serverHasOrder
+          ? normalizeChartTabOrder(data.order!)
+          : localOrder;
+        const nextVisible = serverHasVisible
+          ? normalizeChartTabVisibility(data.visible)
+          : localVisible;
 
         setChartTabOrder(nextOrder);
         setChartTabVisible(nextVisible);
-        persistChartUi(nextOrder, nextVisible);
+        writeChartTabLocal(user.id, nextOrder, nextVisible);
+
+        // Only push to server when the account has never saved section prefs
+        // and this browser already has a customized local layout.
+        if (
+          !serverHasOrder &&
+          !serverHasVisible &&
+          (!isDefaultChartTabOrder(localOrder) || !isDefaultChartTabVisibility(localVisible))
+        ) {
+          persistChartUi(localOrder, localVisible);
+        }
       })
       .catch(() => {
-        if (cancelled) return;
-        persistChartUi(localOrder, localVisible);
+        // Keep local cache; do not write defaults to the server on fetch failure.
       });
     return () => {
       cancelled = true;
@@ -1090,7 +1122,7 @@ export default function PatientVaultApp({
     ]);
     setNotes(notesData.notes);
     setCurrent(patientData.patient);
-    refreshUnsignedNotesSummary().catch(() => undefined);
+    bumpUnsignedNotes();
   }
 
   // Encounter notes and Notes tab share the same Note rows — refresh when opening Notes.
@@ -1797,14 +1829,20 @@ export default function PatientVaultApp({
             <UnsignedNotesPanel
               refreshKey={unsignedNotesRefreshKey}
               isAdmin={user.role === "ADMIN"}
-              onOpenEncounter={({ patientId, encounterId }) => {
+              onOpenEncounter={(alert) => {
                 void selectPatient(
-                  { id: patientId },
-                  {
-                    encounterId,
-                    openNotesBranch: true,
-                    openNote: true,
-                  },
+                  { id: alert.patientId },
+                  alert.encounterId
+                    ? {
+                        encounterId: alert.encounterId,
+                        openNotesBranch: true,
+                        openNote: true,
+                        noteId: alert.draftNoteId ?? undefined,
+                      }
+                    : {
+                        chartTab: "notes",
+                        noteId: alert.draftNoteId ?? undefined,
+                      }
                 ).then(() => {
                   void refreshUnsignedNotesSummary();
                 });
@@ -1857,6 +1895,12 @@ export default function PatientVaultApp({
                   patientDiagnosis={current.diagnosis}
                   canRemoveRecords={canRemoveRecords}
                   onRefresh={refreshNotes}
+                  initialNoteId={
+                    chartNavigationIntent?.chartTab === "notes"
+                      ? chartNavigationIntent.noteId ?? null
+                      : null
+                  }
+                  onInitialNoteHandled={() => setChartNavigationIntent(null)}
                 />
               </div>
               <div className={cn("flex min-h-0 flex-1 flex-col", chartTab !== "studies" && "hidden")}>
@@ -2148,6 +2192,8 @@ function ChartNotesPanel({
   isReadOnly,
   canRemoveRecords,
   onRefresh,
+  initialNoteId,
+  onInitialNoteHandled,
 }: {
   patientId: string;
   userId: string;
@@ -2157,6 +2203,8 @@ function ChartNotesPanel({
   isReadOnly: boolean;
   canRemoveRecords?: boolean;
   onRefresh: () => Promise<void>;
+  initialNoteId?: string | null;
+  onInitialNoteHandled?: () => void;
 }) {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [pickingType, setPickingType] = useState(false);
@@ -2165,7 +2213,20 @@ function ChartNotesPanel({
   const [listWidth, setListWidth] = useState(NOTES_LIST_WIDTH_DEFAULT);
   const [resizingList, setResizingList] = useState(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  const handledInitialNoteRef = useRef<string | null>(null);
   const activeNote = notes.find((n) => n.id === activeNoteId) ?? null;
+
+  useEffect(() => {
+    if (!initialNoteId) {
+      handledInitialNoteRef.current = null;
+      return;
+    }
+    if (handledInitialNoteRef.current === initialNoteId) return;
+    if (!notes.some((n) => n.id === initialNoteId)) return;
+    handledInitialNoteRef.current = initialNoteId;
+    setActiveNoteId(initialNoteId);
+    onInitialNoteHandled?.();
+  }, [initialNoteId, notes, onInitialNoteHandled]);
 
   const listFontScale = notesListFontScale(listWidth);
   const listFontPx = Math.round(11 * listFontScale);

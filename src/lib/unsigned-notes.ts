@@ -1,7 +1,7 @@
 import type { NoteType } from "./notes";
 import type { EncounterModality } from "./encounters";
 
-/** Clinical visit notes that a physician typically signs. */
+/** Clinical visit notes that a physician typically signs on an encounter. */
 export const PHYSICIAN_NOTE_TYPES: NoteType[] = [
   "PROGRESS_NOTE",
   "NEW_PATIENT",
@@ -27,12 +27,14 @@ export function isPhysicianEncounterModality(modality: string): boolean {
 export type UnsignedNoteReason = "NOT_STARTED" | "DRAFT";
 
 export type UnsignedNoteAlertDTO = {
-  encounterId: string;
+  /** Stable list key (encounter or note id). */
+  id: string;
+  encounterId: string | null;
   patientId: string;
   patientName: string;
   patientMrn: string | null;
-  visitCategory: string;
-  modality: string;
+  visitCategory: string | null;
+  modality: string | null;
   date: string;
   providerId: string | null;
   providerName: string | null;
