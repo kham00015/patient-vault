@@ -5,6 +5,7 @@ import { requireAuth, badRequest, notFound } from "@/lib/api";
 import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { draftHpiFromTranscript, isBedrockConfigured } from "@/lib/ai";
+import { buildMyBrainContext } from "@/lib/my-brain";
 import { resolveHpiVisitContext, type HpiVisitKind } from "@/lib/hpi-visit-context";
 import {
   isTranscribeConfigured,
@@ -85,10 +86,12 @@ export async function POST(request: Request, { params }: Params) {
       : resolved.reason;
 
     const transcript = await transcribeMedicalConversation(pcm, sampleRate);
+    const brain = await buildMyBrainContext(auth.user.id);
     const hpi = await draftHpiFromTranscript({
       transcript,
       visitKind,
       visitReason,
+      brainData: brain.text,
     });
 
     const { ipAddress, userAgent } = getClientInfo(request);

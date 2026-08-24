@@ -17,6 +17,7 @@ import {
 } from "@/lib/ai-rules";
 import type { HpiVisitKind } from "@/lib/hpi-visit-context";
 import type { ChartDocumentAttachment } from "@/lib/ai-chart-context";
+import { appendMyBrainToPrompt } from "@/lib/my-brain";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -124,6 +125,7 @@ export async function chatWithAI(params: {
   messages: ChatMessage[];
   patientData?: string;
   attachments?: ChartDocumentAttachment[];
+  brainAttachments?: ChartDocumentAttachment[];
   pastConversations?: string;
   brainData?: string;
 }) {
@@ -136,11 +138,14 @@ export async function chatWithAI(params: {
     };
   }
 
+  const allAttachments = [
+    ...(params.attachments ?? []),
+    ...(params.brainAttachments ?? []),
+  ].slice(0, 30);
+
   const systemBlocks: SystemContentBlock[] = [
     {
-      text: `${CLINICAL_SYSTEM}${
-        params.brainData?.trim() ? `\n\n${params.brainData.trim()}` : ""
-      }${
+      text: `${appendMyBrainToPrompt(CLINICAL_SYSTEM, params.brainData)}${
         params.patientData ? `\n\n=== PATIENT CHART ===\n${params.patientData}` : ""
       }${
         params.pastConversations
@@ -156,7 +161,7 @@ export async function chatWithAI(params: {
       new ConverseCommand({
         modelId: DEFAULT_BEDROCK_MODEL_ID,
         system: systemBlocks,
-        messages: toBedrockMessages(params.messages, params.attachments ?? []),
+        messages: toBedrockMessages(params.messages, allAttachments),
         inferenceConfig: {
           temperature: 0.2,
           maxTokens: 4096,
@@ -224,6 +229,9 @@ export async function organizeChartWithAI(chartText: string) {
 export async function draftNoteSectionWithAI(params: {
   target: "assessment" | "plan";
   noteContext: string;
+  patientData?: string;
+  attachments?: ChartDocumentAttachment[];
+  brainData?: string;
 }) {
   if (!isBedrockConfigured()) {
     throw new Error(
@@ -232,40 +240,65 @@ export async function draftNoteSectionWithAI(params: {
   }
 
   const isAssessment = params.target === "assessment";
-  const systemPrompt = isAssessment ? AI_ASSESSMENT_RULES : AI_PLAN_RULES;
-
-  const client = getBedrockClient();
-  const response = await client.send(
-    new ConverseCommand({
-      modelId: DEFAULT_BEDROCK_MODEL_ID,
-      system: [{ text: systemPrompt }],
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              text: `Draft the ${isAssessment ? "Assessment" : "Plan"} for this visit note.\n\n${params.noteContext}`,
-            },
-          ],
-        },
-      ],
-      inferenceConfig: {
-        temperature: 0.25,
-        maxTokens: 1800,
-      },
-    })
+  const systemPrompt = appendMyBrainToPrompt(
+    isAssessment ? AI_ASSESSMENT_RULES : AI_PLAN_RULES,
+    params.brainData
   );
 
-  return {
-    text: normalizeSectionList(extractText(response.output?.message?.content)),
-    provider: "bedrock" as const,
-  };
+  const chartBlock = params.patientData?.trim()
+    ? `\n\n=== FULL PATIENT CHART (review thoroughly) ===\n${params.patientData.trim()}`
+    : "";
+
+  const userText = `Draft the ${isAssessment ? "Assessment" : "Plan"} for this visit note after reviewing the FULL chart, PDFs/documents, forms, orders, prior notes, and the current visit note below.${
+    isAssessment
+      ? " Every assessment diagnosis line must start with an ICD-10-CM code, then the diagnosis (example: J45.51 Uncontrolled asthma with recent exacerbation)."
+      : ""
+  } If there is a MAJOR conflict between sources, keep your best draft and add a parenthetical conflict note at the bottom after one blank line.
+
+=== CURRENT VISIT NOTE ===
+${params.noteContext}${chartBlock}`;
+
+  const attachments = (params.attachments ?? []).slice(0, 30);
+  const client = getBedrockClient();
+  const command = new ConverseCommand({
+    modelId: DEFAULT_BEDROCK_MODEL_ID,
+    system: [{ text: systemPrompt }],
+    messages: toBedrockMessages([{ role: "user", content: userText }], attachments),
+    inferenceConfig: {
+      temperature: 0.25,
+      maxTokens: 2500,
+    },
+  });
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await client.send(command);
+      return {
+        text: normalizeSectionList(extractText(response.output?.message?.content)),
+        provider: "bedrock" as const,
+      };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        attempt === 0 &&
+        /ECONNRESET|ETIMEDOUT|socket hang up|TimeoutError|ServiceUnavailable|throttl/i.test(message)
+      ) {
+        await new Promise((r) => setTimeout(r, 800));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("AI draft failed");
 }
 
 export async function draftHpiFromTranscript(params: {
   transcript: string;
   visitKind: HpiVisitKind;
   visitReason?: string;
+  brainData?: string;
 }) {
   if (!isBedrockConfigured()) {
     throw new Error(
@@ -274,7 +307,10 @@ export async function draftHpiFromTranscript(params: {
   }
 
   const isNew = params.visitKind === "NEW_PATIENT";
-  const systemPrompt = isNew ? AI_HPI_NEW_RULES : AI_HPI_FOLLOWUP_RULES;
+  const systemPrompt = appendMyBrainToPrompt(
+    isNew ? AI_HPI_NEW_RULES : AI_HPI_FOLLOWUP_RULES,
+    params.brainData
+  );
 
   const client = getBedrockClient();
   const response = await client.send(
@@ -309,6 +345,7 @@ export async function draftHpiFromTranscript(params: {
 export async function reviewChartGuidelinesWithAI(params: {
   patientData: string;
   attachments?: ChartDocumentAttachment[];
+  brainAttachments?: ChartDocumentAttachment[];
   brainData?: string;
 }) {
   if (!isBedrockConfigured()) {
@@ -332,6 +369,11 @@ ${brainBlock}
 === PATIENT CHART ===
 ${params.patientData}`;
 
+  const allAttachments = [
+    ...(params.attachments ?? []),
+    ...(params.brainAttachments ?? []),
+  ].slice(0, 30);
+
   try {
     const client = getBedrockClient();
     const response = await client.send(
@@ -343,10 +385,10 @@ ${params.patientData}`;
             {
               role: "user",
               content:
-                "Review this patient's chart against clinic AI brain / guidelines (priority) and general guidelines. Produce the structured care recommendations now.",
+                "Review this patient's chart against My Brain / guidelines (priority) and general guidelines. Produce the structured care recommendations now.",
             },
           ],
-          params.attachments ?? []
+          allAttachments
         ),
         inferenceConfig: {
           temperature: 0.2,
@@ -381,21 +423,37 @@ function normalizeGuidelinesText(raw: string) {
     .trim();
 }
 
-/** One item per line, no blank lines, strip leading bullets/numbers. */
+/** One item per line, no blank lines between items; keep conflict footnotes at bottom. */
 function normalizeSectionList(raw: string) {
-  const lines = raw
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/^[\s*\-•\d.)]+/, "").trim())
-    .filter(Boolean)
-    .map((line) =>
-      line
-        .replace(/\b6[\s\-]?min(?:ute|tue)?s?\s+walk\b/gi, "6 min walk")
-        .replace(/\b6\s*MWT\b/gi, "6 min walk")
-        .replace(/\bmintue\s+walk\b/gi, "6 min walk")
-        .replace(/\bminute\s+walk\b/gi, "6 min walk")
-    );
-  if (lines.length === 0) return raw.trim();
-  return lines.join("\n");
+  const sourceLines = raw.replace(/\r\n/g, "\n").split("\n");
+  const items: string[] = [];
+  const conflicts: string[] = [];
+
+  for (const sourceLine of sourceLines) {
+    const trimmed = sourceLine.trim();
+    if (!trimmed) continue;
+    const cleaned = trimmed.replace(/^[\s*\-•\d.]+/, "").trim();
+    if (!cleaned) continue;
+
+    const normalized = cleaned
+      .replace(/\b6\s*MWT\b/gi, "six minute walk")
+      .replace(
+        /\b(?:(?:6|six)[\s\-]*)?(?:min(?:ute|tue)?s?|mintue)\s+walk\b/gi,
+        "six minute walk"
+      )
+      .replace(/\b(?:six\s+){2,}minute walk\b/gi, "six minute walk");
+
+    if (/^\(.*\)$/.test(normalized) || /^conflict\b/i.test(normalized)) {
+      const note = normalized.startsWith("(") ? normalized : `(${normalized})`;
+      conflicts.push(note);
+      continue;
+    }
+
+    items.push(normalized);
+  }
+
+  if (items.length === 0 && conflicts.length === 0) return raw.trim();
+  if (conflicts.length === 0) return items.join("\n");
+  return `${items.join("\n")}\n\n${conflicts.join("\n")}`.trim();
 }
 

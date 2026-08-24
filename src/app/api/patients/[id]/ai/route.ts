@@ -7,7 +7,7 @@ import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/p
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { chatWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
-import { buildAiBrainContext } from "@/lib/ai-brain";
+import { buildMyBrainContext } from "@/lib/my-brain";
 import { isPatientChartWritable } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
@@ -49,7 +49,7 @@ export async function POST(request: Request, { params }: Params) {
     const body = chatSchema.parse(await request.json());
     const [chart, brain] = await Promise.all([
       buildPatientChartAiContext(patientId),
-      buildAiBrainContext(),
+      buildMyBrainContext(auth.user.id),
     ]);
 
     const existing = await prisma.aIConversation.findUnique({ where: { patientId } });
@@ -63,6 +63,7 @@ export async function POST(request: Request, { params }: Params) {
       messages: messages as { role: "user" | "assistant" | "system"; content: string }[],
       patientData: chart.text,
       attachments: chart.attachments,
+      brainAttachments: brain.attachments,
       brainData: brain.text,
     });
 

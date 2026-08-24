@@ -203,7 +203,7 @@ export function FormsBranchPanel({
         <ul className="flex flex-col gap-1.5 overflow-y-auto">
           {forms.map((form) => (
             <li key={form.id}>
-              <div className="flex w-full items-center gap-2 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2.5 transition-colors hover:border-cyan-900/60 hover:bg-[#141c28]">
+              <div className="flex w-full items-center gap-2 rounded-lg border border-[var(--pv-border)] bg-[var(--pv-panel)] px-3 py-2.5 transition-colors hover:border-[var(--pv-accent)]/50 hover:bg-[var(--pv-hover)]">
                 <button
                   type="button"
                   onClick={() => openEditor(form)}
@@ -218,7 +218,7 @@ export function FormsBranchPanel({
                     }
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-[#d4dce8]">
+                    <p className="truncate text-sm font-medium text-[var(--pv-fg)]">
                       {form.templateLabel}
                     </p>
                     <p className="text-xs text-[var(--pv-muted)]">

@@ -126,8 +126,21 @@ async function extractPdfText(bytes: Buffer): Promise<string | null> {
  * Oversized / overflow PDFs are text-extracted when possible so AI still sees them.
  */
 export async function buildPatientChartAiContext(
-  patientId: string
+  patientId: string,
+  options?: {
+    /** Prefer PDF text extract over native file attach (smaller Bedrock payloads; fewer resets). */
+    preferTextExtract?: boolean;
+    maxAttachments?: number;
+    maxTextDocChars?: number;
+    maxPdfExtractChars?: number;
+    maxChartTextChars?: number;
+  }
 ): Promise<PatientChartAiContext> {
+  const maxAttachments = options?.maxAttachments ?? MAX_ATTACHMENTS;
+  const maxTextDocChars = options?.maxTextDocChars ?? MAX_TEXT_DOC_CHARS;
+  const maxPdfExtractChars = options?.maxPdfExtractChars ?? MAX_PDF_EXTRACT_CHARS;
+  const preferTextExtract = options?.preferTextExtract ?? false;
+  const maxChartTextChars = options?.maxChartTextChars;
   const patient = await prisma.patient.findUnique({ where: { id: patientId } });
   if (!patient) {
     return {
@@ -310,7 +323,7 @@ export async function buildPatientChartAiContext(
   const attachments: ChartDocumentAttachment[] = [];
   const attachmentSummary: string[] = [];
   const skipped: string[] = [];
-  let textDocBudget = MAX_TEXT_DOC_CHARS;
+  let textDocBudget = maxTextDocChars;
   let documentsAttached = 0;
   let documentsInlined = 0;
   let documentsExtracted = 0;
@@ -356,11 +369,19 @@ export async function buildPatientChartAiContext(
     }
 
     const canAttachNative =
+      !preferTextExtract &&
       bytes.length <= MAX_ATTACHMENT_BYTES &&
-      attachments.length < MAX_ATTACHMENTS &&
+      attachments.length < maxAttachments &&
       (Boolean(imageFormat) || Boolean(docFormat));
 
-    if (canAttachNative && imageFormat) {
+    // In text-extract mode, still allow a few small images (OCR-less visual refs).
+    const canAttachImage =
+      preferTextExtract &&
+      Boolean(imageFormat) &&
+      bytes.length <= MAX_ATTACHMENT_BYTES &&
+      attachments.length < Math.min(maxAttachments, 4);
+
+    if ((canAttachNative || canAttachImage) && imageFormat) {
       attachments.push({
         kind: "image",
         name: safeDocName(doc.fileName),
@@ -384,7 +405,7 @@ export async function buildPatientChartAiContext(
       continue;
     }
 
-    // Fallback: extract PDF text when too large, attachment slots full, or native attach failed.
+    // Fallback / prefer-text mode: extract PDF text when possible.
     if (docFormat === "pdf") {
       if (textDocBudget <= 0) {
         skipped.push(`${label}: text budget exceeded (PDF extract)`);
@@ -393,7 +414,7 @@ export async function buildPatientChartAiContext(
       const extracted = await extractPdfText(bytes);
       if (extracted) {
         let text = extracted;
-        const cap = Math.min(textDocBudget, MAX_PDF_EXTRACT_CHARS);
+        const cap = Math.min(textDocBudget, maxPdfExtractChars);
         if (text.length > cap) {
           text = text.slice(0, cap) + "\n...[truncated PDF extract]";
         }
@@ -436,8 +457,15 @@ export async function buildPatientChartAiContext(
     `notes=${notes.length}; forms=${forms.length}; orders=${orders.length}; encounters=${encounters.length}; documents=${documents.length}; attached=${documentsAttached}; inlined=${documentsInlined}; pdfExtracted=${documentsExtracted}; skipped=${skipped.length}`
   );
 
+  let chartText = lines.join("\n");
+  if (maxChartTextChars && chartText.length > maxChartTextChars) {
+    chartText =
+      chartText.slice(0, maxChartTextChars) +
+      "\n\n...[chart text truncated for AI request size]";
+  }
+
   return {
-    text: lines.join("\n"),
+    text: chartText,
     attachments,
     attachmentSummary,
     skipped,

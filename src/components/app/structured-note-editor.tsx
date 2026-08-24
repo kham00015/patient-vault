@@ -27,6 +27,7 @@ import { cn, formatDate, toDateInputValue } from "@/lib/utils";
 import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callback";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
+import { AddDiagnosisModal } from "@/components/app/add-diagnosis-modal";
 import { MixedNoteField } from "@/components/app/mixed-note-field";
 import { NoteTextToolbar } from "@/components/app/note-text-toolbar";
 import {
@@ -282,7 +283,7 @@ const CLINICAL_GROUPS: NoteSectionGroup[] = [
       {
         key: "assessment",
         label: "Assessment",
-        placeholder: "Clinical assessment...",
+        placeholder: "ICD-10 code + diagnosis (e.g. J45.51 Uncontrolled asthma)...",
         size: "lg",
         span: 1,
       },
@@ -386,6 +387,7 @@ export function StructuredNoteEditor({
   onSaved,
   onSigned,
   onDeleted,
+  onPatientDataChange,
   backLabel = "Back to Encounter",
 }: {
   patientId: string;
@@ -399,6 +401,8 @@ export function StructuredNoteEditor({
   onSaved: () => Promise<void>;
   onSigned: () => Promise<void>;
   onDeleted?: () => Promise<void> | void;
+  /** Refresh chart patient (diagnosis panel) after PMH DX changes. */
+  onPatientDataChange?: () => Promise<void> | void;
   backLabel?: string;
 }) {
   const initial = parseNotePayload(note.type, note.content);
@@ -440,6 +444,7 @@ export function StructuredNoteEditor({
   const [aiDraft, setAiDraft] = useState("");
   const [aiError, setAiError] = useState("");
   const [aiCopied, setAiCopied] = useState(false);
+  const [dxModalOpen, setDxModalOpen] = useState(false);
   const [textToolbarKey, setTextToolbarKey] = useState<NoteSectionKey | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<CollapsibleNotePanelKey>>(
     () => new Set()
@@ -735,24 +740,10 @@ export function StructuredNoteEditor({
     if (target === "plan" && ctx(s.plan)) {
       parts.push(`=== CURRENT PLAN DRAFT (optional reference) ===\n${ctx(s.plan)}`);
     }
-    if (diagnosisText) parts.push(`=== CHART DIAGNOSES ===\n${diagnosisText}`);
-    // Chart context helps Plan rules (prior PFTs / 6MWT / asthma-COPD history).
-    if (target === "plan") {
-      const chartPmh = chartInsertData.pmh?.trim();
-      const chartMeds = chartInsertData.medications?.trim();
-      const chartLabs = chartInsertData.labs?.trim();
-      const chartPft = chartInsertData.pft?.trim();
-      if (chartPmh) parts.push(`=== CHART PMH ===\n${chartPmh}`);
-      if (chartPft) parts.push(`=== CHART PFT SECTION ===\n${chartPft}`);
-      if (chartMeds) parts.push(`=== CHART MEDICATIONS ===\n${chartMeds}`);
-      if (chartLabs) parts.push(`=== CHART LABS ===\n${chartLabs}`);
-      if (!chartPft) {
-        parts.push("=== CHART PFT SECTION ===\n(no prior PFT documentation on chart)");
-      }
-      parts.push(
-        "=== PRIOR TESTING HINTS ===\nUse chart/note text to decide if PFTs or 6 min walk were already done. If asthma/COPD and no prior PFTs documented, include exactly: PFTs today. If no prior 6 min walk documented, include exactly: 6 min walk today."
-      );
-    }
+    if (diagnosisText) parts.push(`=== CHART DIAGNOSES (visit list) ===\n${diagnosisText}`);
+    parts.push(
+      "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Use all of that with this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
+    );
     return parts.join("\n\n");
   }
 
@@ -826,6 +817,7 @@ export function StructuredNoteEditor({
     const includeExpand = options?.includeExpand !== false;
     const includeCollapse = options?.includeCollapse !== false;
     const showDiagnosis = fieldKey === "assessment";
+    const showPmhDx = fieldKey === "pastMedicalHistory";
     const showAi = fieldKey === "assessment" || fieldKey === "plan";
 
     return (
@@ -883,6 +875,15 @@ export function StructuredNoteEditor({
             {insertingDiagnosis ? "..." : "Diagnosis"}
           </Button>
         )}
+        {!isReadOnly && showPmhDx && (
+          <Button
+            className="!h-7 !px-2 !text-[11px] !border-[color-mix(in_srgb,var(--pv-accent-strong)_50%,transparent)] !bg-[color-mix(in_srgb,var(--pv-accent-strong)_14%,transparent)] !text-[var(--pv-accent-strong)] hover:!bg-[color-mix(in_srgb,var(--pv-accent-strong)_22%,transparent)]"
+            title="Add ICD-10 diagnosis to PMH"
+            onClick={() => setDxModalOpen(true)}
+          >
+            DX
+          </Button>
+        )}
         {includeCollapse && (
           <Button
             className="!h-7 !px-2 !text-[11px] !border-[color-mix(in_srgb,var(--pv-accent-strong)_45%,transparent)] !bg-[color-mix(in_srgb,var(--pv-accent-strong)_12%,transparent)] !text-[var(--pv-accent-strong)] hover:!bg-[color-mix(in_srgb,var(--pv-accent-strong)_20%,transparent)]"
@@ -894,20 +895,21 @@ export function StructuredNoteEditor({
         )}
         {includeExpand && (
           <Button
-            className="!h-7 !px-2 !text-[11px]"
-            title="Open section in a larger popup"
+            className="!h-7 !w-7 !px-0 !text-[11px]"
+            title="Expand section"
+            aria-label="Expand section"
             onClick={() => setExpandedSection(fieldKey)}
           >
-            <Expand size={12} /> Pop out
+            <Expand size={12} />
           </Button>
         )}
         {!readOnly && showAi && (
           <Button
-            className="!h-7 !gap-1 !px-2 !text-[11px] !border-violet-500/45 !bg-violet-500/15 !text-violet-200 hover:!bg-violet-500/25"
+            className="!h-7 !gap-1 !px-2 !text-[11px] pv-ai-btn"
             title={
               fieldKey === "assessment"
-                ? "Draft Assessment from HPI with AI"
-                : "Draft Plan from HPI/Assessment with AI"
+                ? "Draft Assessment from full chart + HPI with AI"
+                : "Draft Plan from full chart + HPI/Assessment with AI"
             }
             disabled={aiLoading && aiTarget === fieldKey}
             onClick={() => runSectionAi(fieldKey as "assessment" | "plan")}
@@ -1306,8 +1308,8 @@ export function StructuredNoteEditor({
       >
         <p className="mb-3 text-sm text-[var(--pv-muted)]">
           {aiTarget === "assessment"
-            ? "Generated from HPI using clinical judgment. Transfer appends this draft to Assessment in the AI color."
-            : "Generated from HPI/Assessment using clinical judgment. Transfer appends this draft to Plan in the AI color."}
+            ? "Reviews the full chart (notes, forms, orders, PDFs) plus this visit’s HPI. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
+            : "Reviews the full chart (notes, forms, orders, PDFs) plus HPI/Assessment. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."}
         </p>
         {aiError && (
           <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
@@ -1315,7 +1317,9 @@ export function StructuredNoteEditor({
           </p>
         )}
         {aiLoading ? (
-          <p className="py-10 text-center text-sm text-cyan-300">Drafting with Bedrock...</p>
+          <p className="py-10 text-center text-sm text-cyan-300">
+            Reviewing full chart and drafting with Bedrock...
+          </p>
         ) : (
           <Textarea
             value={aiDraft}
@@ -1335,7 +1339,7 @@ export function StructuredNoteEditor({
             {aiCopied ? "Copied" : "Copy"}
           </Button>
           <Button
-            className="!gap-1.5 !border-violet-500/45 !bg-violet-500/15 !text-violet-200 hover:!bg-violet-500/25"
+            className="!gap-1.5 pv-ai-btn"
             disabled={aiLoading || readOnly || !aiDraft.trim()}
             onClick={() => transferAiDraft()}
             title={
@@ -1361,6 +1365,28 @@ export function StructuredNoteEditor({
           </Button>
         </div>
       </Modal>
+
+      <AddDiagnosisModal
+        open={dxModalOpen}
+        onClose={() => setDxModalOpen(false)}
+        currentDiagnosis={
+          noteSectionToPlainText(sections.pastMedicalHistory ?? "").trim() ||
+          diagnosisText
+        }
+        title="Add diagnosis to PMH"
+        onAdd={async (nextDiagnosis, item) => {
+          const res = await api<{ diagnosis: string }>(`/api/patients/${patientId}/diagnosis`, {
+            method: "POST",
+            json: {
+              code: item.code,
+              description: item.description,
+              fromNoteId: note.id,
+            },
+          });
+          updateSection("pastMedicalHistory", res.diagnosis || nextDiagnosis);
+          await onPatientDataChange?.();
+        }}
+      />
 
       <DeleteReasonModal
         open={showDeleteConfirm}

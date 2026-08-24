@@ -59,7 +59,7 @@ const CLINICAL_TABS: NoteTabDef[] = [
     id: "assessment_plan",
     label: "Assessment & Plan",
     fields: [
-      { key: "assessment", label: "Assessment", placeholder: "Clinical assessment...", size: "md" },
+      { key: "assessment", label: "Assessment", placeholder: "ICD-10 code + diagnosis (e.g. J45.51 Uncontrolled asthma)...", size: "md" },
       { key: "plan", label: "Plan", placeholder: "Treatment plan...", size: "md" },
     ],
   },

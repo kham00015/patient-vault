@@ -206,6 +206,40 @@ button {
   opacity: 0.55;
 }
 
+/** High-contrast AI action buttons (Assessment/Plan toolbars, etc.) */
+.pv-ai-btn {
+  border-color: color-mix(in srgb, var(--pv-ai-text) 55%, transparent) !important;
+  background-color: color-mix(in srgb, var(--pv-ai-text) 16%, transparent) !important;
+  color: var(--pv-ai-text) !important;
+}
+
+.pv-ai-btn:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--pv-ai-text) 26%, transparent) !important;
+}
+
+html[data-theme="dark"] .pv-ai-btn {
+  border-color: #c4b5fd !important;
+  background-color: rgba(139, 92, 246, 0.35) !important;
+  color: #f5f3ff !important;
+}
+
+html[data-theme="dark"] .pv-ai-btn:hover:not(:disabled) {
+  background-color: rgba(139, 92, 246, 0.5) !important;
+}
+
+html[data-theme="light"] .pv-ai-btn,
+html[data-theme="cream"] .pv-ai-btn {
+  border-color: #5b21b6 !important;
+  background-color: #5b21b6 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] .pv-ai-btn:hover:not(:disabled),
+html[data-theme="cream"] .pv-ai-btn:hover:not(:disabled) {
+  background-color: #4c1d95 !important;
+  border-color: #4c1d95 !important;
+}
+
 .pv-mixed-note-field {
   font: inherit;
   font-size: 12px;

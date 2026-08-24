@@ -104,6 +104,7 @@ model User {
   personalNotes PatientPersonalNote[]
   aiListenSaves PatientAiListenSave[]
   aiBrainSources AiBrainSource[] @relation("CreatedAiBrainSources")
+  aiBrainDocumentsUploaded AiBrainDocument[] @relation("UploadedAiBrainDocuments")
   accessGrantsReceived PatientAccessGrant[] @relation("AccessGrantUser")
   accessGrantsGiven    PatientAccessGrant[] @relation("AccessGrantGrantedBy")
   referralIntakesCreated ReferralIntake[] @relation("CreatedReferralIntakes")
@@ -805,7 +806,7 @@ model PotentialPatient {
   @@index([createdAt])
 }
 
-/** Clinic-wide AI "brain" — guidelines, prefs, treatment style, reference text. */
+/** Per-user My Brain — written directives + linked documents. */
 enum AiBrainSourceType {
   GUIDELINE
   PREFERENCE
@@ -829,10 +830,42 @@ model AiBrainSource {
   updatedAt   DateTime          @updatedAt
   createdBy   User              @relation("CreatedAiBrainSources", fields: [createdById], references: [id])
   office      Office?           @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  documents   AiBrainDocument[]
 
   @@index([officeId])
   @@index([active, priority])
   @@index([type])
+  @@index([updatedAt])
+  @@index([createdById])
+}
+
+enum AiBrainDocumentExtractionStatus {
+  PENDING
+  READY
+  FAILED
+  IMAGE_ONLY
+}
+
+model AiBrainDocument {
+  id               String                          @id @default(cuid())
+  sourceId         String?
+  createdById      String
+  title            String
+  fileName         String
+  storageKey       String
+  mimeType         String
+  fileSize         Int
+  extractedText    String                          @default("")
+  extractionStatus AiBrainDocumentExtractionStatus @default(PENDING)
+  active           Boolean                         @default(true)
+  priority         Int                             @default(80)
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  source           AiBrainSource?                  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdBy        User                            @relation("UploadedAiBrainDocuments", fields: [createdById], references: [id])
+
+  @@index([createdById, active])
+  @@index([sourceId])
   @@index([updatedAt])
 }
 

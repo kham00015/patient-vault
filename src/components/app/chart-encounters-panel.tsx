@@ -280,8 +280,10 @@ export function ChartEncountersPanel({
       setPickingNoteTypeFor(null);
       return;
     }
-    const detail = await ensureEncounterOpen(encounterId);
-    await openPrimaryNote(encounterId, detail);
+    setActiveNote(null);
+    setActiveBranch(null);
+    setPickingNoteTypeFor(null);
+    await ensureEncounterOpen(encounterId);
   }
 
   async function openBranch(encounterId: string, branch: EncounterBranch) {
@@ -402,6 +404,7 @@ export function ChartEncountersPanel({
           if (encId) await refreshEncounter(encId);
           await onPatientDataChange?.();
         }}
+        onPatientDataChange={onPatientDataChange}
       />
     );
   }

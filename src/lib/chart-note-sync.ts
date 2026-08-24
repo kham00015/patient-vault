@@ -148,6 +148,57 @@ export async function syncDraftNotesFromChartFields(
   }
 }
 
+/**
+ * Push diagnosis/PMH into notes on or after a reference note (by date/createdAt).
+ * Earlier notes are left unchanged.
+ */
+export async function syncForwardNotesFromDiagnosis(
+  patientId: string,
+  diagnosisText: string,
+  fromNote: { id: string; date: Date; createdAt: Date }
+) {
+  const notes = await prisma.note.findMany({
+    where: { patientId },
+    select: {
+      id: true,
+      type: true,
+      content: true,
+      date: true,
+      createdAt: true,
+      status: true,
+    },
+  });
+
+  const fromTime = fromNote.date.getTime();
+  const fromCreated = fromNote.createdAt.getTime();
+
+  for (const note of notes) {
+    const noteTime = note.date.getTime();
+    const isBefore =
+      note.id !== fromNote.id &&
+      (noteTime < fromTime ||
+        (noteTime === fromTime && note.createdAt.getTime() < fromCreated));
+    if (isBefore) continue;
+
+    // Do not rewrite signed notes other than the current one (avoid silent signed edits).
+    if (note.status === "SIGNED" && note.id !== fromNote.id) continue;
+
+    const payload = parseNotePayload(note.type, decryptNoteContent(note.content));
+    const sections = { ...payload.sections };
+    if ((sections.pastMedicalHistory ?? "") === diagnosisText) continue;
+
+    sections.pastMedicalHistory = diagnosisText;
+    await prisma.note.update({
+      where: { id: note.id },
+      data: {
+        content: prepareNoteContent(
+          serializeNoteContent(note.type, sections, payload.vitals)
+        ),
+      },
+    });
+  }
+}
+
 /** Persist chart fields derived from a note save (encrypted). */
 export async function syncPatientFromNoteSections(
   patientId: string,

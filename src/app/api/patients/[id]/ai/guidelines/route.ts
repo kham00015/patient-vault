@@ -6,7 +6,7 @@ import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/p
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { reviewChartGuidelinesWithAI } from "@/lib/ai";
 import { buildPatientChartAiContext } from "@/lib/ai-chart-context";
-import { buildAiBrainContext } from "@/lib/ai-brain";
+import { buildMyBrainContext } from "@/lib/my-brain";
 import { isPatientChartWritable } from "@/lib/patients";
 
 type Params = { params: Promise<{ id: string }> };
@@ -31,11 +31,12 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const [chart, brain] = await Promise.all([
       buildPatientChartAiContext(patientId),
-      buildAiBrainContext(),
+      buildMyBrainContext(auth.user.id),
     ]);
     const result = await reviewChartGuidelinesWithAI({
       patientData: chart.text,
       attachments: chart.attachments,
+      brainAttachments: brain.attachments,
       brainData: brain.text || undefined,
     });
 
@@ -71,6 +72,8 @@ export async function POST(request: Request, { params }: Params) {
         attachments: chart.attachmentSummary.length,
         skipped: chart.skipped.length,
         brainSources: brain.sourceCount,
+        brainDocuments: brain.documentCount,
+        brainAttachments: brain.attachments.length,
         coverageNotes: chart.coverage.notes,
         coverageForms: chart.coverage.forms,
         coverageOrders: chart.coverage.orders,

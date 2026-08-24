@@ -28,7 +28,7 @@ import { MessagingPanel } from "@/components/app/messaging-panel";
 import { PatientRemindersModal } from "@/components/app/patient-reminders-modal";
 import { PatientPersonalNoteModal } from "@/components/app/patient-personal-note-modal";
 import { AiListenModal } from "@/components/app/ai-listen-modal";
-import { AiBrainModal } from "@/components/app/ai-brain-modal";
+import { MyBrainModal } from "@/components/app/ai-brain-modal";
 import { PatientAccessModal } from "@/components/app/patient-access-modal";
 import { RemindersPanel } from "@/components/app/reminders-panel";
 import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
@@ -60,6 +60,7 @@ import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { IdleSessionGuard } from "@/components/app/idle-session-guard";
 import { SendFaxModal } from "@/components/app/send-fax-modal";
 import { SendDocumentReviewModal } from "@/components/app/send-document-review-modal";
+import { DocumentAnnotateNoteModal } from "@/components/app/document-annotate-note-modal";
 import type { PatientChartInsertSnapshot } from "@/lib/note-chart-map";
 import type { CreatePatientInput } from "@/lib/patient-registration";
 import type { ArchivePatientInput } from "@/lib/patient-lifecycle";
@@ -84,6 +85,7 @@ import {
   Archive,
   ArrowLeft,
   Bot,
+  Brain,
   Calendar,
   ClipboardList,
   FileText,
@@ -105,6 +107,8 @@ import {
   UserRoundSearch,
   Users,
   Share2,
+  PenLine,
+  StickyNote,
   GripVertical,
   Check,
   ChevronDown,
@@ -389,6 +393,7 @@ type ModalType =
   | "reminders"
   | "personalNote"
   | "aiListen"
+  | "myBrain"
   | "access"
   | null;
 
@@ -1130,14 +1135,6 @@ export default function PatientVaultApp({
       hidden: user.role === "READONLY",
     },
     {
-      id: "archive",
-      label: "Archive Chart",
-      icon: Archive,
-      color: "text-amber-400",
-      disabled: !current || isChartReadOnly,
-      hidden: user.role === "STAFF" || user.role === "READONLY" || isConsultantUser,
-    },
-    {
       id: "hardDelete",
       label: "Permanently Delete",
       icon: Trash2,
@@ -1151,6 +1148,13 @@ export default function PatientVaultApp({
       icon: Bot,
       color: "text-violet-400",
       disabled: !current,
+      hidden: isConsultantUser,
+    },
+    {
+      id: "myBrain",
+      label: "My Brain",
+      icon: Brain,
+      color: "text-fuchsia-300",
       hidden: isConsultantUser,
     },
     { id: "lists", label: "Lists", icon: List, color: "text-fuchsia-400", hidden: isConsultantUser },
@@ -1191,7 +1195,7 @@ export default function PatientVaultApp({
     },
   ] as const;
 
-  function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users") {
+  function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users" | "archive") {
     if (id === "potentials") {
       goToView("potentials");
       return;
@@ -1352,6 +1356,16 @@ export default function PatientVaultApp({
               onClick={() => handleNavClick("audit")}
             >
               <ClipboardList size={16} className="text-cyan-400" /> Audit Log
+            </Button>
+          )}
+          {user.role !== "STAFF" && user.role !== "READONLY" && !isConsultantUser && (
+            <Button
+              variant="ghost"
+              className="!h-10 !shrink-0 !gap-1.5 !px-2.5 !py-1.5 !text-sm border border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
+              disabled={!current || isChartReadOnly}
+              onClick={() => handleNavClick("archive")}
+            >
+              <Archive size={16} className="text-amber-400" /> Archive Chart
             </Button>
           )}
           <Button
@@ -1949,6 +1963,8 @@ export default function PatientVaultApp({
         />
       )}
 
+      <MyBrainModal open={modal === "myBrain"} onClose={() => setModal(null)} />
+
       {current && (
         <PatientRemindersModal
           open={modal === "reminders"}
@@ -2439,6 +2455,7 @@ function ChartNotesPanel({
               setActiveNoteId(null);
               await onRefresh();
             }}
+            onPatientDataChange={onRefresh}
             backLabel="Close note"
           />
         ) : (
@@ -2673,6 +2690,9 @@ function ChartDocumentsPanel({
   const [faxNotice, setFaxNotice] = useState("");
   const [viewerDoc, setViewerDoc] = useState<DocumentItem | null>(null);
   const [reviewDoc, setReviewDoc] = useState<DocumentItem | null>(null);
+  const [annotateDoc, setAnnotateDoc] = useState<DocumentItem | null>(null);
+  const [signingDocId, setSigningDocId] = useState<string | null>(null);
+  const [annotateError, setAnnotateError] = useState("");
 
   const load = useCallback(async () => {
     const docData = await api<{ documents: DocumentItem[] }>(
@@ -2771,6 +2791,23 @@ function ChartDocumentsPanel({
 
   function openDocument(doc: DocumentItem) {
     setViewerDoc(doc);
+  }
+
+  async function signDocument(doc: DocumentItem) {
+    setAnnotateError("");
+    setSigningDocId(doc.id);
+    try {
+      await api(`/api/patients/${patientId}/documents/annotate`, {
+        method: "POST",
+        json: { itemId: doc.id, sign: true },
+      });
+      await load();
+      onDataChange?.();
+    } catch (e) {
+      setAnnotateError(e instanceof Error ? e.message : "Could not sign document");
+    } finally {
+      setSigningDocId(null);
+    }
   }
 
   async function deleteDraftForm(doc: DocumentItem) {
@@ -2971,6 +3008,11 @@ function ChartDocumentsPanel({
       )}
 
       <div className="space-y-2">
+        {annotateError && (
+          <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+            {annotateError}
+          </p>
+        )}
         {docs.length === 0 && <p className="text-sm text-[var(--pv-muted)]">No documents yet.</p>}
         {docs.map((d) => {
           const checked = selectedIds.includes(d.id);
@@ -3130,18 +3172,38 @@ function ChartDocumentsPanel({
                     Rename
                   </Button>
                 )}
+                {canSendForReview && !isReadOnly && (
+                  <>
+                    <Button
+                      className="!gap-1 !text-xs"
+                      onClick={() => {
+                        setAnnotateError("");
+                        setAnnotateDoc(d);
+                      }}
+                    >
+                      <StickyNote size={12} />
+                      Add note
+                    </Button>
+                    <Button
+                      className="!gap-1 !text-xs"
+                      disabled={signingDocId === d.id}
+                      onClick={() => void signDocument(d)}
+                    >
+                      <PenLine size={12} />
+                      {signingDocId === d.id ? "Signing…" : "Sign"}
+                    </Button>
+                    <Button
+                      className="!gap-1 !text-xs !border-[var(--pv-accent)]/40 !bg-[color-mix(in_srgb,var(--pv-accent)_14%,transparent)] !text-[var(--pv-fg)] hover:!bg-[color-mix(in_srgb,var(--pv-accent)_24%,transparent)]"
+                      onClick={() => setReviewDoc(d)}
+                    >
+                      <Share2 size={12} className="text-[var(--pv-accent)]" />
+                      Send for review
+                    </Button>
+                  </>
+                )}
                 <Button className="!text-xs" onClick={() => openDocument(d)}>
                   Open
                 </Button>
-                {canSendForReview && !isReadOnly && (
-                  <Button
-                    className="!gap-1 !text-xs !border-[var(--pv-accent)]/40 !bg-[color-mix(in_srgb,var(--pv-accent)_14%,transparent)] !text-[var(--pv-fg)] hover:!bg-[color-mix(in_srgb,var(--pv-accent)_24%,transparent)]"
-                    onClick={() => setReviewDoc(d)}
-                  >
-                    <Share2 size={12} className="text-[var(--pv-accent)]" />
-                    Send for review
-                  </Button>
-                )}
                 {!isReadOnly &&
                   canRemoveRecords &&
                   canDelete &&
@@ -3170,6 +3232,19 @@ function ChartDocumentsPanel({
             json: { reason },
           });
           setDeleteDocId(null);
+          await load();
+          onDataChange?.();
+        }}
+      />
+
+      <DocumentAnnotateNoteModal
+        open={!!annotateDoc}
+        onClose={() => setAnnotateDoc(null)}
+        patientId={patientId}
+        itemId={annotateDoc?.id ?? ""}
+        documentName={annotateDoc?.name ?? ""}
+        onSaved={async () => {
+          setAnnotateError("");
           await load();
           onDataChange?.();
         }}
@@ -3333,13 +3408,13 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
         </Button>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          className="text-[11px] text-[var(--pv-muted)] underline-offset-2 hover:text-[var(--pv-muted-2)] hover:underline"
+        <Button
+          className="!gap-1.5 !text-xs"
           onClick={() => setBrainOpen(true)}
         >
-          Clinic knowledge (background)
-        </button>
+          <Brain size={14} className="text-fuchsia-300" />
+          My Brain
+        </Button>
         <div className="flex flex-wrap justify-end gap-2">
           <Button
             variant="primary"
@@ -3409,7 +3484,7 @@ function AIModal({ open, onClose, patientId, patientName }: { open: boolean; onC
         </div>
       </div>
     </Modal>
-    <AiBrainModal open={brainOpen} onClose={() => setBrainOpen(false)} />
+    <MyBrainModal open={brainOpen} onClose={() => setBrainOpen(false)} />
     </>
   );
 }

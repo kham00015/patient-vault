@@ -143,7 +143,7 @@ export function ChartReferralsPanel({
     }
     if (canAttach) {
       if (!newPatientId) {
-        setError("Choose a patient from the list.");
+        setError("Search and select a patient.");
         return;
       }
     } else if (!newName.trim()) {
@@ -277,7 +277,7 @@ export function ChartReferralsPanel({
 
   const filteredCreatePatients = useMemo(() => {
     const q = createPatientQuery.trim().toLowerCase();
-    if (!q) return patients.slice(0, 40);
+    if (!q) return [];
     return patients
       .filter((p) => `${p.name} ${p.mrn ?? ""}`.toLowerCase().includes(q))
       .slice(0, 40);
@@ -285,7 +285,7 @@ export function ChartReferralsPanel({
 
   const filteredPatients = useMemo(() => {
     const q = patientQuery.trim().toLowerCase();
-    if (!q) return patients.slice(0, 40);
+    if (!q) return [];
     return patients
       .filter((p) => `${p.name} ${p.mrn ?? ""}`.toLowerCase().includes(q))
       .slice(0, 40);
@@ -293,7 +293,7 @@ export function ChartReferralsPanel({
 
   const filteredFromChartPatients = useMemo(() => {
     const q = fromChartQuery.trim().toLowerCase();
-    if (!q) return patients.slice(0, 40);
+    if (!q) return [];
     return patients
       .filter((p) => `${p.name} ${p.mrn ?? ""}`.toLowerCase().includes(q))
       .slice(0, 40);
@@ -391,32 +391,35 @@ export function ChartReferralsPanel({
             <Input
               value={createPatientQuery}
               onChange={(e) => setCreatePatientQuery(e.target.value)}
-              placeholder="Search patient list…"
+              placeholder="Search patient by name or MRN"
             />
-            <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-lg border border-[var(--pv-border)] p-1">
-              {filteredCreatePatients.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setNewPatientId(p.id);
-                    setNewName(p.name);
-                  }}
-                  className={cn(
-                    "block w-full rounded-md px-2 py-1.5 text-left text-sm",
-                    newPatientId === p.id
-                      ? "bg-amber-500/20 text-amber-100"
-                      : "text-[var(--pv-fg-soft)] hover:bg-white/5"
-                  )}
-                >
-                  {p.name}
-                  {p.mrn ? ` · ${p.mrn}` : ""}
-                </button>
-              ))}
-              {filteredCreatePatients.length === 0 && (
-                <p className="px-2 py-2 text-xs text-[var(--pv-muted)]">No matching patients.</p>
-              )}
-            </div>
+            {createPatientQuery.trim() && (
+              <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-lg border border-[var(--pv-border)] p-1">
+                {filteredCreatePatients.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setNewPatientId(p.id);
+                      setNewName(p.name);
+                      setCreatePatientQuery("");
+                    }}
+                    className={cn(
+                      "block w-full rounded-md px-2 py-1.5 text-left text-sm",
+                      newPatientId === p.id
+                        ? "bg-amber-500/20 text-amber-100"
+                        : "text-[var(--pv-fg-soft)] hover:bg-white/5"
+                    )}
+                  >
+                    {p.name}
+                    {p.mrn ? ` · ${p.mrn}` : ""}
+                  </button>
+                ))}
+                {filteredCreatePatients.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-[var(--pv-muted)]">No matching patients.</p>
+                )}
+              </div>
+            )}
             {newPatientId && (
               <p className="truncate text-xs text-amber-200">Selected: {newName}</p>
             )}
@@ -753,6 +756,11 @@ export function ChartReferralsPanel({
             placeholder="Search patient by name or MRN"
           />
           <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-[var(--pv-border)] p-1">
+            {!patientQuery.trim() && (
+              <p className="px-2 py-3 text-sm text-[var(--pv-muted)]">
+                Search by name or MRN to find a patient.
+              </p>
+            )}
             {filteredPatients.map((p) => (
               <button
                 key={p.id}
@@ -769,7 +777,7 @@ export function ChartReferralsPanel({
                 {p.mrn ? ` · ${p.mrn}` : ""}
               </button>
             ))}
-            {filteredPatients.length === 0 && (
+            {patientQuery.trim() && filteredPatients.length === 0 && (
               <p className="px-2 py-3 text-sm text-[var(--pv-muted)]">No matching patients.</p>
             )}
           </div>
@@ -803,6 +811,11 @@ export function ChartReferralsPanel({
             placeholder="Search patient by name or MRN"
           />
           <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-[var(--pv-border)] p-1">
+            {!fromChartQuery.trim() && (
+              <p className="px-2 py-3 text-sm text-[var(--pv-muted)]">
+                Search by name or MRN to find a patient.
+              </p>
+            )}
             {filteredFromChartPatients.map((p) => (
               <button
                 key={p.id}
@@ -819,7 +832,7 @@ export function ChartReferralsPanel({
                 {p.mrn ? ` · ${p.mrn}` : ""}
               </button>
             ))}
-            {filteredFromChartPatients.length === 0 && (
+            {fromChartQuery.trim() && filteredFromChartPatients.length === 0 && (
               <p className="px-2 py-3 text-sm text-[var(--pv-muted)]">No matching patients.</p>
             )}
           </div>
