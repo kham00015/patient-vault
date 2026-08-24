@@ -7,8 +7,9 @@ import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/p
 import { canWrite } from "@/lib/auth";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { isPatientChartWritable } from "@/lib/patients";
-import { toFormDTO } from "@/lib/forms";
-import { formAvailableForOffice, getClinicalFormTemplate } from "@/lib/clinical-forms";
+import { toFormDTO, prepareFormResponses } from "@/lib/forms";
+import { FORM_META_KEYS, formAvailableForOffice, getClinicalFormTemplate } from "@/lib/clinical-forms";
+import { clinicDisplayName } from "@/lib/branding";
 
 type Params = { params: Promise<{ id: string; encounterId: string }> };
 
@@ -88,6 +89,13 @@ export async function POST(request: Request, { params }: Params) {
         templateId: body.templateId,
         source: body.source,
         status: body.source === "ONLINE" ? "DRAFT" : "DRAFT",
+        // Stamp initiating clinic (Modern Medicine / NCCC) for letterhead.
+        responses:
+          body.source === "ONLINE"
+            ? prepareFormResponses({
+                [FORM_META_KEYS.clinicName]: clinicDisplayName(auth.user.officeName),
+              })
+            : undefined,
         createdById: auth.user.id,
       },
       include: {

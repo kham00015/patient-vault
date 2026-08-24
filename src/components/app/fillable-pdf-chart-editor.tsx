@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Save } from "lucide-react";
 import { PDFCheckBox, PDFDocument, PDFTextField } from "pdf-lib";
 import { Button } from "@/components/ui/button";
+import {
+  applyPatientNamePrefill,
+  type PatientNamePrefill,
+} from "@/lib/fillable-pdf-prefill";
 
 type OverlayField = {
   name: string;
@@ -47,6 +51,7 @@ export function FillablePdfChartEditor({
   encounterId,
   templateId,
   label,
+  patientName,
   onSaved,
   onCancel,
 }: {
@@ -55,6 +60,8 @@ export function FillablePdfChartEditor({
   encounterId: string;
   templateId: string;
   label: string;
+  /** Prefill patient name/DOB fields when the form opens. */
+  patientName?: PatientNamePrefill | null;
   onSaved: () => Promise<void> | void;
   onCancel: () => void;
 }) {
@@ -179,7 +186,11 @@ export function FillablePdfChartEditor({
         if (cancelled) return;
         setBlankBytes(bytes);
         setFields(nextFields);
-        setValues(nextValues);
+        setValues(
+          patientName
+            ? applyPatientNamePrefill(nextValues, patientName)
+            : nextValues
+        );
         setPages(rendered);
       } catch (e) {
         if (!cancelled) {
@@ -194,7 +205,14 @@ export function FillablePdfChartEditor({
     return () => {
       cancelled = true;
     };
-  }, [pdfUrl]);
+    // Prefill identity from chart; depend on identity parts, not object identity.
+  }, [
+    pdfUrl,
+    patientName?.displayName,
+    patientName?.firstName,
+    patientName?.lastName,
+    patientName?.dateOfBirth,
+  ]);
 
   const fieldsByPage = useMemo(() => {
     const map = new Map<number, OverlayField[]>();

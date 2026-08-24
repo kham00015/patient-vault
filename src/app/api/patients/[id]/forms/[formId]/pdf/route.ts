@@ -5,7 +5,7 @@ import { requireAuth, notFound } from "@/lib/api";
 import { assertNotConsultantDocumentsOnly, assertPatientReadable } from "@/lib/patient-access";
 import { createAuditLog, getClientInfo } from "@/lib/audit";
 import { decryptNoteContent } from "@/lib/encryption";
-import { buildFormPdfHtml } from "@/lib/form-pdf";
+import { buildFormPdfHtml, resolveFormClinicName } from "@/lib/form-pdf";
 import { parseFormResponses } from "@/lib/clinical-forms";
 import { toPatientDTO } from "@/lib/patients";
 import { getClinicNameForPatient } from "@/lib/office";
@@ -63,7 +63,10 @@ export async function GET(request: Request, { params }: Params) {
 
   const patient = toPatientDTO(form.patient);
   const responses = parseFormResponses(decryptNoteContent(form.responses ?? ""));
-  const clinicName = await getClinicNameForPatient(patientId);
+  const clinicName = resolveFormClinicName(
+    responses,
+    auth.user.officeName || (await getClinicNameForPatient(patientId))
+  );
   const html = buildFormPdfHtml({
     patientName: patient.name,
     mrn: patient.mrn,

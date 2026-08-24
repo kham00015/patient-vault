@@ -16,7 +16,17 @@ import {
 } from "@/lib/clinical-forms";
 import { cn, formatDate } from "@/lib/utils";
 import { useDebouncedCallback } from "@/lib/use-debounced-callback";
-import { ArrowLeft, CheckCircle2, FileText } from "lucide-react";
+import { ArrowLeft, BookmarkPlus, CheckCircle2, FileText, Bookmark } from "lucide-react";
+import {
+  FormPrefillPickerModal,
+  SaveFormPrefillModal,
+} from "@/components/app/form-prefill-modals";
+import {
+  applyFormPrefillResponses,
+  extractFormPrefillResponses,
+  supportsFormPrefills,
+  type FormPrefillDTO,
+} from "@/lib/form-prefills";
 
 export type EncounterFormData = {
   id: string;
@@ -48,6 +58,8 @@ export function ClinicalFormEditor({
   onSaved,
   onFaxReferral,
   inModal = false,
+  prefillPickerOpen = false,
+  onPrefillPickerOpenChange,
 }: {
   patientId: string;
   form: EncounterFormData;
@@ -57,20 +69,33 @@ export function ClinicalFormEditor({
   onSaved: () => Promise<void>;
   onFaxReferral?: (documentId: string, faxNumber: string, recipientName?: string) => void;
   inModal?: boolean;
+  /** Controlled from modal title accessory when inModal. */
+  prefillPickerOpen?: boolean;
+  onPrefillPickerOpenChange?: (open: boolean) => void;
 }) {
   const template = getClinicalFormTemplate(form.templateId);
   const [responses, setResponses] = useState<Record<string, string>>(form.responses ?? {});
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [viewer, setViewer] = useState<{ title: string; url: string; mimeType?: string } | null>(null);
+  const [localPrefillPickerOpen, setLocalPrefillPickerOpen] = useState(false);
+  const [savePrefillOpen, setSavePrefillOpen] = useState(false);
+  const [savingPrefill, setSavingPrefill] = useState(false);
+  const [prefillError, setPrefillError] = useState<string | null>(null);
+  const [lastPrefillName, setLastPrefillName] = useState("");
   const responsesRef = useRef(responses);
   const isCompleted = form.status === "COMPLETED";
   const readOnly = isReadOnly || isCompleted;
+  const canUsePrefills = supportsFormPrefills(form.templateId);
+  const pickerOpen = onPrefillPickerOpenChange ? prefillPickerOpen : localPrefillPickerOpen;
+  const setPickerOpen = onPrefillPickerOpenChange ?? setLocalPrefillPickerOpen;
 
   useEffect(() => {
+    // Only hydrate when opening a different form. Do not sync from parent
+    // after autosave — that races with in-progress typing and wipes keystrokes.
     setResponses(form.responses ?? {});
     responsesRef.current = form.responses ?? {};
-  }, [form.id, form.responses]);
+  }, [form.id]);
 
   useEffect(() => {
     responsesRef.current = responses;
@@ -84,6 +109,7 @@ export function ClinicalFormEditor({
         method: "PATCH",
         json: { responses: responsesRef.current },
       });
+      // Refresh encounter list only — do not replace local field state.
       await onSaved();
     } finally {
       setSaving(false);
@@ -133,6 +159,47 @@ export function ClinicalFormEditor({
     }
   }
 
+  function applyPrefill(prefill: FormPrefillDTO) {
+    if (readOnly) return;
+    setResponses((prev) => {
+      const next = applyFormPrefillResponses(prev, prefill.responses);
+      responsesRef.current = next;
+      return next;
+    });
+    setLastPrefillName(prefill.name);
+    debouncedPersist();
+  }
+
+  async function saveAsPrefill(name: string) {
+    setSavingPrefill(true);
+    setPrefillError(null);
+    try {
+      await api<{ prefill: FormPrefillDTO; updated: boolean }>("/api/form-prefills", {
+        method: "POST",
+        json: {
+          templateId: form.templateId,
+          name,
+          responses: responsesRef.current,
+        },
+      });
+      setLastPrefillName(name);
+      setSavePrefillOpen(false);
+    } catch (e) {
+      setPrefillError(e instanceof Error ? e.message : "Could not save prefill");
+    } finally {
+      setSavingPrefill(false);
+    }
+  }
+
+  const defaultPrefillName =
+    lastPrefillName ||
+    responses.specialist_name?.trim() ||
+    responses.specialist_facility?.trim() ||
+    "";
+
+  const hasPrefillableFields =
+    Object.keys(extractFormPrefillResponses(form.templateId, responses)).length > 0;
+
   if (!template) {
     return (
       <div className="flex flex-col gap-3 p-4">
@@ -159,13 +226,26 @@ export function ClinicalFormEditor({
               <ArrowLeft size={14} />
             </Button>
             <div>
-              <h3 className="text-sm font-medium text-cyan-200">{template.label}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium text-cyan-200">{template.label}</h3>
+                {canUsePrefills && !readOnly && (
+                  <Button
+                    className="!h-7 !px-2.5 !text-xs"
+                    onClick={() => setPickerOpen(true)}
+                  >
+                    <Bookmark size={12} />
+                    Prefilled
+                  </Button>
+                )}
+              </div>
               <p className="text-xs text-[var(--pv-muted)]">{template.description}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--pv-muted-2)]">
             {saving && <span>Saving...</span>}
-            <span>{answeredCount}/{template.fields.length} answered</span>
+            <span>
+              {answeredCount}/{template.fields.length} answered
+            </span>
             {isCompleted && form.completedAt && (
               <span className="text-emerald-300">Attached {formatDate(form.completedAt)}</span>
             )}
@@ -318,20 +398,48 @@ export function ClinicalFormEditor({
       )}
 
       {!readOnly && (
-        <div className="mt-3 flex justify-end border-t border-[var(--pv-border)] pt-3">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-[var(--pv-border)] pt-3">
+          {canUsePrefills && (
+            <Button
+              className="!h-9"
+              disabled={!hasPrefillableFields || savingPrefill}
+              onClick={() => {
+                setPrefillError(null);
+                setSavePrefillOpen(true);
+              }}
+            >
+              <BookmarkPlus size={14} />
+              Save as prefilled
+            </Button>
+          )}
           <Button
             variant="success"
             disabled={!canAttach || completing}
             onClick={attachToEncounter}
           >
             <CheckCircle2 size={14} />
-            {completing
-              ? "Attaching..."
-              : template.requiresProviderSignature
-                ? "Sign & Attach to Encounter"
-                : "Sign & Attach to Encounter"}
+            {completing ? "Attaching..." : "Attach to Encounter"}
           </Button>
         </div>
+      )}
+
+      {canUsePrefills && (
+        <>
+          <FormPrefillPickerModal
+            open={pickerOpen}
+            templateId={form.templateId}
+            onClose={() => setPickerOpen(false)}
+            onSelect={applyPrefill}
+          />
+          <SaveFormPrefillModal
+            open={savePrefillOpen}
+            defaultName={defaultPrefillName}
+            saving={savingPrefill}
+            error={prefillError}
+            onClose={() => setSavePrefillOpen(false)}
+            onSave={saveAsPrefill}
+          />
+        </>
       )}
 
       {viewer && (

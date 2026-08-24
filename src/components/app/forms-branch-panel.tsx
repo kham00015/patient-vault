@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, FileText, Loader2, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Plus, Trash2, Bookmark } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -25,6 +25,7 @@ export function FormsBranchPanel({
   forms,
   isReadOnly,
   officeCode,
+  patientName,
   onRefresh,
 }: {
   patientId: string;
@@ -33,6 +34,13 @@ export function FormsBranchPanel({
   isReadOnly: boolean;
   /** Active clinic code — used to filter office-specific templates (e.g. NCCC 6MWT). */
   officeCode?: string | null;
+  /** Chart patient — used to auto-fill name/DOB fields on fillable PDFs. */
+  patientName?: {
+    displayName: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    dateOfBirth?: string | Date | null;
+  } | null;
   onRefresh: () => Promise<void>;
 }) {
   const availableTemplates = listFormRegistry(officeCode);
@@ -47,8 +55,12 @@ export function FormsBranchPanel({
     faxNumber: string;
     recipientName?: string;
   } | null>(null);
+  const [prefillPickerOpen, setPrefillPickerOpen] = useState(false);
 
-  const closeWorkspace = () => setWorkspace(null);
+  const closeWorkspace = () => {
+    setPrefillPickerOpen(false);
+    setWorkspace(null);
+  };
 
   const openLibrary = () => {
     if (isReadOnly) return;
@@ -143,18 +155,17 @@ export function FormsBranchPanel({
   };
 
   const handleEditorSaved = async () => {
+    // Refresh the encounter forms list for draft status, but do not replace
+    // the open editor's form payload — that overwrote keystrokes mid-type.
     await onRefresh();
-    if (workspace?.type === "editor") {
-      try {
-        const data = await api<{ form: EncounterFormData }>(
-          `/api/patients/${patientId}/forms/${workspace.form.id}`
-        );
-        setWorkspace({ type: "editor", form: data.form });
-      } catch {
-        // Keep current editor state if refresh fails.
-      }
-    }
   };
+
+  const showPrefillAccessory =
+    workspace?.type === "editor" &&
+    !workspace.loading &&
+    workspace.form.templateId === "REFERRAL_MODERN_MEDICINE" &&
+    !isReadOnly &&
+    workspace.form.status !== "COMPLETED";
 
   const modalTitle =
     workspace?.type === "library"
@@ -264,6 +275,17 @@ export function FormsBranchPanel({
         open={workspace !== null}
         onClose={closeWorkspace}
         title={modalTitle}
+        titleAccessory={
+          showPrefillAccessory ? (
+            <Button
+              className="!h-8 !shrink-0 !px-2.5 !text-xs"
+              onClick={() => setPrefillPickerOpen(true)}
+            >
+              <Bookmark size={13} />
+              Prefilled
+            </Button>
+          ) : undefined
+        }
         xl={
           workspace?.type === "editor" ||
           workspace?.type === "fillable-pdf" ||
@@ -327,6 +349,7 @@ export function FormsBranchPanel({
             encounterId={encounterId}
             templateId={workspace.templateId}
             label={workspace.label}
+            patientName={patientName}
             onCancel={closeWorkspace}
             onSaved={async () => {
               await onRefresh();
@@ -360,6 +383,8 @@ export function FormsBranchPanel({
             onCompleted={handleEditorCompleted}
             onSaved={handleEditorSaved}
             inModal
+            prefillPickerOpen={prefillPickerOpen}
+            onPrefillPickerOpenChange={setPrefillPickerOpen}
             onFaxReferral={(documentId, faxNumber, recipientName) => {
               const doc = workspace.form.document;
               setFaxTarget({

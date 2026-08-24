@@ -9,15 +9,17 @@ import { isPatientChartWritable, toPatientDTO } from "@/lib/patients";
 import { prepareFormResponses, toFormDTO } from "@/lib/forms";
 import {
   buildFormSummary,
+  FORM_META_KEYS,
   getClinicalFormLabel,
   getClinicalFormTemplate,
   isFormComplete,
   parseFormResponses,
 } from "@/lib/clinical-forms";
 import { decryptNoteContent } from "@/lib/encryption";
-import { buildFormPdfHtml } from "@/lib/form-pdf";
+import { buildFormPdfHtml, resolveFormClinicName } from "@/lib/form-pdf";
 import { saveDocument } from "@/lib/storage";
 import { getClinicNameForPatient } from "@/lib/office";
+import { clinicDisplayName } from "@/lib/branding";
 
 type Params = { params: Promise<{ id: string; formId: string }> };
 
@@ -45,7 +47,14 @@ export async function POST(request: Request, { params }: Params) {
 
   const responses = parseFormResponses(decryptNoteContent(existing.responses ?? ""));
   if (!isFormComplete(existing.templateId, responses)) {
-    return badRequest("Please complete all questions and patient signature before attaching");
+    return badRequest("Please complete all required fields before attaching");
+  }
+
+  // Ensure sending clinic is stamped (initiation office, else active office, else patient office).
+  if (!responses[FORM_META_KEYS.clinicName]?.trim()) {
+    responses[FORM_META_KEYS.clinicName] = clinicDisplayName(
+      auth.user.officeName || (await getClinicNameForPatient(patientId))
+    );
   }
 
   const scored = template.scoreResponses(responses);
@@ -54,7 +63,10 @@ export async function POST(request: Request, { params }: Params) {
   const templateLabel = getClinicalFormLabel(existing.templateId);
   const completedAt = new Date();
 
-  const clinicName = await getClinicNameForPatient(patientId);
+  const clinicName = resolveFormClinicName(
+    responses,
+    auth.user.officeName || (await getClinicNameForPatient(patientId))
+  );
   const html = buildFormPdfHtml({
     patientName: patient.name,
     mrn: patient.mrn,

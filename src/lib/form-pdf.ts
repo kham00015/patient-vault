@@ -9,6 +9,14 @@ function escapeHtml(text: string) {
     .replace(/"/g, "&quot;");
 }
 
+/** Prefer clinic stamped when the form was started; fall back to caller-supplied name. */
+export function resolveFormClinicName(
+  responses: Record<string, string>,
+  fallbackClinicName?: string | null
+) {
+  return clinicDisplayName(responses[FORM_META_KEYS.clinicName] || fallbackClinicName);
+}
+
 export function buildFormPdfHtml({
   patientName,
   mrn,
@@ -30,7 +38,8 @@ export function buildFormPdfHtml({
 }) {
   const template = getClinicalFormTemplate(templateId);
   if (!template) return "<html><body>Unknown form</body></html>";
-  const clinic = clinicDisplayName(clinicName);
+  const clinic = resolveFormClinicName(responses, clinicName);
+  const isReferral = templateId === "REFERRAL_MODERN_MEDICINE";
 
   const questionBlocks = template.fields
     .map((field, index) => {
@@ -64,6 +73,19 @@ export function buildFormPdfHtml({
   const providerSignature = responses[FORM_META_KEYS.providerSignature];
   const providerSignerName = responses[FORM_META_KEYS.providerSignerName];
   const providerSignedAt = responses[FORM_META_KEYS.providerSignedAt];
+  const referringProvider = responses.referring_provider?.trim();
+
+  const letterhead = isReferral
+    ? `<div class="letterhead">
+        <div class="clinic-name">${escapeHtml(clinic)}</div>
+        <div class="clinic-role">Sending clinic</div>
+        ${
+          referringProvider
+            ? `<div class="sending-md">Referring physician: ${escapeHtml(referringProvider)}</div>`
+            : ""
+        }
+      </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -74,6 +96,10 @@ export function buildFormPdfHtml({
     body { font-family: Georgia, serif; max-width: 720px; margin: 2rem auto; color: #111; line-height: 1.5; }
     h1 { font-size: 1.35rem; margin-bottom: 0.25rem; }
     h2.section { font-size: 1rem; margin: 1.5rem 0 0.75rem; color: #0f766e; border-bottom: 1px solid #99f6e4; padding-bottom: 0.25rem; }
+    .letterhead { border-bottom: 2px solid #0f766e; padding-bottom: 0.75rem; margin-bottom: 1rem; }
+    .clinic-name { font-size: 1.15rem; font-weight: 700; color: #0f766e; }
+    .clinic-role { font-size: 0.8rem; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+    .sending-md { margin-top: 0.35rem; font-size: 0.95rem; }
     .meta { color: #555; font-size: 0.9rem; margin-bottom: 1.5rem; }
     .score-box { background: #f0f9ff; border: 1px solid #7dd3fc; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
     .block { margin-bottom: 1.25rem; }
@@ -84,9 +110,10 @@ export function buildFormPdfHtml({
   </style>
 </head>
 <body>
+  ${letterhead}
   <h1>${escapeHtml(template.label)}</h1>
   <div class="meta">
-    <div>${escapeHtml(clinic)}</div>
+    ${isReferral ? "" : `<div>${escapeHtml(clinic)}</div>`}
     <div>Patient: ${escapeHtml(patientName)}${mrn ? ` · MRN ${escapeHtml(mrn)}` : ""}</div>
     ${completedAt ? `<div>Completed: ${escapeHtml(new Date(completedAt).toLocaleString())}</div>` : ""}
   </div>

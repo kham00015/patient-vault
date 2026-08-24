@@ -52,6 +52,8 @@ export const FORM_META_KEYS = {
   providerSignature: "_providerSignature",
   providerSignerName: "_providerSignerName",
   providerSignedAt: "_providerSignedAt",
+  /** Office display name when the form was started (sending clinic). */
+  clinicName: "_clinicName",
 } as const;
 
 import { FORM_REGISTRY } from "@/lib/forms/registry";
@@ -142,6 +144,10 @@ export function buildFormSummary(templateId: string, responses: Record<string, s
   const template = getClinicalFormTemplate(templateId);
   if (!template) return "";
   const lines = [template.label, ""];
+  const clinicName = responses[FORM_META_KEYS.clinicName]?.trim();
+  if (clinicName) {
+    lines.push(`Sending clinic: ${clinicName}`, "");
+  }
 
   for (const field of template.fields) {
     const value = responses[field.id];

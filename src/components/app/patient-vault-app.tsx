@@ -1827,6 +1827,10 @@ export default function PatientVaultApp({
                   officeCode={user.officeCode}
                   chartInsertData={chartInsertData}
                   patientDiagnosis={current.diagnosis}
+                  patientDisplayName={formatDisplayName(current)}
+                  patientFirstName={current.firstName}
+                  patientLastName={current.lastName}
+                  patientDateOfBirth={current.dateOfBirth}
                   isReadOnly={!!isChartReadOnly}
                   canRemoveRecords={canRemoveRecords}
                   navigationIntent={chartNavigationIntent}

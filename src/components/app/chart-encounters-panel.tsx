@@ -86,6 +86,10 @@ export function ChartEncountersPanel({
   officeCode,
   chartInsertData,
   patientDiagnosis,
+  patientDisplayName,
+  patientFirstName,
+  patientLastName,
+  patientDateOfBirth,
   isReadOnly,
   canRemoveRecords,
   navigationIntent,
@@ -99,6 +103,10 @@ export function ChartEncountersPanel({
   officeCode?: string | null;
   chartInsertData: PatientChartInsertSnapshot;
   patientDiagnosis?: string | null;
+  patientDisplayName?: string | null;
+  patientFirstName?: string | null;
+  patientLastName?: string | null;
+  patientDateOfBirth?: string | Date | null;
   isReadOnly: boolean;
   canRemoveRecords: boolean;
   navigationIntent?: ChartNavigationIntent | null;
@@ -670,6 +678,16 @@ export function ChartEncountersPanel({
                               forms={detail.forms}
                               isReadOnly={isReadOnly}
                               officeCode={officeCode}
+                              patientName={
+                                patientDisplayName
+                                  ? {
+                                      displayName: patientDisplayName,
+                                      firstName: patientFirstName,
+                                      lastName: patientLastName,
+                                      dateOfBirth: patientDateOfBirth,
+                                    }
+                                  : null
+                              }
                               onRefresh={async () => {
                                 await refreshEncounter(enc.id);
                                 onDataChange?.();

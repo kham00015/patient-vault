@@ -3,10 +3,9 @@ import type { ClinicalFormTemplate } from "@/lib/clinical-forms";
 export const REFERRAL_MODERN_MEDICINE_FORM: ClinicalFormTemplate = {
   id: "REFERRAL_MODERN_MEDICINE",
   label: "Specialist Referral",
-  description: "Refer a patient to an outside specialist. Complete, sign, attach to encounter, then fax from Comms.",
+  description: "Refer a patient to an outside specialist. Complete, attach to encounter, then fax from Comms.",
   category: "Referrals",
   tags: ["referral", "specialist", "consult", "fax"],
-  requiresProviderSignature: true,
   fields: [
     {
       id: "referring_provider",
@@ -27,6 +26,7 @@ export const REFERRAL_MODERN_MEDICINE_FORM: ClinicalFormTemplate = {
         { value: "SLEEP_MEDICINE", label: "Sleep Medicine" },
         { value: "ENT", label: "ENT / Otolaryngology" },
         { value: "GASTROENTEROLOGY", label: "Gastroenterology" },
+        { value: "HEMATOLOGY_ONCOLOGY", label: "Hematology / Oncology" },
         { value: "NEUROLOGY", label: "Neurology" },
         { value: "RHEUMATOLOGY", label: "Rheumatology" },
         { value: "OTHER", label: "Other (specify in reason)" },

@@ -55,6 +55,7 @@ model Office {
   aiBrainSources     AiBrainSource[]
   scheduleDayBlocks  ScheduleDayBlock[]
   referralIntakes    ReferralIntake[]
+  formPrefills       FormPrefill[]
 }
 
 model User {
@@ -111,6 +112,7 @@ model User {
   referralIntakesAssigned ReferralIntake[] @relation("AssignedReferralIntakes")
   referralIntakesAcknowledged ReferralIntake[] @relation("AcknowledgedReferralIntakes")
   referralDocumentsUploaded ReferralDocument[] @relation("UploadedReferralDocuments")
+  formPrefillsCreated FormPrefill[] @relation("CreatedFormPrefills")
   office               Office?              @relation(fields: [officeId], references: [id], onDelete: Restrict)
 
   @@index([officeId])
@@ -866,6 +868,29 @@ model AiBrainDocument {
 
   @@index([createdById, active])
   @@index([sourceId])
+  @@index([updatedAt])
+}
+
+/**
+ * Named reusable field snapshots for clinical forms (e.g. specialist referral
+ * provider details). Office-scoped; does not auto-update when a form is edited.
+ */
+model FormPrefill {
+  id          String   @id @default(cuid())
+  officeId    String?
+  templateId  String
+  name        String
+  /** JSON object of template field id → string value (provider fields only). */
+  responses   String   @default("{}")
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation("CreatedFormPrefills", fields: [createdById], references: [id])
+  office      Office?  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+
+  @@unique([officeId, templateId, name])
+  @@index([officeId, templateId])
+  @@index([templateId, name])
   @@index([updatedAt])
 }
 
