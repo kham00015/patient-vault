@@ -17,7 +17,9 @@ import {
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, toClinicDateInputValue } from "@/lib/utils";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Search, Stethoscope, UserX } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, FileText, Search, Stethoscope, UserX } from "lucide-react";
+import { FillablePdfChartEditor } from "@/components/app/fillable-pdf-chart-editor";
+import { MM_SUPER_BILL_PDF_URL } from "@/lib/forms/templates/mm-encounter";
 
 type PatientOption = {
   id: string;
@@ -26,6 +28,7 @@ type PatientOption = {
   firstName?: string | null;
   lastName?: string | null;
   middleName?: string | null;
+  dateOfBirth?: string | Date | null;
 };
 type ScheduleProviderOption = { key: string; label: string };
 
@@ -289,6 +292,7 @@ export function SchedulePanel({
   const [docNotesTarget, setDocNotesTarget] = useState<ScheduleEntryDTO | null>(null);
   const [docNotesDraft, setDocNotesDraft] = useState("");
   const [savingDocNotes, setSavingDocNotes] = useState(false);
+  const [superBillTarget, setSuperBillTarget] = useState<ScheduleEntryDTO | null>(null);
   const [savingCheckedInId, setSavingCheckedInId] = useState<string | null>(null);
   const [savingReadyId, setSavingReadyId] = useState<string | null>(null);
   const [savingNoShowId, setSavingNoShowId] = useState<string | null>(null);
@@ -308,6 +312,8 @@ export function SchedulePanel({
   const dayMenuRef = useRef<HTMLDivElement>(null);
 
   const canEdit = canWrite(user.role);
+  /** Super Bill is Modern Medicine only (clinic-1). */
+  const showSuperBill = user.officeCode === "clinic-1";
   const monthCells = useMemo(() => buildMonthCells(calendarMonth), [calendarMonth]);
 
   useEffect(() => {
@@ -950,6 +956,18 @@ export function SchedulePanel({
                         <Stethoscope size={14} />
                         Doc Notes
                       </Button>
+                      {showSuperBill && (
+                        <Button
+                          type="button"
+                          className="!h-8 shrink-0 gap-1 !border-teal-500/50 !bg-teal-900/40 !px-3 !text-xs font-semibold !text-teal-100 hover:!bg-teal-800/50"
+                          onClick={() => {
+                            setSuperBillTarget(entry);
+                          }}
+                        >
+                          <FileText size={14} />
+                          Super Bill
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1002,6 +1020,18 @@ export function SchedulePanel({
                         >
                           <Stethoscope size={14} />
                           Doc Notes
+                        </Button>
+                      )}
+                      {showSuperBill && (
+                        <Button
+                          type="button"
+                          className="!h-8 shrink-0 gap-1 !border-teal-500/50 !bg-teal-900/40 !px-3 !text-xs font-semibold !text-teal-100 hover:!bg-teal-800/50"
+                          onClick={() => {
+                            setSuperBillTarget(entry);
+                          }}
+                        >
+                          <FileText size={14} />
+                          Super Bill
                         </Button>
                       )}
                     </>
@@ -1108,6 +1138,48 @@ export function SchedulePanel({
               )}
             </div>
           </>
+        )}
+      </Modal>
+
+      <Modal
+        open={superBillTarget !== null}
+        onClose={() => setSuperBillTarget(null)}
+        title={
+          superBillTarget
+            ? `Super Bill — ${formatDisplayName(
+                patients.find((p) => p.id === superBillTarget.id) ?? {
+                  name: superBillTarget.name,
+                }
+              )}`
+            : "Super Bill"
+        }
+        xl
+        className="max-h-[90vh] max-w-6xl overflow-hidden flex flex-col"
+      >
+        {superBillTarget && (
+          <FillablePdfChartEditor
+            pdfUrl={MM_SUPER_BILL_PDF_URL}
+            patientId={superBillTarget.id}
+            label={`Super Bill — ${date}`}
+            saveTarget="document"
+            patientName={(() => {
+              const p = patients.find((x) => x.id === superBillTarget.id);
+              return {
+                displayName: formatDisplayName(
+                  p ?? { name: superBillTarget.name }
+                ),
+                firstName: p?.firstName,
+                lastName: p?.lastName,
+                mrn: p?.mrn,
+                dateOfBirth: p?.dateOfBirth,
+                formDate: date,
+              };
+            })()}
+            onCancel={() => setSuperBillTarget(null)}
+            onSaved={async () => {
+              setSuperBillTarget(null);
+            }}
+          />
         )}
       </Modal>
     </div>

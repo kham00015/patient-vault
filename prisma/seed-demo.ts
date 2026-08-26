@@ -6,12 +6,9 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/** Keep a single Modern Medicine demo chart for walkthroughs. */
 const DEMO_PATIENTS = [
-  { mrn: "DEMO-001", name: "Alex Morgan", firstName: "Alex", lastName: "Morgan", phone: "(555) 201-1001" },
-  { mrn: "DEMO-002", name: "Jordan Lee", firstName: "Jordan", lastName: "Lee", phone: "(555) 201-1002" },
-  { mrn: "DEMO-003", name: "Sam Rivera", firstName: "Sam", lastName: "Rivera", phone: "(555) 201-1003" },
   { mrn: "DEMO-004", name: "Taylor Brooks", firstName: "Taylor", lastName: "Brooks", phone: "(555) 201-1004" },
-  { mrn: "DEMO-005", name: "Casey Nguyen", firstName: "Casey", lastName: "Nguyen", phone: "(555) 201-1005" },
 ];
 
 async function main() {
@@ -26,6 +23,20 @@ async function main() {
     update: { name: "Modern Medicine" },
     create: { code: "clinic-1", name: "Modern Medicine" },
   });
+
+  // Remove other DEMO-* charts from Modern Medicine (keep Brooks only).
+  const stale = await prisma.patient.findMany({
+    where: {
+      officeId: clinic1.id,
+      mrn: { startsWith: "DEMO-" },
+      NOT: { mrn: "DEMO-004" },
+    },
+    select: { id: true, mrn: true, name: true },
+  });
+  for (const p of stale) {
+    await prisma.patient.delete({ where: { id: p.id } });
+    console.log(`Demo: removed ${p.mrn} ${p.name}`);
+  }
 
   for (const p of DEMO_PATIENTS) {
     const existing = await prisma.patient.findFirst({
@@ -47,7 +58,7 @@ async function main() {
     console.log(`Demo: created ${p.name}`);
   }
 
-  console.log("\nDemo patients ready for doctor walkthrough.");
+  console.log("\nDemo patients ready — Brooks only on Modern Medicine.");
 }
 
 main()

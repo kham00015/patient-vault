@@ -6,7 +6,7 @@ import { PDFCheckBox, PDFDocument, PDFTextField } from "pdf-lib";
 import { Button } from "@/components/ui/button";
 import {
   applyPatientNamePrefill,
-  type PatientNamePrefill,
+  type PatientFormPrefill,
 } from "@/lib/fillable-pdf-prefill";
 import {
   applyScoredCheckboxChange,
@@ -57,16 +57,20 @@ export function FillablePdfChartEditor({
   templateId,
   label,
   patientName,
+  saveTarget = "form",
   onSaved,
   onCancel,
 }: {
   pdfUrl: string;
   patientId: string;
-  encounterId: string;
-  templateId: string;
+  /** Required when saveTarget is "form". */
+  encounterId?: string;
+  templateId?: string;
   label: string;
-  /** Prefill patient name/DOB fields when the form opens. */
-  patientName?: PatientNamePrefill | null;
+  /** Prefill patient name / MRN / DOB / form date when the form opens (editable). */
+  patientName?: PatientFormPrefill | null;
+  /** "form" → encounter Forms upload; "document" → patient Documents upload. */
+  saveTarget?: "form" | "document";
   onSaved: () => Promise<void> | void;
   onCancel: () => void;
 }) {
@@ -191,11 +195,13 @@ export function FillablePdfChartEditor({
         if (cancelled) return;
         setBlankBytes(bytes);
         setFields(nextFields);
-        setValues(
-          patientName
-            ? applyPatientNamePrefill(nextValues, patientName)
-            : nextValues
-        );
+
+        const seeded = patientName
+          ? applyPatientNamePrefill(nextValues, patientName)
+          : nextValues;
+
+        if (cancelled) return;
+        setValues(seeded);
         setPages(rendered);
       } catch (e) {
         if (!cancelled) {
@@ -216,7 +222,9 @@ export function FillablePdfChartEditor({
     patientName?.displayName,
     patientName?.firstName,
     patientName?.lastName,
+    patientName?.mrn,
     patientName?.dateOfBirth,
+    patientName?.formDate,
   ]);
 
   const fieldsByPage = useMemo(() => {
@@ -265,16 +273,29 @@ export function FillablePdfChartEditor({
         }
       }
       const saved = await pdfDoc.save();
-      const file = new File([Uint8Array.from(saved)], `${label.replace(/[^\w.-]+/g, "_")}.pdf`, {
+      const safeLabel = label.replace(/[^\w.-]+/g, "_") || "form";
+      const file = new File([Uint8Array.from(saved)], `${safeLabel}.pdf`, {
         type: "application/pdf",
       });
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("templateId", templateId);
-      const res = await fetch(
-        `/api/patients/${patientId}/encounters/${encounterId}/forms/upload`,
-        { method: "POST", body: fd, credentials: "include" }
-      );
+
+      let res: Response;
+      if (saveTarget === "document") {
+        fd.append("name", label);
+        res = await fetch(`/api/patients/${patientId}/documents/upload`, {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+      } else {
+        if (!encounterId) throw new Error("Encounter is required to save this form");
+        if (templateId) fd.append("templateId", templateId);
+        res = await fetch(
+          `/api/patients/${patientId}/encounters/${encounterId}/forms/upload`,
+          { method: "POST", body: fd, credentials: "include" }
+        );
+      }
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(data?.error ?? `Save failed (${res.status})`);
@@ -306,29 +327,18 @@ export function FillablePdfChartEditor({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
-      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--pv-border)] bg-[var(--pv-card)] pb-3">
-        <p className="text-xs text-[var(--pv-muted-2)]">
-          Fill the fields on the form, then click Save to chart.
+    <div className="flex min-h-0 flex-col">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--pv-muted-2)]">
+        <p>
+          {saveTarget === "document"
+            ? "Fill the fields, then save to Documents."
+            : "Fill the fields on the form, then save to the chart."}
         </p>
-        <div className="flex gap-2">
-          <Button className="!h-9" onClick={onCancel} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            variant="success"
-            className="!h-9 gap-1.5"
-            disabled={saving || pages.length === 0}
-            onClick={() => void handleSaveToChart()}
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Save to chart
-          </Button>
-        </div>
+        {saving && <span>Saving...</span>}
       </div>
-      {error && <p className="text-xs text-rose-300">{error}</p>}
+      {error && <p className="mb-2 text-xs text-rose-300">{error}</p>}
 
-      <div className="flex flex-col gap-6">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
         {pages.map((page, pageIndex) => (
           <div
             key={pageIndex}
@@ -351,6 +361,21 @@ export function FillablePdfChartEditor({
             />
           </div>
         ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-[var(--pv-border)] pt-3">
+        <Button className="!h-9" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button
+          variant="success"
+          className="!h-9 gap-1.5"
+          disabled={saving || pages.length === 0}
+          onClick={() => void handleSaveToChart()}
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {saveTarget === "document" ? "Save to documents" : "Save to chart"}
+        </Button>
       </div>
     </div>
   );
@@ -406,6 +431,24 @@ function PageFieldOverlay({
                 onChange={(e) => onChange(f.name, e.target.checked)}
               />
             </label>
+          );
+        }
+
+        const multiline =
+          f.height >= 36 ||
+          f.name === "p0_notes" ||
+          f.name === "doctor_notes" ||
+          f.name.includes("notes");
+        if (multiline) {
+          return (
+            <textarea
+              key={f.name}
+              className="pointer-events-auto absolute box-border resize-none rounded-[1px] border border-amber-600/35 bg-amber-100/80 px-1 py-0.5 text-[clamp(8px,1.1vw,11px)] leading-snug text-black outline-none focus:border-cyan-600 focus:bg-amber-50"
+              style={style}
+              value={String(values[f.name] ?? "")}
+              disabled={disabled}
+              onChange={(e) => onChange(f.name, e.target.value)}
+            />
           );
         }
 

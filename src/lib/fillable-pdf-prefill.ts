@@ -1,6 +1,6 @@
 /**
  * Prefill patient identity fields on clinic fillable PDFs when empty.
- * Field names come from the AcroForm generators (NCCC forms).
+ * Field names come from the AcroForm generators (NCCC / Modern Medicine forms).
  */
 
 export type PatientFormPrefill = {
@@ -8,8 +8,15 @@ export type PatientFormPrefill = {
   displayName: string;
   firstName?: string | null;
   lastName?: string | null;
+  /** Medical record number when known. */
+  mrn?: string | null;
   /** ISO date string or Date — patient DOB when known. */
   dateOfBirth?: string | Date | null;
+  /**
+   * Form created / visit date (YYYY-MM-DD or Date). Prefills `form_date` when empty;
+   * clinician may still edit the field.
+   */
+  formDate?: string | Date | null;
 };
 
 /** @deprecated Use PatientFormPrefill */
@@ -25,9 +32,13 @@ const FULL_NAME_FIELDS = new Set([
 
 const FIRST_NAME_FIELDS = new Set(["first_name"]);
 const LAST_NAME_FIELDS = new Set(["last_name"]);
+const MRN_FIELDS = new Set(["mrn", "patient_mrn"]);
 
 /** Patient DOB only — not form_date, signature dates, insurance DOB, or procedure dates. */
 const DOB_FIELDS = new Set(["dob", "dob_p2", "birthday", "p1_birthday"]);
+
+/** Editable form/visit date fields (prefilled, user may change). */
+const FORM_DATE_FIELDS = new Set(["form_date", "date_of_service", "visit_date"]);
 
 function isEmpty(value: string | boolean | undefined) {
   if (typeof value === "boolean") return false;
@@ -50,7 +61,7 @@ export function formatPrefillDate(value: string | Date | null | undefined): stri
   return `${mm}/${dd}/${yyyy}`;
 }
 
-/** Apply patient name/DOB to known identity fields without overwriting user-entered values. */
+/** Apply patient name/MRN/DOB/form date to known fields without overwriting user-entered values. */
 export function applyPatientNamePrefill(
   values: Record<string, string | boolean>,
   patient: PatientFormPrefill
@@ -58,8 +69,10 @@ export function applyPatientNamePrefill(
   const display = patient.displayName.trim();
   const first = (patient.firstName ?? "").trim();
   const last = (patient.lastName ?? "").trim();
+  const mrn = (patient.mrn ?? "").trim();
   const dob = formatPrefillDate(patient.dateOfBirth);
-  if (!display && !first && !last && !dob) return values;
+  const formDate = formatPrefillDate(patient.formDate);
+  if (!display && !first && !last && !mrn && !dob && !formDate) return values;
 
   const next = { ...values };
   for (const name of Object.keys(next)) {
@@ -70,8 +83,12 @@ export function applyPatientNamePrefill(
       next[name] = first;
     } else if (LAST_NAME_FIELDS.has(name) && last) {
       next[name] = last;
+    } else if (MRN_FIELDS.has(name) && mrn) {
+      next[name] = mrn;
     } else if (DOB_FIELDS.has(name) && dob) {
       next[name] = dob;
+    } else if (FORM_DATE_FIELDS.has(name) && formDate) {
+      next[name] = formDate;
     }
   }
   return next;

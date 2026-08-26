@@ -22,6 +22,7 @@ type Workspace =
 export function FormsBranchPanel({
   patientId,
   encounterId,
+  encounterDate,
   forms,
   isReadOnly,
   officeCode,
@@ -30,15 +31,18 @@ export function FormsBranchPanel({
 }: {
   patientId: string;
   encounterId: string;
+  /** Encounter clinic day (YYYY-MM-DD) — prefilled as editable form date. */
+  encounterDate?: string | null;
   forms: EncounterFormData[];
   isReadOnly: boolean;
   /** Active clinic code — used to filter office-specific templates (e.g. NCCC 6MWT). */
   officeCode?: string | null;
-  /** Chart patient — used to auto-fill name/DOB fields on fillable PDFs. */
+  /** Chart patient — used to auto-fill name/MRN/DOB fields on fillable PDFs. */
   patientName?: {
     displayName: string;
     firstName?: string | null;
     lastName?: string | null;
+    mrn?: string | null;
     dateOfBirth?: string | Date | null;
   } | null;
   onRefresh: () => Promise<void>;
@@ -349,7 +353,23 @@ export function FormsBranchPanel({
             encounterId={encounterId}
             templateId={workspace.templateId}
             label={workspace.label}
-            patientName={patientName}
+            patientName={
+              patientName
+                ? {
+                    ...patientName,
+                    formDate:
+                      encounterDate ??
+                      (() => {
+                        const d = new Date();
+                        const mm = String(d.getMonth() + 1).padStart(2, "0");
+                        const dd = String(d.getDate()).padStart(2, "0");
+                        return `${d.getFullYear()}-${mm}-${dd}`;
+                      })(),
+                  }
+                : encounterDate
+                  ? { displayName: "", formDate: encounterDate }
+                  : null
+            }
             onCancel={closeWorkspace}
             onSaved={async () => {
               await onRefresh();

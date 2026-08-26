@@ -1876,6 +1876,7 @@ export default function PatientVaultApp({
                   patientFirstName={current.firstName}
                   patientLastName={current.lastName}
                   patientDateOfBirth={current.dateOfBirth}
+                  patientMrn={current.mrn}
                   isReadOnly={!!isChartReadOnly}
                   canRemoveRecords={canRemoveRecords}
                   navigationIntent={chartNavigationIntent}

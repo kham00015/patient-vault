@@ -90,6 +90,7 @@ export function ChartEncountersPanel({
   patientFirstName,
   patientLastName,
   patientDateOfBirth,
+  patientMrn,
   isReadOnly,
   canRemoveRecords,
   navigationIntent,
@@ -107,6 +108,7 @@ export function ChartEncountersPanel({
   patientFirstName?: string | null;
   patientLastName?: string | null;
   patientDateOfBirth?: string | Date | null;
+  patientMrn?: string | null;
   isReadOnly: boolean;
   canRemoveRecords: boolean;
   navigationIntent?: ChartNavigationIntent | null;
@@ -685,6 +687,7 @@ export function ChartEncountersPanel({
                             <FormsBranchPanel
                               patientId={patientId}
                               encounterId={enc.id}
+                              encounterDate={toClinicDateInputValue(enc.date)}
                               forms={detail.forms}
                               isReadOnly={isReadOnly}
                               officeCode={officeCode}
@@ -694,6 +697,7 @@ export function ChartEncountersPanel({
                                       displayName: patientDisplayName,
                                       firstName: patientFirstName,
                                       lastName: patientLastName,
+                                      mrn: patientMrn,
                                       dateOfBirth: patientDateOfBirth,
                                     }
                                   : null
