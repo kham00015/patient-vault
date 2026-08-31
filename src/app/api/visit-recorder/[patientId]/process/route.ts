@@ -7,9 +7,9 @@ import { draftHpiFromTranscript, isBedrockConfigured } from "@/lib/ai";
 import { buildMyBrainContext } from "@/lib/my-brain";
 import { resolveHpiVisitContext, type HpiVisitKind } from "@/lib/hpi-visit-context";
 import {
-  isTranscribeConfigured,
-  transcribeMedicalConversation,
-} from "@/lib/medical-transcribe";
+  isAssemblyAiConfigured,
+  transcribeWithAssemblyAi,
+} from "@/lib/assemblyai-transcribe";
 import { isPatientChartWritable } from "@/lib/patients";
 import { saveDocument } from "@/lib/storage";
 import { requireVisitRecorderAccess } from "@/lib/visit-recorder-auth";
@@ -17,10 +17,10 @@ import { assertPatientReadable } from "@/lib/patient-access";
 
 type Params = { params: Promise<{ patientId: string }> };
 
-export const maxDuration = 180;
+export const maxDuration = 300;
 
-const MAX_PCM_BYTES = 30 * 1024 * 1024; // ~15+ min at 16 kHz mono s16le
-const MAX_AUDIO_BYTES = 40 * 1024 * 1024;
+const MAX_PCM_BYTES = 40 * 1024 * 1024; // ~20 min at 16 kHz mono s16le
+const MAX_AUDIO_BYTES = 45 * 1024 * 1024;
 
 function parseVisitKind(value: string | null): HpiVisitKind | null {
   if (value === "NEW_PATIENT" || value === "FOLLOW_UP") return value;
@@ -54,8 +54,8 @@ export async function POST(request: Request, { params }: Params) {
   const denied = await assertPatientReadable(access.user, patientId);
   if (denied) return denied;
 
-  if (!isTranscribeConfigured()) {
-    return badRequest("Amazon Transcribe Medical is not configured");
+  if (!isAssemblyAiConfigured()) {
+    return badRequest("AssemblyAI is not configured. Set ASSEMBLYAI_API_KEY.");
   }
   if (!isBedrockConfigured()) {
     return badRequest("Amazon Bedrock is not configured");
@@ -85,7 +85,7 @@ export async function POST(request: Request, { params }: Params) {
     const pcm = Buffer.from(await pcmFile.arrayBuffer());
     if (pcm.byteLength === 0) return badRequest("Empty recording");
     if (pcm.byteLength > MAX_PCM_BYTES) {
-      return badRequest("Recording too long. Keep under about 15 minutes.");
+      return badRequest("Recording too long. Keep under about 20 minutes.");
     }
 
     const resolved = await resolveHpiVisitContext(patientId);
@@ -94,7 +94,7 @@ export async function POST(request: Request, { params }: Params) {
       ? `Clinician selected ${override}`
       : resolved.reason;
 
-    const transcript = await transcribeMedicalConversation(pcm, sampleRate);
+    const transcript = await transcribeWithAssemblyAi(pcm, sampleRate);
     const brain = await buildMyBrainContext(access.user.id);
     const hpiResult = await draftHpiFromTranscript({
       transcript,
@@ -166,6 +166,7 @@ export async function POST(request: Request, { params }: Params) {
         encounterId: resolved.encounterId,
         transcriptChars: transcript.length,
         provider: hpiResult.provider,
+        stt: "assemblyai",
         documentId,
         testMode: access.testMode,
       },

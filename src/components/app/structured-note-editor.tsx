@@ -30,6 +30,7 @@ import { DeleteReasonModal } from "@/components/app/delete-reason-modal";
 import { AddDiagnosisModal } from "@/components/app/add-diagnosis-modal";
 import { MixedNoteField } from "@/components/app/mixed-note-field";
 import { NoteTextToolbar } from "@/components/app/note-text-toolbar";
+import { HpiDictateModal } from "@/components/app/hpi-dictate-modal";
 import {
   appendAiNoteContinuation,
   appendPlainToNoteSection,
@@ -55,6 +56,7 @@ import {
   FileText,
   ArrowRightFromLine,
   Maximize2,
+  Mic,
   PenLine,
   Pin,
   Trash2,
@@ -444,6 +446,7 @@ export function StructuredNoteEditor({
   const [aiDraft, setAiDraft] = useState("");
   const [aiError, setAiError] = useState("");
   const [aiCopied, setAiCopied] = useState(false);
+  const [dictateOpen, setDictateOpen] = useState(false);
   const [dxModalOpen, setDxModalOpen] = useState(false);
   const [textToolbarKey, setTextToolbarKey] = useState<NoteSectionKey | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<CollapsibleNotePanelKey>>(
@@ -830,6 +833,7 @@ export function StructuredNoteEditor({
     const showDiagnosis = fieldKey === "assessment";
     const showPmhDx = fieldKey === "pastMedicalHistory";
     const showAi = fieldKey === "assessment" || fieldKey === "plan" || fieldKey === "hpi";
+    const showDictate = fieldKey === "hpi";
 
     return (
       <div className={cn("flex flex-wrap items-center gap-1", fitMode && "max-w-[min(100%,36rem)] flex-nowrap overflow-x-auto")}>
@@ -912,6 +916,16 @@ export function StructuredNoteEditor({
             onClick={() => setExpandedSection(fieldKey)}
           >
             <Expand size={12} />
+          </Button>
+        )}
+        {!readOnly && showDictate && (
+          <Button
+            className="!h-7 !gap-1 !px-2 !text-[11px]"
+            title="Dictate HPI — AssemblyAI transcript, Bedrock format, then Transfer"
+            onClick={() => setDictateOpen(true)}
+          >
+            <Mic size={12} />
+            Dictate
           </Button>
         )}
         {!readOnly && showAi && (
@@ -1388,6 +1402,17 @@ export function StructuredNoteEditor({
           </Button>
         </div>
       </Modal>
+
+      <HpiDictateModal
+        open={dictateOpen}
+        onClose={() => setDictateOpen(false)}
+        patientId={patientId}
+        onTransfer={(hpiText) => {
+          if (readOnly || !hpiText.trim()) return;
+          const current = sectionsRef.current.hpi ?? "";
+          updateSection("hpi", appendAiNoteContinuation(current, hpiText));
+        }}
+      />
 
       <AddDiagnosisModal
         open={dxModalOpen}

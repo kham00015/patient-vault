@@ -35,6 +35,8 @@ import { UnsignedNotesPanel } from "@/components/app/unsigned-notes-panel";
 import { ContactsPanel } from "@/components/app/contacts-panel";
 import { PotentialsPanel } from "@/components/app/potentials-panel";
 import { SchedulePanel } from "@/components/app/schedule-panel";
+import { AnalyticsPanel } from "@/components/app/analytics-panel";
+import { LegalPanel } from "@/components/app/legal-panel";
 import { ChartReferralsPanel } from "@/components/app/chart-referrals-panel";
 import { OrdersPanel } from "@/components/app/orders-panel";
 import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
@@ -44,6 +46,7 @@ import { TextReportDocumentEditor } from "@/components/app/text-report-document-
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { useTheme } from "@/components/app/theme-provider";
 import { ProviderProfileMenu } from "@/components/app/provider-profile-menu";
+import { FocusMusicMenu } from "@/components/app/focus-music-menu";
 import { ScanDocumentButton } from "@/components/app/document-scan-modal";
 import { CLINIC_NAME } from "@/lib/branding";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
@@ -84,6 +87,7 @@ import { AutoSaveStatus, useDebouncedCallback } from "@/lib/use-debounced-callba
 import {
   Archive,
   ArrowLeft,
+  BarChart3,
   Bot,
   Brain,
   Calendar,
@@ -107,6 +111,7 @@ import {
   UserRoundSearch,
   Users,
   Share2,
+  Scale,
   PenLine,
   StickyNote,
   GripVertical,
@@ -366,7 +371,18 @@ function writeChartTabLocal(userId: string, order: ChartTab[], visible: Record<C
   }
 }
 
-type MainView = "chart" | "schedule" | "lists" | "messages" | "reminders" | "contacts" | "unsignedNotes" | "potentials" | "referrals";
+type MainView =
+  | "chart"
+  | "schedule"
+  | "lists"
+  | "messages"
+  | "reminders"
+  | "contacts"
+  | "unsignedNotes"
+  | "potentials"
+  | "referrals"
+  | "analytics"
+  | "legal";
 
 const MAIN_VIEW_LABELS: Record<MainView, string> = {
   chart: "Patient Chart",
@@ -378,6 +394,8 @@ const MAIN_VIEW_LABELS: Record<MainView, string> = {
   unsignedNotes: "Notes to Sign",
   potentials: "Potentials",
   referrals: "Referrals",
+  analytics: "Analytics",
+  legal: "Legal",
 };
 
 type ModalType =
@@ -1232,6 +1250,20 @@ export default function PatientVaultApp({
       color: "text-lime-300",
       hidden: isConsultantUser,
     },
+    {
+      id: "analytics",
+      label: "Analytics",
+      icon: BarChart3,
+      color: "text-indigo-300",
+      hidden: isConsultantUser,
+    },
+    {
+      id: "legal",
+      label: "Legal",
+      icon: Scale,
+      color: "text-amber-300",
+      hidden: user.role !== "ADMIN" && !user.isPlatformOwner,
+    },
   ] as const;
 
   function handleNavClick(id: (typeof menuItems)[number]["id"] | "audit" | "users" | "archive") {
@@ -1266,6 +1298,14 @@ export default function PatientVaultApp({
     }
     if (id === "contacts") {
       goToView("contacts");
+      return;
+    }
+    if (id === "analytics") {
+      goToView("analytics");
+      return;
+    }
+    if (id === "legal") {
+      goToView("legal");
       return;
     }
     setModal(id as ModalType);
@@ -1303,30 +1343,36 @@ export default function PatientVaultApp({
                   </option>
                 ))}
               </select>
-              <ProviderProfileMenu
-                displayName={user.name ?? user.email}
-                className="truncate text-left text-xs text-cyan-300 hover:text-cyan-200 hover:underline"
-                idleLockEnabled={idleLockEnabled}
-                onIdleLockChange={(enabled) => {
-                  persistIdleLockEnabled(enabled, user.id);
-                  setIdleLockEnabled(enabled);
-                }}
-              />
+              <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                <ProviderProfileMenu
+                  displayName={user.name ?? user.email}
+                  className="truncate text-left text-xs text-cyan-300 hover:text-cyan-200 hover:underline"
+                  idleLockEnabled={idleLockEnabled}
+                  onIdleLockChange={(enabled) => {
+                    persistIdleLockEnabled(enabled, user.id);
+                    setIdleLockEnabled(enabled);
+                  }}
+                />
+                <FocusMusicMenu />
+              </div>
             </>
           ) : (
             <>
               <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">
                 {user.officeName || CLINIC_NAME}
               </p>
-              <ProviderProfileMenu
-                displayName={user.name ?? user.email}
-                className="truncate text-left text-base font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
-                idleLockEnabled={idleLockEnabled}
-                onIdleLockChange={(enabled) => {
-                  persistIdleLockEnabled(enabled, user.id);
-                  setIdleLockEnabled(enabled);
-                }}
-              />
+              <div className="flex min-w-0 items-center gap-1">
+                <ProviderProfileMenu
+                  displayName={user.name ?? user.email}
+                  className="truncate text-left text-base font-medium text-cyan-300 hover:text-cyan-200 hover:underline"
+                  idleLockEnabled={idleLockEnabled}
+                  onIdleLockChange={(enabled) => {
+                    persistIdleLockEnabled(enabled, user.id);
+                    setIdleLockEnabled(enabled);
+                  }}
+                />
+                <FocusMusicMenu />
+              </div>
             </>
           )}
         </div>
@@ -1348,7 +1394,9 @@ export default function PatientVaultApp({
                   (item.id === "unsignedNotes" && mainView === "unsignedNotes") ||
                   (item.id === "contacts" && mainView === "contacts") ||
                   (item.id === "potentials" && mainView === "potentials") ||
-                  (item.id === "referrals" && mainView === "referrals"))
+                  (item.id === "referrals" && mainView === "referrals") ||
+                  (item.id === "analytics" && mainView === "analytics") ||
+                  (item.id === "legal" && mainView === "legal"))
                   ? "border-cyan-500/40 bg-cyan-500/10"
                   : "border-transparent hover:border-[var(--pv-border-strong)] hover:bg-[var(--pv-hover)]"
               )}
@@ -1486,6 +1534,16 @@ export default function PatientVaultApp({
                   <Share2 className="text-cyan-300" size={20} />
                   <h1 className="text-lg font-semibold">Referrals</h1>
                 </>
+              ) : mainView === "analytics" ? (
+                <>
+                  <BarChart3 className="text-indigo-300" size={20} />
+                  <h1 className="text-lg font-semibold">Analytics</h1>
+                </>
+              ) : mainView === "legal" ? (
+                <>
+                  <Scale className="text-amber-300" size={20} />
+                  <h1 className="text-lg font-semibold">Legal</h1>
+                </>
               ) : (
                 <>
                   <Stethoscope className="shrink-0 text-cyan-400" size={20} />
@@ -1606,7 +1664,9 @@ export default function PatientVaultApp({
               mainView === "unsignedNotes" ||
               mainView === "contacts" ||
               mainView === "potentials" ||
-              mainView === "referrals") &&
+              mainView === "referrals" ||
+              mainView === "analytics" ||
+              mainView === "legal") &&
               current && (
               <Button className="!py-2 !text-xs" onClick={() => goToView("chart")}>
                 Open {formatDisplayName(current)}&apos;s Chart
@@ -1859,6 +1919,14 @@ export default function PatientVaultApp({
               defaultPatientId={current?.id}
               onUnreadChange={setUnreadReferrals}
             />
+          ) : mainView === "analytics" ? (
+            <AnalyticsPanel
+              onSelectPatient={(p) => {
+                void selectPatient(p);
+              }}
+            />
+          ) : mainView === "legal" ? (
+            <LegalPanel />
           ) : !current ? (
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--pv-muted)]">
               Select a patient to view chart

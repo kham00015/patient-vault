@@ -14,17 +14,18 @@ const postSchema = z.object({
   transcript: z.string().max(MAX_FIELD).optional().default(""),
   hpi: z.string().max(MAX_FIELD).optional().default(""),
   visitKind: z.enum(["NEW_PATIENT", "FOLLOW_UP"]).nullable().optional(),
+  source: z.enum(["listen", "dictate"]).optional().default("listen"),
 });
 
 function buildContent(parts: {
+  source: string;
   visitKind?: string | null;
   transcript: string;
   hpi: string;
   savedAt: Date;
 }) {
-  const lines: string[] = [
-    `AI Listen save — ${parts.savedAt.toLocaleString("en-US")}`,
-  ];
+  const label = parts.source === "dictate" ? "HPI Dictate save" : "AI Listen save";
+  const lines: string[] = [`${label} — ${parts.savedAt.toLocaleString("en-US")}`];
   if (parts.visitKind === "NEW_PATIENT") lines.push("Visit type: New patient HPI");
   else if (parts.visitKind === "FOLLOW_UP") lines.push("Visit type: Follow-up HPI");
   lines.push("");
@@ -58,11 +59,16 @@ export async function GET(request: Request, { params }: Params) {
   });
   if (!patient) return notFound("Patient not found");
 
+  const source = new URL(request.url).searchParams.get("source");
+  const sourceFilter =
+    source === "listen" || source === "dictate" ? { source } : {};
+
   const saves = await prisma.patientAiListenSave.findMany({
-    where: { patientId: id, userId: auth.user.id },
+    where: { patientId: id, userId: auth.user.id, ...sourceFilter },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
+      source: true,
       visitKind: true,
       transcript: true,
       hpi: true,
@@ -74,6 +80,7 @@ export async function GET(request: Request, { params }: Params) {
   return NextResponse.json({
     saves: saves.map((s) => ({
       id: s.id,
+      source: s.source,
       visitKind: s.visitKind,
       transcript: s.transcript,
       hpi: s.hpi,
@@ -107,7 +114,9 @@ export async function POST(request: Request, { params }: Params) {
     if (!patient) return notFound("Patient not found");
 
     const savedAt = new Date();
+    const source = body.source ?? "listen";
     const content = buildContent({
+      source,
       visitKind: body.visitKind,
       transcript,
       hpi,
@@ -118,6 +127,7 @@ export async function POST(request: Request, { params }: Params) {
       data: {
         patientId: id,
         userId: auth.user.id,
+        source,
         visitKind: body.visitKind ?? null,
         transcript,
         hpi,
@@ -135,12 +145,13 @@ export async function POST(request: Request, { params }: Params) {
       patientId: id,
       ipAddress,
       userAgent,
-      metadata: { private: true, visitKind: body.visitKind ?? null },
+      metadata: { private: true, visitKind: body.visitKind ?? null, source },
     });
 
     return NextResponse.json({
       save: {
         id: save.id,
+        source: save.source,
         visitKind: save.visitKind,
         transcript: save.transcript,
         hpi: save.hpi,

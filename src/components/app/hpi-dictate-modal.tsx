@@ -5,17 +5,9 @@ import { api } from "@/lib/api-client";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, Copy, FolderOpen, Mic, Save, Square } from "lucide-react";
-import type { HpiVisitKind } from "@/lib/hpi-visit-context";
+import { ArrowRightFromLine, Check, Copy, FolderOpen, Mic, Save, Square } from "lucide-react";
 
-type VisitInfo = {
-  kind: HpiVisitKind;
-  reason: string;
-  encounterId: string | null;
-  visitCategory: HpiVisitKind | null;
-};
-
-type HpiDraftMode = "new" | "new_with_review" | "follow_up";
+type HpiDictateMode = "new" | "new_with_review" | "follow_up";
 
 type SavedItem = {
   id: string;
@@ -28,7 +20,7 @@ type SavedItem = {
 };
 
 const TARGET_RATE = 16000;
-const MAX_SECONDS = 1200;
+const MAX_SECONDS = 1200; // 20 min
 
 function mergeFloat32(chunks: Float32Array[]) {
   const total = chunks.reduce((n, c) => n + c.length, 0);
@@ -132,6 +124,12 @@ async function openPreferredMicrophone(): Promise<{ stream: MediaStream; label: 
   throw lastError instanceof Error ? lastError : new Error("Could not open microphone");
 }
 
+function formatElapsed(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function formatSaveWhen(iso: string) {
   try {
     return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -140,16 +138,16 @@ function formatSaveWhen(iso: string) {
   }
 }
 
-export function AiListenModal({
+export function HpiDictateModal({
   open,
   onClose,
   patientId,
-  patientName,
+  onTransfer,
 }: {
   open: boolean;
   onClose: () => void;
   patientId: string;
-  patientName: string;
+  onTransfer: (hpiText: string) => void;
 }) {
   const [configured, setConfigured] = useState({ transcribe: true, bedrock: true });
   const [listening, setListening] = useState(false);
@@ -159,7 +157,7 @@ export function AiListenModal({
   const [status, setStatus] = useState("");
   const [transcript, setTranscript] = useState("");
   const [hpi, setHpi] = useState("");
-  const [activeMode, setActiveMode] = useState<HpiDraftMode | null>(null);
+  const [activeMode, setActiveMode] = useState<HpiDictateMode | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -226,10 +224,9 @@ export function AiListenModal({
     stoppingRef.current = false;
 
     api<{
-      visit: VisitInfo;
       transcribeConfigured: boolean;
       bedrockConfigured: boolean;
-    }>(`/api/patients/${patientId}/ai/listen`)
+    }>(`/api/patients/${patientId}/ai/dictate-hpi`)
       .then((data) => {
         if (cancelled) return;
         setConfigured({
@@ -239,7 +236,7 @@ export function AiListenModal({
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load AI Listen status");
+          setError(e instanceof Error ? e.message : "Failed to load dictation status");
         }
       });
 
@@ -249,7 +246,7 @@ export function AiListenModal({
     };
   }, [open, patientId, stopCapture]);
 
-  async function startListening() {
+  async function startDictating() {
     setError("");
     setTranscript("");
     setHpi("");
@@ -298,11 +295,11 @@ export function AiListenModal({
       startedAtRef.current = Date.now();
       setListening(true);
       setElapsedSec(0);
-      setStatus("Listening… press Done when finished");
+      setStatus("Dictating… speak your HPI, then press Done");
       timerRef.current = setInterval(() => {
         const sec = Math.floor((Date.now() - startedAtRef.current) / 1000);
         setElapsedSec(sec);
-        if (sec >= MAX_SECONDS) void finishListening();
+        if (sec >= MAX_SECONDS) void finishDictation();
       }, 250);
     } catch (e) {
       setError(
@@ -315,7 +312,7 @@ export function AiListenModal({
     }
   }
 
-  async function finishListening() {
+  async function finishDictation() {
     if (stoppingRef.current) return;
     stoppingRef.current = true;
 
@@ -346,7 +343,8 @@ export function AiListenModal({
       const down = downsample(merged, sampleRate, TARGET_RATE);
       const pcm = floatTo16BitPCM(down);
       const body = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-      const res = await fetch(`/api/patients/${patientId}/ai/listen`, {
+
+      const res = await fetch(`/api/patients/${patientId}/ai/dictate-hpi`, {
         method: "POST",
         headers: {
           "Content-Type": "application/octet-stream",
@@ -356,14 +354,14 @@ export function AiListenModal({
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? `AI Listen failed (${res.status})`);
+      if (!res.ok) throw new Error(data.error ?? `Dictation failed (${res.status})`);
 
       setTranscript(typeof data.transcript === "string" ? data.transcript : "");
       setHpi("");
       setActiveMode(null);
-      setStatus("Choose how to draft the HPI — or Save the raw transcript for later");
+      setStatus("Choose a draft mode — or Save the raw transcript for later");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "AI Listen failed");
+      setError(e instanceof Error ? e.message : "HPI dictation failed");
       setStatus("");
     } finally {
       setProcessing(false);
@@ -371,7 +369,7 @@ export function AiListenModal({
     }
   }
 
-  async function runMode(mode: HpiDraftMode) {
+  async function runMode(mode: HpiDictateMode) {
     if (!transcript.trim() || drafting) return;
     setError("");
     setDrafting(true);
@@ -379,27 +377,30 @@ export function AiListenModal({
     setHpi("");
     setStatus(
       mode === "new"
-        ? "Drafting new-patient HPI from transcript…"
+        ? "Drafting new-patient HPI from dictation…"
         : mode === "new_with_review"
-          ? "Reviewing full chart + drafting HPI…"
-          : "Drafting follow-up HPI…"
+          ? "Reviewing full chart + drafting HPI from dictation…"
+          : "Drafting follow-up HPI from dictation…"
     );
     try {
-      const data = await api<{ hpi: string }>(`/api/patients/${patientId}/ai/dictate-hpi/process`, {
-        method: "POST",
-        json: { mode, source: "listen", transcript },
-      });
+      const data = await api<{ hpi: string; mode: HpiDictateMode }>(
+        `/api/patients/${patientId}/ai/dictate-hpi/process`,
+        {
+          method: "POST",
+          json: { mode, source: "dictate", transcript },
+        }
+      );
       setHpi(data.hpi ?? "");
-      setStatus("Done — Save or copy the HPI draft");
+      setStatus("Done — Transfer into HPI, or Save for later");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not draft HPI");
-      setStatus("Choose how to draft the HPI");
+      setStatus("Choose how to draft the HPI from your dictation");
     } finally {
       setDrafting(false);
     }
   }
 
-  async function saveAsText() {
+  async function saveCurrent() {
     if (!transcript.trim() && !hpi.trim()) return;
     setSaving(true);
     setError("");
@@ -409,7 +410,7 @@ export function AiListenModal({
         json: {
           transcript,
           hpi,
-          source: "listen",
+          source: "dictate",
           visitKind:
             activeMode === "new" || activeMode === "new_with_review"
               ? "NEW_PATIENT"
@@ -438,7 +439,7 @@ export function AiListenModal({
     setError("");
     try {
       const data = await api<{ saves: SavedItem[] }>(
-        `/api/patients/${patientId}/ai-listen-saves?source=listen`
+        `/api/patients/${patientId}/ai-listen-saves?source=dictate`
       );
       setPrevious(data.saves);
       setShowPrevious(true);
@@ -461,16 +462,33 @@ export function AiListenModal({
     );
   }
 
+  async function copyHpi() {
+    if (!hpi.trim()) return;
+    try {
+      await navigator.clipboard.writeText(hpi);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Could not copy to clipboard");
+    }
+  }
+
+  function transfer() {
+    if (!hpi.trim()) return;
+    onTransfer(hpi);
+    onClose();
+  }
+
   const levelPct = Math.min(100, Math.round(inputLevel * 220));
   const canChooseMode = Boolean(transcript.trim()) && !listening && !processing && !drafting;
   const canSave = Boolean(transcript.trim() || hpi.trim());
 
   return (
-    <Modal open={open} onClose={onClose} title={`AI Listen — ${patientName}`} wide>
+    <Modal open={open} onClose={onClose} title="Dictate HPI" wide>
       <div className="space-y-4">
         <p className="text-sm text-[var(--pv-muted)]">
-          Record the visit conversation. Press Done for a raw transcript, then choose a draft mode —
-          or Save and reopen later.
+          Dictate your HPI, press Done, then choose a draft mode — or Save the raw transcript and
+          reopen it later from Previous.
         </p>
 
         {(!configured.transcribe || !configured.bedrock) && (
@@ -494,7 +512,7 @@ export function AiListenModal({
               />
             </div>
             <span className="tabular-nums text-xs text-[var(--pv-muted)]">
-              {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, "0")}
+              {formatElapsed(elapsedSec)}
             </span>
           </div>
         )}
@@ -512,13 +530,13 @@ export function AiListenModal({
               variant="primary"
               className="!gap-1.5"
               disabled={!configured.transcribe || drafting}
-              onClick={() => void startListening()}
+              onClick={() => void startDictating()}
             >
-              <Mic size={14} /> {transcript ? "Listen again" : "Start listening"}
+              <Mic size={14} /> {transcript ? "Re-dictate" : "Start dictating"}
             </Button>
           )}
           {listening && (
-            <Button variant="primary" className="!gap-1.5" onClick={() => void finishListening()}>
+            <Button variant="primary" className="!gap-1.5" onClick={() => void finishDictation()}>
               <Square size={14} /> Done
             </Button>
           )}
@@ -536,7 +554,9 @@ export function AiListenModal({
         {showPrevious && (
           <div className="max-h-48 overflow-y-auto rounded-xl border border-[var(--pv-border)]">
             {previous.length === 0 ? (
-              <p className="px-3 py-4 text-center text-sm text-[var(--pv-muted)]">No saved listens yet.</p>
+              <p className="px-3 py-4 text-center text-sm text-[var(--pv-muted)]">
+                No saved dictations yet.
+              </p>
             ) : (
               <ul className="divide-y divide-[var(--pv-border)]">
                 {previous.map((save) => (
@@ -564,12 +584,12 @@ export function AiListenModal({
         {transcript && (
           <div>
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--pv-muted)]">
-              Transcript
+              Raw transcript
             </p>
             <Textarea
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              className="!min-h-[5rem] !text-xs font-mono"
+              className="!min-h-[5rem] !text-xs text-[var(--pv-muted-2)]"
             />
           </div>
         )}
@@ -620,7 +640,7 @@ export function AiListenModal({
             variant="primary"
             className="!gap-1.5"
             disabled={!canSave || saving || listening || processing || drafting}
-            onClick={() => void saveAsText()}
+            onClick={() => void saveCurrent()}
           >
             {saved ? <Check size={14} /> : <Save size={14} />}
             {saving ? "Saving…" : saved ? "Saved" : "Save"}
@@ -628,17 +648,29 @@ export function AiListenModal({
           <Button
             variant="ghost"
             className="!gap-1.5"
-            disabled={!hpi.trim()}
-            onClick={async () => {
-              await navigator.clipboard.writeText(hpi);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1500);
-            }}
+            disabled={!hpi.trim() || drafting}
+            onClick={() => void copyHpi()}
           >
             {copied ? <Check size={14} /> : <Copy size={14} />}
-            {copied ? "Copied" : "Copy HPI"}
+            {copied ? "Copied" : "Copy"}
           </Button>
-          <Button variant="ghost" disabled={listening || processing || drafting} onClick={onClose}>
+          <Button
+            className="!gap-1.5 pv-ai-btn"
+            disabled={!hpi.trim() || drafting}
+            onClick={transfer}
+            title="Append this draft to HPI in the AI color"
+          >
+            <ArrowRightFromLine size={14} />
+            Transfer
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={processing || drafting}
+            onClick={() => {
+              stopCapture();
+              onClose();
+            }}
+          >
             Close
           </Button>
         </div>

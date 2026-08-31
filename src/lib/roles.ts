@@ -36,6 +36,11 @@ export function canViewAudit(role: Role) {
   return role === "ADMIN";
 }
 
+/** Legal vault (BAAs, policies) — clinic admins and platform master admins */
+export function canManageLegal(user: SessionUser) {
+  return user.role === "ADMIN" || !!user.isPlatformOwner;
+}
+
 /** Mark patient ready and assign room on today's schedule */
 export function canManageScheduleReady(role: Role) {
   return canWrite(role);

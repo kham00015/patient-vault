@@ -6,7 +6,7 @@ import {
 } from "@/lib/visit-recorder-auth";
 import { getSessionUser } from "@/lib/auth";
 import { isBedrockConfigured } from "@/lib/ai";
-import { isTranscribeConfigured } from "@/lib/medical-transcribe";
+import { isAssemblyAiConfigured } from "@/lib/assemblyai-transcribe";
 
 export async function GET(request: Request) {
   try {
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       authenticated: Boolean(session),
       actorEmail,
       clinicName: session?.officeName ?? undefined,
-      transcribeConfigured: isTranscribeConfigured(),
+      transcribeConfigured: isAssemblyAiConfigured(),
       bedrockConfigured: isBedrockConfigured(),
     });
   } catch (error) {

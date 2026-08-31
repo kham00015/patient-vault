@@ -5,10 +5,10 @@ const nextConfig: NextConfig = {
   // Allow doctor-demo links via Cloudflare quick tunnel in dev
   allowedDevOrigins: ["*.trycloudflare.com"],
   experimental: {
-    // Scanned images can exceed the default ~10MB body limit before our 25MB check runs.
-    proxyClientMaxBodySize: "30mb",
+    // Scanned images / 20-min AI Listen PCM can exceed the default body limit.
+    proxyClientMaxBodySize: "45mb",
     serverActions: {
-      bodySizeLimit: "30mb",
+      bodySizeLimit: "45mb",
     },
   },
 };

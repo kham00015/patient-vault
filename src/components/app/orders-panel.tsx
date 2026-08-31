@@ -36,12 +36,21 @@ type CatalogHit = {
 };
 
 const statusStyles: Record<string, string> = {
-  ORDERED: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  SCHEDULED: "border-sky-500/40 bg-sky-500/10 text-sky-200",
-  COMPLETED: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
-  REVIEWED: "border-cyan-500/40 bg-cyan-500/10 text-cyan-200",
-  CANCELLED: "border-rose-500/40 bg-rose-500/10 text-rose-200",
+  ORDERED: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-200",
+  SCHEDULED: "border-sky-500/40 bg-sky-500/10 text-sky-800 dark:text-sky-200",
+  COMPLETED: "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+  REVIEWED: "border-cyan-500/40 bg-cyan-500/10 text-[var(--pv-accent-strong)]",
+  CANCELLED: "border-rose-500/40 bg-rose-500/10 text-rose-800 dark:text-rose-200",
 };
+
+const ORDER_SELECT_CLASS =
+  "h-10 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm text-[var(--pv-fg)] outline-none focus:border-[var(--pv-accent-strong)]";
+
+const ORDER_CHIP_ACTIVE =
+  "border-[var(--pv-accent-strong)] bg-[color-mix(in_srgb,var(--pv-accent)_14%,transparent)] text-[var(--pv-accent-strong)]";
+
+const ORDER_CHIP_IDLE =
+  "border-[var(--pv-border)] bg-[var(--pv-card)] text-[var(--pv-muted-2)] hover:border-[var(--pv-accent-strong)] hover:text-[var(--pv-accent-strong)]";
 
 const ORDERS_MUTATED_EVENT = "patient-vault:orders-mutated";
 
@@ -224,7 +233,7 @@ export function OrdersPanel({
     <div className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto", compact && "mt-1.5 rounded-md border border-[var(--pv-border)] bg-[var(--pv-card)]/80 p-2")}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className={cn("font-semibold text-cyan-300", compact ? "text-xs" : "text-sm")}>
+          <h2 className={cn("font-semibold text-[var(--pv-accent-strong)]", compact ? "text-xs" : "text-sm")}>
             <ClipboardCheck size={16} className="mr-1 inline" /> Orders
           </h2>
           <p className="text-xs text-[var(--pv-muted)]">
@@ -240,9 +249,7 @@ export function OrdersPanel({
               onClick={() => setFilter(value)}
               className={cn(
                 "rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition",
-                filter === value
-                  ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-200"
-                  : "border-[var(--pv-border)] bg-[var(--pv-panel)] text-[var(--pv-muted-2)] hover:text-cyan-200"
+                filter === value ? ORDER_CHIP_ACTIVE : ORDER_CHIP_IDLE
               )}
             >
               {value === "ALL" ? "All" : labelFor(ORDER_CATEGORIES, value)}
@@ -255,7 +262,7 @@ export function OrdersPanel({
         <div className={cn("mb-4 rounded-xl border border-[var(--pv-border)] bg-[var(--pv-panel)] p-3", compact && "rounded-md p-2")}>
           <div className="grid gap-2 md:grid-cols-[130px_1fr_120px_150px_auto]">
             <select
-              className="h-10 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm text-white"
+              className={ORDER_SELECT_CLASS}
               value={category}
               onChange={(e) => {
                 setCategory(e.target.value as OrderDTO["category"]);
@@ -293,7 +300,7 @@ export function OrdersPanel({
               />
             </div>
             <select
-              className="h-10 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-3 text-sm text-white"
+              className={ORDER_SELECT_CLASS}
               value={priority}
               onChange={(e) => setPriority(e.target.value as OrderDTO["priority"])}
             >
@@ -308,18 +315,18 @@ export function OrdersPanel({
           </div>
 
           {code && (
-            <p className="mt-1.5 text-[10px] text-cyan-300/90">
+            <p className="mt-1.5 text-[10px] text-[var(--pv-accent-strong)]">
               Catalog code <span className="font-mono">{code}</span> — edit the name to search again.
             </p>
           )}
           {expandedQuery && showCatalogResults && catalogResults.length > 0 && (
-            <p className="mt-1.5 text-[10px] text-cyan-300/80">
+            <p className="mt-1.5 text-[10px] text-[var(--pv-muted)]">
               Also searched as: {expandedQuery}
             </p>
           )}
 
           {showCatalogResults && (
-            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[var(--pv-border)] bg-[#0b1018]">
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[var(--pv-border)] bg-[var(--pv-surface)]">
               {searching && <p className="px-3 py-2 text-xs text-[var(--pv-muted)]">Searching...</p>}
               {searchError && <p className="px-3 py-2 text-xs text-rose-300">{searchError}</p>}
               {!searching && !searchError && name.trim().length >= 2 && catalogResults.length === 0 && (
@@ -335,7 +342,7 @@ export function OrdersPanel({
                     onClick={() => pickCatalogItem(item)}
                     className="flex w-full items-start gap-2 border-b border-[var(--pv-border)]/80 px-3 py-2 text-left transition last:border-b-0 hover:bg-[var(--pv-btn)]"
                   >
-                    <span className="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300">
+                    <span className="shrink-0 rounded bg-[color-mix(in_srgb,var(--pv-accent)_12%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--pv-accent-strong)]">
                       {item.code}
                     </span>
                     <span className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--pv-fg-soft)]">{item.name}</span>
@@ -363,8 +370,8 @@ export function OrdersPanel({
                     className={cn(
                       "rounded-full border px-2 py-1 text-[10px] transition",
                       code === (preset.code ?? null) && name === preset.name
-                        ? "border-cyan-500/50 bg-cyan-500/15 text-cyan-200"
-                        : "border-[var(--pv-border)] bg-[var(--pv-card)] text-[var(--pv-muted-2)] hover:border-cyan-500/40 hover:text-cyan-200"
+                        ? ORDER_CHIP_ACTIVE
+                        : ORDER_CHIP_IDLE
                     )}
                     onClick={() => {
                       setName(preset.name);
@@ -402,12 +409,12 @@ export function OrdersPanel({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-cyan-100">{order.name}</span>
+                  <span className="font-medium text-[var(--pv-fg)]">{order.name}</span>
                   <span className="rounded bg-[var(--pv-btn)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--pv-muted-2)]">
                     {labelFor(ORDER_CATEGORIES, order.category)}
                   </span>
                   {order.code && (
-                    <span className="rounded bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan-300">
+                    <span className="rounded bg-[color-mix(in_srgb,var(--pv-accent)_12%,transparent)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--pv-accent-strong)]">
                       {order.code}
                     </span>
                   )}
@@ -415,7 +422,7 @@ export function OrdersPanel({
                     {labelFor(ORDER_STATUSES, order.status)}
                   </span>
                   {order.priority !== "ROUTINE" && (
-                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
+                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
                       {labelFor(ORDER_PRIORITIES, order.priority)}
                     </span>
                   )}
@@ -427,7 +434,7 @@ export function OrdersPanel({
                   {order.reviewedAt && <> · reviewed {formatDateOnly(order.reviewedAt)}</>}
                 </div>
                 {showEncounterContext && order.encounter && (
-                  <div className="mt-1 text-[10px] text-violet-300">
+                  <div className="mt-1 text-[10px] text-[var(--pv-muted)]">
                     {formatEncounterLabel(order.encounter.visitCategory, order.encounter.modality)} · {formatDateOnly(order.encounter.date)}
                   </div>
                 )}
@@ -438,7 +445,7 @@ export function OrdersPanel({
               {!isReadOnly && (
                 <div className="flex flex-wrap items-center gap-1">
                   <select
-                    className="h-8 rounded border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-2 text-xs text-white"
+                    className="h-8 rounded border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-2 text-xs text-[var(--pv-fg)] outline-none focus:border-[var(--pv-accent-strong)]"
                     value={order.status}
                     onChange={(e) => updateOrder(order.id, { status: e.target.value as OrderDTO["status"] }).catch(() => undefined)}
                   >

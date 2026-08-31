@@ -1,6 +1,18 @@
 import type { ScheduleEntry } from "@prisma/client";
 import { getVisitCategoryLabel, getVisitCategoryTimelineStyles } from "@/lib/encounters";
-import { normalizeScheduleDay, scheduleDateFromInput, scheduleDayRange } from "@/lib/utils";
+import {
+  dateToClinicTimeInputValue,
+  formatClinicScheduleTime,
+  normalizeScheduleDay,
+  scheduleDateFromDayAndTime,
+  scheduleDayRange,
+} from "@/lib/utils";
+
+export const SCHEDULE_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
+
+export function defaultScheduleDuration(visitCategory: ScheduleEntry["visitCategory"]) {
+  return visitCategory === "NEW_PATIENT" ? 30 : 15;
+}
 
 export type ScheduleEntryDTO = {
   entryId: string;
@@ -8,6 +20,8 @@ export type ScheduleEntryDTO = {
   name: string;
   providerKey: string;
   visitCategory: ScheduleEntry["visitCategory"];
+  scheduledTime: string;
+  durationMinutes: number;
   checkedInAt: string | null;
   readyAt: string | null;
   noShowAt: string | null;
@@ -15,6 +29,61 @@ export type ScheduleEntryDTO = {
   docNotes: string | null;
   docNotesAcknowledgedAt: string | null;
 };
+
+export type ScheduleOverlapHit = {
+  entryId: string;
+  name: string;
+  scheduledTime: string;
+  durationMinutes: number;
+};
+
+function scheduleTimeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function scheduleSlotsOverlap(
+  a: { scheduledTime: string; durationMinutes: number },
+  b: { scheduledTime: string; durationMinutes: number }
+) {
+  const aStart = scheduleTimeToMinutes(a.scheduledTime);
+  const aEnd = aStart + a.durationMinutes;
+  const bStart = scheduleTimeToMinutes(b.scheduledTime);
+  const bEnd = bStart + b.durationMinutes;
+  return aStart < bEnd && bStart < aEnd;
+}
+
+/** Find same-day visits that overlap a proposed slot (excludes one entry when editing). */
+export function findScheduleOverlaps(
+  entries: ScheduleEntryDTO[],
+  candidate: { scheduledTime: string; durationMinutes: number },
+  excludeEntryId?: string
+): ScheduleOverlapHit[] {
+  return entries
+    .filter((entry) => entry.entryId !== excludeEntryId)
+    .filter((entry) =>
+      scheduleSlotsOverlap(candidate, {
+        scheduledTime: entry.scheduledTime,
+        durationMinutes: entry.durationMinutes,
+      })
+    )
+    .map((entry) => ({
+      entryId: entry.entryId,
+      name: entry.name,
+      scheduledTime: entry.scheduledTime,
+      durationMinutes: entry.durationMinutes,
+    }));
+}
+
+export function formatScheduleSlotSummary(
+  scheduleDay: string,
+  scheduledTime: string,
+  durationMinutes: number
+) {
+  const start = scheduleDateFromDayAndTime(scheduleDay, scheduledTime);
+  const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
+  return `${formatClinicScheduleTime(start)} – ${formatClinicScheduleTime(end)} (${durationMinutes} min)`;
+}
 
 function toIsoString(value: Date | string | null | undefined) {
   if (value == null || value === "") return null;
@@ -28,6 +97,8 @@ export function toScheduleEntryDTO(entry: {
   id: string;
   providerKey: string;
   visitCategory: ScheduleEntry["visitCategory"];
+  date: Date | string;
+  durationMinutes?: number | null;
   checkedInAt?: Date | string | null;
   readyAt?: Date | string | null;
   noShowAt?: Date | string | null;
@@ -42,6 +113,8 @@ export function toScheduleEntryDTO(entry: {
     name: entry.patient.name,
     providerKey: entry.providerKey,
     visitCategory: entry.visitCategory,
+    scheduledTime: dateToClinicTimeInputValue(entry.date),
+    durationMinutes: entry.durationMinutes ?? defaultScheduleDuration(entry.visitCategory),
     checkedInAt: toIsoString(entry.checkedInAt),
     readyAt: toIsoString(entry.readyAt),
     noShowAt: toIsoString(entry.noShowAt),
@@ -93,12 +166,16 @@ export function scheduleCreateData(
   dateStr: string,
   patientId: string,
   visitCategory: ScheduleEntry["visitCategory"],
-  providerKey: string
+  providerKey: string,
+  options?: { scheduledTime?: string; durationMinutes?: number }
 ) {
   const scheduleDay = normalizeScheduleDay(dateStr);
+  const scheduledTime = options?.scheduledTime ?? "09:00";
+  const durationMinutes = options?.durationMinutes ?? defaultScheduleDuration(visitCategory);
   return {
     scheduleDay,
-    date: scheduleDateFromInput(scheduleDay),
+    date: scheduleDateFromDayAndTime(scheduleDay, scheduledTime),
+    durationMinutes,
     patientId,
     visitCategory,
     providerKey,

@@ -12,7 +12,7 @@ import {
 } from "@/lib/schedule";
 import { isScheduleDayBlocked } from "@/lib/schedule-blocks";
 import { assertScheduleProviderInOffice } from "@/lib/schedule-providers";
-import { normalizeScheduleDay } from "@/lib/utils";
+import { normalizeScheduleDay, scheduleDateFromDayAndTime } from "@/lib/utils";
 import { officeScope, requireOfficeId } from "@/lib/office";
 import { assertPatientReadable } from "@/lib/patient-access";
 
@@ -87,6 +87,8 @@ export async function GET(request: Request) {
         id: true,
         providerKey: true,
         visitCategory: true,
+        date: true,
+        durationMinutes: true,
         checkedInAt: true,
         readyAt: true,
         roomNumber: true,
@@ -94,7 +96,7 @@ export async function GET(request: Request) {
         docNotesAcknowledgedAt: true,
         patient: { select: { id: true, name: true } },
       },
-      orderBy: { patient: { name: "asc" } },
+      orderBy: { date: "asc" },
     });
 
     const noShowMap = await loadNoShowAtForDay(scheduleDay, provider);
@@ -117,11 +119,16 @@ export async function GET(request: Request) {
 
 const providerKeySchema = z.string().min(1);
 
+const scheduledTimeSchema = z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/);
+const durationMinutesSchema = z.number().int().min(5).max(480);
+
 const addSchema = z.object({
   date: z.string(),
   patientId: z.string(),
   providerKey: providerKeySchema,
   visitCategory: z.enum(["NEW_PATIENT", "FOLLOW_UP"]).default("FOLLOW_UP"),
+  scheduledTime: scheduledTimeSchema.default("09:00"),
+  durationMinutes: durationMinutesSchema.optional(),
 });
 
 export async function POST(request: Request) {
@@ -157,7 +164,11 @@ export async function POST(request: Request) {
         scheduleDay,
         body.patientId,
         body.visitCategory,
-        body.providerKey
+        body.providerKey,
+        {
+          scheduledTime: body.scheduledTime,
+          durationMinutes: body.durationMinutes,
+        }
       ),
       include: { patient: { select: { id: true, name: true } } },
     });
@@ -175,6 +186,8 @@ export async function POST(request: Request) {
         scheduleDay,
         providerKey: body.providerKey,
         visitCategory: body.visitCategory,
+        scheduledTime: body.scheduledTime,
+        durationMinutes: body.durationMinutes,
       },
     });
 
@@ -236,6 +249,8 @@ const patchSchema = z.object({
   patientId: z.string(),
   providerKey: providerKeySchema,
   visitCategory: z.enum(["NEW_PATIENT", "FOLLOW_UP"]).optional(),
+  scheduledTime: scheduledTimeSchema.optional(),
+  durationMinutes: durationMinutesSchema.optional(),
   checkedIn: z.boolean().optional(),
   ready: z.boolean().optional(),
   noShow: z.boolean().optional(),
@@ -257,6 +272,8 @@ export async function PATCH(request: Request) {
     if (denied) return denied;
 
     const hasVisitCategory = body.visitCategory !== undefined;
+    const hasScheduledTime = body.scheduledTime !== undefined;
+    const hasDuration = body.durationMinutes !== undefined;
     const hasCheckedIn = body.checkedIn !== undefined;
     const hasReady = body.ready !== undefined;
     const hasNoShow = body.noShow !== undefined;
@@ -266,6 +283,8 @@ export async function PATCH(request: Request) {
 
     if (
       !hasVisitCategory &&
+      !hasScheduledTime &&
+      !hasDuration &&
       !hasCheckedIn &&
       !hasReady &&
       !hasNoShow &&
@@ -282,6 +301,9 @@ export async function PATCH(request: Request) {
     if (hasRoom && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasDocNotes && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
 
+    if (hasScheduledTime && !canWrite(auth.user.role)) return forbidden();
+    if (hasDuration && !canWrite(auth.user.role)) return forbidden();
+
     const existing = await prisma.scheduleEntry.findFirst({
       where: scheduleDayWhere(body.date, {
         patientId: body.patientId,
@@ -292,6 +314,8 @@ export async function PATCH(request: Request) {
 
     const data: {
       visitCategory?: VisitCategory;
+      date?: Date;
+      durationMinutes?: number;
       checkedInAt?: Date | null;
       readyAt?: Date | null;
       roomNumber?: string | null;
@@ -301,6 +325,14 @@ export async function PATCH(request: Request) {
 
     if (hasVisitCategory) {
       data.visitCategory = body.visitCategory;
+    }
+
+    if (hasScheduledTime) {
+      const scheduleDay = normalizeScheduleDay(body.date);
+      data.date = scheduleDateFromDayAndTime(scheduleDay, body.scheduledTime!);
+    }
+    if (hasDuration) {
+      data.durationMinutes = body.durationMinutes;
     }
 
     if (hasCheckedIn) {
@@ -356,6 +388,8 @@ export async function PATCH(request: Request) {
       providerKey: body.providerKey,
     };
     if (hasVisitCategory) auditMeta.visitCategory = body.visitCategory ?? "FOLLOW_UP";
+    if (hasScheduledTime) auditMeta.scheduledTime = body.scheduledTime ?? "";
+    if (hasDuration) auditMeta.durationMinutes = body.durationMinutes ?? 0;
     if (hasCheckedIn) auditMeta.checkedIn = body.checkedIn ?? false;
     if (hasReady) auditMeta.ready = body.ready ?? false;
     if (hasNoShow) auditMeta.noShow = body.noShow ?? false;

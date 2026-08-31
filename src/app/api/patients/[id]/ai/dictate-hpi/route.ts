@@ -74,7 +74,7 @@ export async function POST(request: Request, { params }: Params) {
     const pcm = Buffer.from(await request.arrayBuffer());
     if (pcm.byteLength === 0) return badRequest("Empty audio");
     if (pcm.byteLength > MAX_PCM_BYTES) {
-      return badRequest("Recording too long. Keep AI Listen under about 20 minutes.");
+      return badRequest("Recording too long. Keep dictation under about 20 minutes.");
     }
 
     const transcript = await transcribeWithAssemblyAi(pcm, sampleRate);
@@ -84,7 +84,7 @@ export async function POST(request: Request, { params }: Params) {
     await createAuditLog({
       userId: auth.user.id,
       action: AuditAction.AI_QUERY,
-      resource: "ai_listen_transcript",
+      resource: "ai_dictate_hpi_transcript",
       patientId,
       ipAddress,
       userAgent,
@@ -96,8 +96,8 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({ transcript, visit });
   } catch (error) {
-    console.error("[ai listen transcript]", error);
-    const message = error instanceof Error ? error.message : "AI Listen failed";
+    console.error("[ai dictate hpi transcript]", error);
+    const message = error instanceof Error ? error.message : "HPI dictation failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

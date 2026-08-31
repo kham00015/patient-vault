@@ -29,7 +29,7 @@ type PatientHit = {
 type HpiVisitKind = "NEW_PATIENT" | "FOLLOW_UP";
 
 const TARGET_RATE = 16000;
-const MAX_SECONDS = 900; // 15 min
+const MAX_SECONDS = 1200; // 20 min
 
 function mergeFloat32(chunks: Float32Array[]) {
   const total = chunks.reduce((n, c) => n + c.length, 0);
@@ -404,8 +404,8 @@ export default function VisitRecorderPage() {
         <p className="text-xs uppercase tracking-wider text-[var(--pv-muted)]">{clinicLabel}</p>
         <h1 className="text-2xl font-semibold">Visit recorder</h1>
         <p className="mt-1 text-sm text-[var(--pv-muted)]">
-          Record the visit → audio file + transcript + HPI draft. Same AWS Transcribe Medical / Bedrock
-          stack (BAA-covered services when configured under your AWS BAA).
+          Record the visit → audio file + transcript + HPI draft. Same AssemblyAI / Bedrock
+          stack as AI Listen (BAA-covered services when configured under your AWS / AssemblyAI BAAs).
         </p>
       </header>
 

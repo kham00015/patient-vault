@@ -19,12 +19,10 @@ export function middleware(request: NextRequest) {
   response.headers.set("X-Robots-Tag", "noindex, nofollow");
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  response.headers.set(
-    "Content-Security-Policy",
-    embeddablePreview
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self';"
-      : "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
-  );
+  const csp = embeddablePreview
+    ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; font-src 'self' data:; connect-src 'self' https://www.youtube.com https://*.googlevideo.com; media-src 'self' https://*.googlevideo.com https://*.google.com blob:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self';"
+    : "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; font-src 'self' data:; connect-src 'self' https://www.youtube.com https://*.googlevideo.com; media-src 'self' https://*.googlevideo.com https://*.google.com blob:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'none';";
+  response.headers.set("Content-Security-Policy", csp);
 
   if (process.env.NODE_ENV === "production" && request.nextUrl.protocol === "https:") {
     response.headers.set(

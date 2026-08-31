@@ -160,6 +160,44 @@ export async function saveMyBrainDocument(
   return `local:my-brain/${userId}/${localKey}`;
 }
 
+/** Admin legal vault uploads (BAAs, policies — not patient PHI).
+ * S3 keys stay under `patients/*` so existing IAM PutObject policies apply.
+ */
+export async function saveLegalDocument(
+  officeId: string,
+  fileName: string,
+  buffer: Buffer,
+  mimeType?: string
+): Promise<string> {
+  const storageType = process.env.STORAGE_TYPE ?? "local";
+  const key = `patients/_legal/${officeId}/${randomBytes(8).toString("hex")}_${sanitizeFileName(fileName)}`;
+  const contentType = mimeType || guessContentType(fileName);
+
+  if (storageType === "s3") {
+    const client = getS3Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: key,
+        Body: buffer,
+        ServerSideEncryption: process.env.AWS_KMS_KEY_ID ? "aws:kms" : "AES256",
+        ...(process.env.AWS_KMS_KEY_ID
+          ? { SSEKMSKeyId: process.env.AWS_KMS_KEY_ID }
+          : {}),
+        ContentType: contentType,
+      })
+    );
+    return `s3:${key}`;
+  }
+
+  const dir = path.join(LOCAL_PATH, "patients", "_legal", officeId);
+  await mkdir(dir, { recursive: true });
+  const localKey = key.split("/").pop()!;
+  const fullPath = path.join(dir, localKey);
+  await writeFile(fullPath, buffer);
+  return `local:patients/_legal/${officeId}/${localKey}`;
+}
+
 export async function readDocument(storageKey: string): Promise<Buffer> {
   if (storageKey.startsWith("local:")) {
     const relative = storageKey.replace("local:", "");

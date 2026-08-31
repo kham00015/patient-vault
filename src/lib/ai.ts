@@ -11,7 +11,11 @@ import {
   AI_GUIDELINES_CLINIC_RULES,
   AI_GUIDELINES_RULES,
   AI_HPI_CHART_RULES,
+  AI_HPI_DICTATION_FOLLOWUP_RULES,
+  AI_HPI_DICTATION_NEW_RULES,
+  AI_HPI_DICTATION_NEW_WITH_REVIEW_RULES,
   AI_HPI_FOLLOWUP_RULES,
+  AI_HPI_LISTEN_NEW_WITH_REVIEW_RULES,
   AI_HPI_NEW_RULES,
   AI_ORGANIZE_RULES,
   AI_PLAN_RULES,
@@ -336,7 +340,7 @@ export async function draftHpiFromTranscript(params: {
             {
               text: `Visit type for this draft: ${isNew ? "NEW PATIENT (full HPI)" : "FOLLOW-UP (interval HPI)"}${
                 params.visitReason ? `\nDetection note: ${params.visitReason}` : ""
-              }\n\nConversation transcript (Amazon Transcribe Medical):\n\n${params.transcript}`,
+              }\n\nConversation transcript (AssemblyAI):\n\n${params.transcript}`,
             },
           ],
         },
@@ -344,6 +348,129 @@ export async function draftHpiFromTranscript(params: {
       inferenceConfig: {
         temperature: 0.25,
         maxTokens: 2200,
+      },
+    })
+  );
+
+  return {
+    text: extractText(response.output?.message?.content).replace(/^HPI:\s*/i, "").trim(),
+    provider: "bedrock" as const,
+  };
+}
+
+export type HpiDictateMode = "new" | "new_with_review" | "follow_up";
+
+export async function draftHpiFromDictation(params: {
+  transcript: string;
+  mode: HpiDictateMode;
+  brainData?: string;
+  patientData?: string;
+  attachments?: ChartDocumentAttachment[];
+}) {
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID."
+    );
+  }
+
+  const mode = params.mode;
+  const systemRules =
+    mode === "new"
+      ? AI_HPI_DICTATION_NEW_RULES
+      : mode === "follow_up"
+        ? AI_HPI_DICTATION_FOLLOWUP_RULES
+        : AI_HPI_DICTATION_NEW_WITH_REVIEW_RULES;
+  const systemPrompt = appendMyBrainToPrompt(systemRules, params.brainData);
+
+  const chartBlock =
+    mode === "new_with_review" && params.patientData?.trim()
+      ? `\n\n=== FULL PATIENT CHART (review thoroughly — demographics, notes, forms, orders, labs, imaging, PFTs, PDFs) ===\n${params.patientData.trim()}`
+      : "";
+
+  const modeLabel =
+    mode === "new"
+      ? "NEW PATIENT HPI from dictation only"
+      : mode === "follow_up"
+        ? "FOLLOW-UP interval HPI from dictation only"
+        : "NEW PATIENT HPI from dictation + full chart review";
+
+  const userText = `Draft mode: ${modeLabel}
+
+Clinician HPI dictation (AssemblyAI):
+${params.transcript}${chartBlock}`;
+
+  const attachments =
+    mode === "new_with_review" ? (params.attachments ?? []).slice(0, 30) : [];
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
+      messages: toBedrockMessages([{ role: "user", content: userText }], attachments),
+      inferenceConfig: {
+        temperature: 0.2,
+        maxTokens: mode === "new_with_review" ? 3200 : 2200,
+      },
+    })
+  );
+
+  return {
+    text: extractText(response.output?.message?.content).replace(/^HPI:\s*/i, "").trim(),
+    provider: "bedrock" as const,
+  };
+}
+
+/** AI Listen conversation transcript → HPI (same three modes as Dictate). */
+export async function draftHpiFromListen(params: {
+  transcript: string;
+  mode: HpiDictateMode;
+  brainData?: string;
+  patientData?: string;
+  attachments?: ChartDocumentAttachment[];
+}) {
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID."
+    );
+  }
+
+  const mode = params.mode;
+  const systemRules =
+    mode === "new"
+      ? AI_HPI_NEW_RULES
+      : mode === "follow_up"
+        ? AI_HPI_FOLLOWUP_RULES
+        : AI_HPI_LISTEN_NEW_WITH_REVIEW_RULES;
+  const systemPrompt = appendMyBrainToPrompt(systemRules, params.brainData);
+
+  const chartBlock =
+    mode === "new_with_review" && params.patientData?.trim()
+      ? `\n\n=== FULL PATIENT CHART (review thoroughly — demographics, notes, forms, orders, labs, imaging, PFTs, PDFs) ===\n${params.patientData.trim()}`
+      : "";
+
+  const modeLabel =
+    mode === "new"
+      ? "NEW PATIENT HPI from conversation transcript only"
+      : mode === "follow_up"
+        ? "FOLLOW-UP interval HPI from conversation transcript only"
+        : "NEW PATIENT HPI from conversation transcript + full chart review";
+
+  const userText = `Draft mode: ${modeLabel}
+
+Conversation transcript (AssemblyAI):
+${params.transcript}${chartBlock}`;
+
+  const attachments =
+    mode === "new_with_review" ? (params.attachments ?? []).slice(0, 30) : [];
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
+      messages: toBedrockMessages([{ role: "user", content: userText }], attachments),
+      inferenceConfig: {
+        temperature: 0.25,
+        maxTokens: mode === "new_with_review" ? 3200 : 2200,
       },
     })
   );
@@ -479,4 +606,51 @@ function normalizeSectionList(raw: string) {
   if (conflicts.length === 0) return items.join("\n");
   return `${items.join("\n")}\n\n${conflicts.join("\n")}`.trim();
 }
+
+/**
+ * Expand a clinician diagnosis query into search terms (synonyms, ICD phrases, abbreviations).
+ * Returns JSON-parsed terms; caller merges with deterministic ICD aliases.
+ */
+export async function expandDiagnosisSearchTermsWithAI(query: string): Promise<string[]> {
+  if (!isBedrockConfigured()) return [];
+
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  const systemPrompt = `You help search an EMR problem list / diagnosis field.
+Given a clinician query, return ONLY a JSON object:
+{"terms":["..."]}
+Rules:
+- Include the original query
+- Include common synonyms, abbreviations, and ICD-10 description phrases a clinician might have typed
+- Include likely ICD-10 code prefixes when obvious (e.g. J44 for COPD) without inventing rare codes
+- Prefer short searchable substrings (2–8 words or codes)
+- Max 12 terms
+- No commentary outside JSON`;
+
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: systemPrompt }],
+      messages: [{ role: "user", content: [{ text: q }] }],
+      inferenceConfig: { temperature: 0.1, maxTokens: 400 },
+    })
+  );
+
+  const text = extractText(response.output?.message?.content);
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return [];
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { terms?: unknown };
+    if (!Array.isArray(parsed.terms)) return [];
+    return parsed.terms
+      .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+      .map((t) => t.trim())
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
 

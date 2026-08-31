@@ -113,6 +113,39 @@ export function scheduleDateFromInput(dateStr: string) {
   return scheduleDayRange(dateStr).start;
 }
 
+/** Clinic-local HH:MM from a stored schedule start datetime. */
+export function dateToClinicTimeInputValue(date: Date | string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CLINIC_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(date));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("hour")}:${get("minute")}`;
+}
+
+/** Build UTC schedule start from clinic calendar day + HH:MM. */
+export function scheduleDateFromDayAndTime(scheduleDay: string, timeStr: string) {
+  const normalizedDay = normalizeScheduleDay(scheduleDay);
+  const [y, m, d] = normalizedDay.split("-").map(Number);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+  if (!match) throw new Error("Invalid time");
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) throw new Error("Invalid time");
+  return clinicLocalDateTimeToUtc(y, m, d, hour, minute);
+}
+
+/** Display time like "9:00 AM" in clinic timezone. */
+export function formatClinicScheduleTime(date: Date | string) {
+  return new Date(date).toLocaleString("en-US", {
+    timeZone: CLINIC_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Normalize any date input to YYYY-MM-DD for schedule lookups. */
 export function normalizeScheduleDay(dateStr: string) {
   const [y, m, d] = dateStr.split("-").map(Number);

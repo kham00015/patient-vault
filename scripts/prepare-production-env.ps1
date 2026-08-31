@@ -58,7 +58,10 @@ if (Test-Path $out) {
     "BEDROCK_MODEL_ID",
     "BEDROCK_REGION",
     "AWS_USE_INSTANCE_ROLE",
-    "BEDROCK_DISABLED"
+    "BEDROCK_DISABLED",
+    "ASSEMBLYAI_API_KEY",
+    "ASSEMBLYAI_BASE_URL",
+    "ASSEMBLYAI_DISABLED"
   )
   Get-Content $out | ForEach-Object {
     $line = $_.Trim()
@@ -68,6 +71,22 @@ if (Test-Path $out) {
     $name = $line.Substring(0, $eq).Trim()
     if ($preserve -contains $name) {
       $vars[$name] = $line.Substring($eq + 1).Trim().Trim('"')
+    }
+  }
+}
+
+# Prefer AssemblyAI key from .env.local when preparing a deploy package.
+$localEnv = Join-Path $root ".env.local"
+if (Test-Path $localEnv) {
+  Get-Content $localEnv | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -eq "" -or $line.StartsWith("#")) { return }
+    $eq = $line.IndexOf("=")
+    if ($eq -lt 1) { return }
+    $name = $line.Substring(0, $eq).Trim()
+    if ($name -eq "ASSEMBLYAI_API_KEY" -or $name -eq "ASSEMBLYAI_BASE_URL" -or $name -eq "ASSEMBLYAI_DISABLED") {
+      $value = $line.Substring($eq + 1).Trim().Trim('"')
+      if ($value) { $vars[$name] = $value }
     }
   }
 }

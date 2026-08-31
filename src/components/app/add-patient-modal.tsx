@@ -220,6 +220,8 @@ export function AddPatientModal({
     <Modal
       open={open}
       onClose={handleClose}
+      closeOnBackdrop={false}
+      closeOnEscape={false}
       title={view === "intake" ? "Registration uploads" : "Register New Patient"}
       wide
       titleAccessory={

@@ -15,6 +15,8 @@ export function Modal({
   wide,
   xl,
   layer = "base",
+  closeOnBackdrop = true,
+  closeOnEscape = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,9 +29,12 @@ export function Modal({
   xl?: boolean;
   /** Nested dialogs (e.g. Prefilled picker) use elevated. */
   layer?: "base" | "elevated";
+  /** When false, only the X button (or explicit actions) dismisses the modal. */
+  closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closeOnEscape) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (layer === "elevated") e.stopImmediatePropagation();
@@ -38,7 +43,7 @@ export function Modal({
     // Capture so nested dialogs close first without dismissing the parent.
     window.addEventListener("keydown", onKey, layer === "elevated");
     return () => window.removeEventListener("keydown", onKey, layer === "elevated");
-  }, [open, onClose, layer]);
+  }, [open, onClose, layer, closeOnEscape]);
 
   if (!open) return null;
 
@@ -49,7 +54,7 @@ export function Modal({
         layer === "elevated" ? "z-[60]" : "z-50"
       )}
       style={{ background: "var(--pv-overlay)" }}
-      onClick={onClose}
+      onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div
         className={cn(

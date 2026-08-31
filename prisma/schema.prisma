@@ -56,6 +56,7 @@ model Office {
   scheduleDayBlocks  ScheduleDayBlock[]
   referralIntakes    ReferralIntake[]
   formPrefills       FormPrefill[]
+  legalDocuments     LegalDocument[]
 }
 
 model User {
@@ -113,6 +114,7 @@ model User {
   referralIntakesAcknowledged ReferralIntake[] @relation("AcknowledgedReferralIntakes")
   referralDocumentsUploaded ReferralDocument[] @relation("UploadedReferralDocuments")
   formPrefillsCreated FormPrefill[] @relation("CreatedFormPrefills")
+  legalDocumentsUploaded LegalDocument[] @relation("UploadedLegalDocuments")
   office               Office?              @relation(fields: [officeId], references: [id], onDelete: Restrict)
 
   @@index([officeId])
@@ -520,6 +522,7 @@ model ScheduleEntry {
   id                     String        @id @default(cuid())
   scheduleDay            String?
   date                   DateTime
+  durationMinutes        Int           @default(15)
   patientId              String
   patient                Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
   providerKey            String        @default("FIRAS_KHAMIS")
@@ -746,6 +749,8 @@ model PatientAiListenSave {
   id         String   @id @default(cuid())
   patientId  String
   userId     String
+  /** listen = AI Listen conversation; dictate = HPI Dictate solo */
+  source     String   @default("listen")
   visitKind  String?
   transcript String   @default("")
   hpi        String   @default("")
@@ -755,6 +760,7 @@ model PatientAiListenSave {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([patientId, userId, createdAt])
+  @@index([patientId, userId, source, createdAt])
   @@index([userId])
 }
 
@@ -892,6 +898,28 @@ model FormPrefill {
   @@index([officeId, templateId])
   @@index([templateId, name])
   @@index([updatedAt])
+}
+
+/** Admin-only legal vault (BAAs, policies, agreements). Office-scoped. */
+model LegalDocument {
+  id           String   @id @default(cuid())
+  officeId     String?
+  title        String
+  category     String   @default("OTHER")
+  fileName     String
+  storageKey   String
+  mimeType     String
+  fileSize     Int
+  notes        String?
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  office       Office?  @relation(fields: [officeId], references: [id], onDelete: Restrict)
+  uploadedBy   User     @relation("UploadedLegalDocuments", fields: [uploadedById], references: [id])
+
+  @@index([officeId, uploadedAt])
+  @@index([uploadedById])
+  @@index([category])
 }
 
 /** Time-limited chart access for CONSULTANT users (documents only). */

@@ -9,14 +9,21 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import type { ScheduleEntryDTO } from "@/lib/schedule";
-import { getScheduleVisitStyles } from "@/lib/schedule";
+import {
+  defaultScheduleDuration,
+  findScheduleOverlaps,
+  formatScheduleSlotSummary,
+  getScheduleVisitStyles,
+  SCHEDULE_DURATION_OPTIONS,
+  type ScheduleOverlapHit,
+} from "@/lib/schedule";
 import {
   DEFAULT_VISIT_CATEGORY,
   type VisitCategory,
 } from "@/lib/encounters";
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
-import { cn, toClinicDateInputValue } from "@/lib/utils";
+import { cn, formatClinicScheduleTime, scheduleDateFromDayAndTime, toClinicDateInputValue } from "@/lib/utils";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, FileText, Search, Stethoscope, UserX } from "lucide-react";
 import { FillablePdfChartEditor } from "@/components/app/fillable-pdf-chart-editor";
 import { MM_SUPER_BILL_PDF_URL } from "@/lib/forms/templates/mm-encounter";
@@ -32,6 +39,23 @@ type PatientOption = {
 };
 type ScheduleProviderOption = { key: string; label: string };
 
+type OverlapPrompt =
+  | {
+      kind: "add";
+      patientId: string;
+      patientName: string;
+      scheduledTime: string;
+      durationMinutes: number;
+      overlaps: ScheduleOverlapHit[];
+    }
+  | {
+      kind: "timing";
+      entry: ScheduleEntryDTO;
+      scheduledTime: string;
+      durationMinutes: number;
+      overlaps: ScheduleOverlapHit[];
+    };
+
 type SelectPatientFromSchedule = (
   patient: PatientOption,
   options: Pick<ChartNavigationIntent, "fromSchedule" | "scheduleDate" | "visitCategory">
@@ -39,6 +63,8 @@ type SelectPatientFromSchedule = (
 
 const SCHEDULE_TOOLBAR_HEIGHT = "h-10";
 const SCHEDULE_TOOLBAR_TEXT = "text-sm font-medium";
+const SCHEDULE_TIMING_FIELD =
+  "!h-8 rounded-lg border border-[var(--pv-border-strong)] bg-[var(--pv-input)] px-2 py-0 !text-xs font-normal !leading-8 text-[var(--pv-fg)] outline-none";
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
 
 function monthKeyFromDate(dateStr: string) {
@@ -74,6 +100,18 @@ function monthTitle(monthKey: string) {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+function suggestNextScheduledTime(entries: ScheduleEntryDTO[]) {
+  if (entries.length === 0) return "09:00";
+  const sorted = [...entries].sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime));
+  const last = sorted[sorted.length - 1];
+  const [h, m] = last.scheduledTime.split(":").map(Number);
+  const endMinutes = h * 60 + m + last.durationMinutes;
+  const nextHour = Math.floor(endMinutes / 60);
+  const nextMinute = endMinutes % 60;
+  if (nextHour >= 24) return "09:00";
+  return `${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`;
 }
 
 function getDocNotesButtonStyles(entry: ScheduleEntryDTO) {
@@ -289,6 +327,10 @@ export function SchedulePanel({
   const [scheduled, setScheduled] = useState<ScheduleEntryDTO[]>([]);
   const [patientId, setPatientId] = useState("");
   const [addVisitCategory, setAddVisitCategory] = useState<VisitCategory>(DEFAULT_VISIT_CATEGORY);
+  const [addScheduledTime, setAddScheduledTime] = useState("09:00");
+  const [addDurationMinutes, setAddDurationMinutes] = useState(
+    defaultScheduleDuration(DEFAULT_VISIT_CATEGORY)
+  );
   const [docNotesTarget, setDocNotesTarget] = useState<ScheduleEntryDTO | null>(null);
   const [docNotesDraft, setDocNotesDraft] = useState("");
   const [savingDocNotes, setSavingDocNotes] = useState(false);
@@ -298,14 +340,17 @@ export function SchedulePanel({
   const [savingNoShowId, setSavingNoShowId] = useState<string | null>(null);
   const [savingRoomId, setSavingRoomId] = useState<string | null>(null);
   const [savingVisitId, setSavingVisitId] = useState<string | null>(null);
+  const [savingTimingId, setSavingTimingId] = useState<string | null>(null);
   const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [blocked, setBlocked] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => monthKeyFromDate(toClinicDateInputValue(new Date())));
   const [blockedDays, setBlockedDays] = useState<Set<string>>(new Set());
+  const [bookedDays, setBookedDays] = useState<Set<string>>(new Set());
   const [dayMenu, setDayMenu] = useState<{ day: string; x: number; y: number } | null>(null);
   const [blockingDate, setBlockingDate] = useState(false);
+  const [overlapPrompt, setOverlapPrompt] = useState<OverlapPrompt | null>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const dateFieldRef = useRef<HTMLDivElement>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
@@ -355,6 +400,14 @@ export function SchedulePanel({
     load().catch(() => setError("Could not load schedule."));
   }, [load]);
 
+  useEffect(() => {
+    setAddDurationMinutes(defaultScheduleDuration(addVisitCategory));
+  }, [addVisitCategory]);
+
+  useEffect(() => {
+    setAddScheduledTime(suggestNextScheduledTime(scheduled));
+  }, [scheduled]);
+
   const loadBlockedDays = useCallback(async (monthKey: string, provider: string) => {
     if (!provider) {
       setBlockedDays(new Set());
@@ -366,10 +419,22 @@ export function SchedulePanel({
     setBlockedDays(new Set(data.days));
   }, []);
 
+  const loadBookedDays = useCallback(async (monthKey: string, provider: string) => {
+    if (!provider) {
+      setBookedDays(new Set());
+      return;
+    }
+    const data = await api<{ days: string[] }>(
+      `/api/schedule/booked-days?provider=${encodeURIComponent(provider)}&month=${monthKey}`
+    );
+    setBookedDays(new Set(data.days));
+  }, []);
+
   useEffect(() => {
     if (!calendarOpen || !providerKey) return;
     loadBlockedDays(calendarMonth, providerKey).catch(() => undefined);
-  }, [calendarOpen, calendarMonth, providerKey, loadBlockedDays]);
+    loadBookedDays(calendarMonth, providerKey).catch(() => undefined);
+  }, [calendarOpen, calendarMonth, providerKey, loadBlockedDays, loadBookedDays]);
 
   useEffect(() => {
     if (!calendarOpen && !dayMenu) return;
@@ -454,6 +519,43 @@ export function SchedulePanel({
 
   const availablePatients = patients.filter((p) => !scheduled.some((s) => s.id === p.id));
 
+  const executeAddPatientToSchedule = useCallback(
+    async (id: string) => {
+      if (!providerKey) return;
+      setError("");
+      try {
+        await api("/api/schedule", {
+          method: "POST",
+          json: {
+            date,
+            patientId: id,
+            providerKey,
+            visitCategory: addVisitCategory,
+            scheduledTime: addScheduledTime,
+            durationMinutes: addDurationMinutes,
+          },
+        });
+        setPatientId("");
+        await load();
+        if (monthKeyFromDate(date) === calendarMonth) {
+          await loadBookedDays(calendarMonth, providerKey);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not add patient.");
+      }
+    },
+    [
+      addDurationMinutes,
+      addScheduledTime,
+      addVisitCategory,
+      calendarMonth,
+      date,
+      load,
+      loadBookedDays,
+      providerKey,
+    ]
+  );
+
   const addPatientToSchedule = useCallback(
     async (id: string) => {
       if (!id) {
@@ -465,19 +567,35 @@ export function SchedulePanel({
         return;
       }
       if (!providerKey) return;
-      setError("");
-      try {
-        await api("/api/schedule", {
-          method: "POST",
-          json: { date, patientId: id, providerKey, visitCategory: addVisitCategory },
+
+      const overlaps = findScheduleOverlaps(scheduled, {
+        scheduledTime: addScheduledTime,
+        durationMinutes: addDurationMinutes,
+      });
+      if (overlaps.length > 0) {
+        const patient = patients.find((p) => p.id === id);
+        setOverlapPrompt({
+          kind: "add",
+          patientId: id,
+          patientName: patient?.name ?? "Patient",
+          scheduledTime: addScheduledTime,
+          durationMinutes: addDurationMinutes,
+          overlaps,
         });
-        setPatientId("");
-        await load();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not add patient.");
+        return;
       }
+
+      await executeAddPatientToSchedule(id);
     },
-    [addVisitCategory, availablePatients.length, date, load, providerKey]
+    [
+      addDurationMinutes,
+      addScheduledTime,
+      availablePatients.length,
+      executeAddPatientToSchedule,
+      patients,
+      providerKey,
+      scheduled,
+    ]
   );
 
   async function patchEntry(
@@ -489,6 +607,8 @@ export function SchedulePanel({
       roomNumber?: string | null;
       docNotes?: string | null;
       visitCategory?: VisitCategory;
+      scheduledTime?: string;
+      durationMinutes?: number;
       acknowledgeDocNotes?: boolean;
     }
   ) {
@@ -560,6 +680,72 @@ export function SchedulePanel({
       setError(e instanceof Error ? e.message : "Could not update visit type.");
     } finally {
       setSavingVisitId(null);
+    }
+  }
+
+  async function saveScheduleTiming(
+    entry: ScheduleEntryDTO,
+    scheduledTime: string,
+    durationMinutes: number,
+    skipOverlapCheck = false
+  ) {
+    if (
+      scheduledTime === entry.scheduledTime &&
+      durationMinutes === entry.durationMinutes
+    ) {
+      return;
+    }
+
+    if (!skipOverlapCheck) {
+      const overlaps = findScheduleOverlaps(
+        scheduled,
+        { scheduledTime, durationMinutes },
+        entry.entryId
+      );
+      if (overlaps.length > 0) {
+        setOverlapPrompt({
+          kind: "timing",
+          entry,
+          scheduledTime,
+          durationMinutes,
+          overlaps,
+        });
+        return;
+      }
+    }
+
+    setSavingTimingId(entry.entryId);
+    setError("");
+    try {
+      await patchEntry(entry.id, { scheduledTime, durationMinutes });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update visit time.");
+      await load();
+    } finally {
+      setSavingTimingId(null);
+    }
+  }
+
+  function cancelOverlapPrompt() {
+    if (overlapPrompt?.kind === "timing") {
+      void load();
+    }
+    setOverlapPrompt(null);
+  }
+
+  async function confirmOverlapProceed() {
+    if (!overlapPrompt) return;
+    const prompt = overlapPrompt;
+    setOverlapPrompt(null);
+    if (prompt.kind === "add") {
+      await executeAddPatientToSchedule(prompt.patientId);
+    } else {
+      await saveScheduleTiming(
+        prompt.entry,
+        prompt.scheduledTime,
+        prompt.durationMinutes,
+        true
+      );
     }
   }
 
@@ -673,6 +859,7 @@ export function SchedulePanel({
                     }
                     const isSelected = cell.iso === date;
                     const isDayBlocked = blockedDays.has(cell.iso);
+                    const hasPatients = bookedDays.has(cell.iso);
                     return (
                       <button
                         key={cell.iso}
@@ -687,13 +874,22 @@ export function SchedulePanel({
                             : undefined
                         }
                         className={cn(
-                          "h-8 rounded-md text-sm transition",
+                          "flex h-8 flex-col items-center justify-center rounded-md text-sm transition",
                           isSelected && "ring-1 ring-cyan-400/70",
                           isDayBlocked
                             ? "font-semibold text-rose-400 hover:bg-rose-500/15"
                             : "text-[var(--pv-fg-soft)] hover:bg-white/5"
                         )}
                       >
+                        {hasPatients && (
+                          <span
+                            className={cn(
+                              "mb-0.5 h-1 w-1 shrink-0 rounded-full",
+                              isDayBlocked ? "bg-rose-300" : "bg-cyan-400"
+                            )}
+                            aria-hidden
+                          />
+                        )}
                         {cell.day}
                       </button>
                     );
@@ -772,7 +968,7 @@ export function SchedulePanel({
       )}
 
       {canEdit && providerKey && (
-        <div className="mb-4 flex max-w-3xl flex-wrap items-center gap-2">
+        <div className="mb-4 flex max-w-4xl flex-wrap items-end gap-3">
           <SchedulePatientSearch
             patients={availablePatients}
             value={patientId}
@@ -781,6 +977,34 @@ export function SchedulePanel({
               void addPatientToSchedule(id);
             }}
           />
+          <label className="flex shrink-0 flex-col gap-1.5">
+            <span className="text-xs text-[var(--pv-muted)]">Time</span>
+            <Input
+              type="time"
+              className={cn(SCHEDULE_TIMING_FIELD, "!h-10 !w-[7rem] !leading-10")}
+              value={addScheduledTime}
+              onChange={(e) => setAddScheduledTime(e.target.value)}
+              aria-label="Scheduled time"
+            />
+          </label>
+          <label className="flex shrink-0 flex-col gap-1.5">
+            <span className="text-xs text-[var(--pv-muted)]">Length</span>
+            <select
+              className={cn(
+                SCHEDULE_TIMING_FIELD,
+                "min-w-[5.5rem] !h-10 !leading-10 appearance-none"
+              )}
+              value={addDurationMinutes}
+              onChange={(e) => setAddDurationMinutes(Number(e.target.value))}
+              aria-label="Visit length in minutes"
+            >
+              {SCHEDULE_DURATION_OPTIONS.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes} min
+                </option>
+              ))}
+            </select>
+          </label>
           <VisitTypeToggle size="toolbar" value={addVisitCategory} onChange={setAddVisitCategory} />
           <Button
             variant="success"
@@ -840,6 +1064,70 @@ export function SchedulePanel({
                 )}
               >
                 <div className="flex items-center gap-2 overflow-x-auto">
+                  <div className="flex shrink-0 items-center gap-1">
+                    {canEdit ? (
+                      <>
+                        <Input
+                          type="time"
+                          className={cn(SCHEDULE_TIMING_FIELD, "!w-[6.5rem]")}
+                          value={entry.scheduledTime}
+                          disabled={savingTimingId === entry.entryId}
+                          aria-label={`Scheduled time for ${entry.name}`}
+                          onChange={(e) => {
+                            const nextTime = e.target.value;
+                            setScheduled((rows) =>
+                              rows.map((row) =>
+                                row.entryId === entry.entryId
+                                  ? { ...row, scheduledTime: nextTime }
+                                  : row
+                              )
+                            );
+                          }}
+                          onBlur={(e) => {
+                            void saveScheduleTiming(
+                              entry,
+                              e.target.value,
+                              entry.durationMinutes
+                            );
+                          }}
+                        />
+                        <select
+                          className={cn(
+                            SCHEDULE_TIMING_FIELD,
+                            "min-w-[4.75rem] appearance-none"
+                          )}
+                          value={entry.durationMinutes}
+                          disabled={savingTimingId === entry.entryId}
+                          aria-label={`Visit length for ${entry.name}`}
+                          onChange={(e) => {
+                            const nextDuration = Number(e.target.value);
+                            setScheduled((rows) =>
+                              rows.map((row) =>
+                                row.entryId === entry.entryId
+                                  ? { ...row, durationMinutes: nextDuration }
+                                  : row
+                              )
+                            );
+                            void saveScheduleTiming(entry, entry.scheduledTime, nextDuration);
+                          }}
+                        >
+                          {SCHEDULE_DURATION_OPTIONS.map((minutes) => (
+                            <option key={minutes} value={minutes}>
+                              {minutes}m
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    ) : (
+                      <span className="shrink-0 text-xs tabular-nums text-[var(--pv-muted-2)]">
+                        {formatClinicScheduleTime(
+                          scheduleDateFromDayAndTime(date, entry.scheduledTime)
+                        )}{" "}
+                        · {entry.durationMinutes}m
+                      </span>
+                    )}
+                  </div>
+
                   <button
                     type="button"
                     className={cn(
@@ -1048,6 +1336,9 @@ export function SchedulePanel({
                             json: { date, patientId: entry.id, providerKey },
                           });
                           await load();
+                          if (monthKeyFromDate(date) === calendarMonth) {
+                            await loadBookedDays(calendarMonth, providerKey);
+                          }
                         } catch (e) {
                           setError(e instanceof Error ? e.message : "Could not remove patient.");
                         }
@@ -1062,6 +1353,61 @@ export function SchedulePanel({
           })
         )}
       </div>
+
+      <Modal
+        open={overlapPrompt !== null}
+        onClose={cancelOverlapPrompt}
+        title="Schedule overlap"
+        className="max-w-md"
+      >
+        {overlapPrompt && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--pv-fg-soft)]">
+              This visit overlaps with another appointment for the same provider on this date.
+            </p>
+            <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
+              <p className="font-medium">
+                {overlapPrompt.kind === "add"
+                  ? overlapPrompt.patientName
+                  : overlapPrompt.entry.name}
+              </p>
+              <p className="mt-0.5 text-xs text-amber-200/90">
+                {formatScheduleSlotSummary(
+                  date,
+                  overlapPrompt.scheduledTime,
+                  overlapPrompt.durationMinutes
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--pv-muted)]">
+                Conflicts with
+              </p>
+              <ul className="mt-2 space-y-2">
+                {overlapPrompt.overlaps.map((hit) => (
+                  <li
+                    key={hit.entryId}
+                    className="rounded-lg border border-[var(--pv-border)] bg-[var(--pv-surface)] px-3 py-2 text-sm"
+                  >
+                    <span className="font-medium text-[var(--pv-fg)]">{hit.name}</span>
+                    <span className="mt-0.5 block text-xs text-[var(--pv-muted)]">
+                      {formatScheduleSlotSummary(date, hit.scheduledTime, hit.durationMinutes)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={cancelOverlapPrompt}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={() => void confirmOverlapProceed()}>
+                Schedule anyway
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={docNotesEntry !== null}
