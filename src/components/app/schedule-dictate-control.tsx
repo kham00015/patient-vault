@@ -21,7 +21,7 @@ type DictationDetail = {
   hasTranscript: boolean;
   transcript: string;
   durationMs: number | null;
-  updatedAt?: string;
+  updatedAt: string;
   audioUrl?: string;
 };
 
