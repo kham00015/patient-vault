@@ -56,34 +56,26 @@ async function assemblyFetch(path: string, init?: RequestInit) {
   return res;
 }
 
-/**
- * Transcribe raw PCM s16le mono audio via AssemblyAI (upload + async job).
- */
-export async function transcribeWithAssemblyAi(
-  pcm: Buffer,
-  sampleRateHertz = 16000,
-  options?: { timeoutMs?: number }
+async function uploadAndTranscribeAudio(
+  audioBytes: Buffer,
+  options?: { timeoutMs?: number; speakerLabels?: boolean }
 ): Promise<string> {
   if (!isAssemblyAiConfigured()) {
     throw new Error(
       "AssemblyAI is not configured. Set ASSEMBLYAI_API_KEY in the environment."
     );
   }
-  if (pcm.byteLength < 3200) {
+  if (audioBytes.byteLength < 1000) {
     throw new Error("Recording too short. Speak for a few seconds, then stop.");
   }
 
-  const wav = pcmToWav(pcm, sampleRateHertz);
-  const durationSec = pcm.byteLength / (sampleRateHertz * 2);
-  // Long visits need more poll time; cap under route maxDuration headroom.
-  const timeoutMs =
-    options?.timeoutMs ??
-    Math.min(280_000, Math.max(120_000, Math.ceil(durationSec * 400) + 90_000));
+  const timeoutMs = options?.timeoutMs ?? 180_000;
+  const speakerLabels = options?.speakerLabels !== false;
 
   const uploadRes = await assemblyFetch("/v2/upload", {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
-    body: new Uint8Array(wav),
+    body: new Uint8Array(audioBytes),
   });
   if (!uploadRes.ok) {
     const detail = await uploadRes.text().catch(() => "");
@@ -104,7 +96,7 @@ export async function transcribeWithAssemblyAi(
       speech_models: ["universal-3-5-pro", "universal-2"],
       language_code: "en",
       domain: "medical-v1",
-      speaker_labels: true,
+      speaker_labels: speakerLabels,
       punctuate: true,
       format_text: true,
     }),
@@ -139,7 +131,7 @@ export async function transcribeWithAssemblyAi(
     if (job.status === "completed") {
       const utterances = Array.isArray(job.utterances) ? job.utterances : [];
       let transcript = "";
-      if (utterances.length > 0) {
+      if (speakerLabels && utterances.length > 0) {
         transcript = utterances
           .map((u) => {
             const speaker = u.speaker ? `Speaker ${u.speaker}` : "Speaker";
@@ -162,4 +154,34 @@ export async function transcribeWithAssemblyAi(
   }
 
   throw new Error("AssemblyAI transcription timed out. Try a shorter recording.");
+}
+
+/**
+ * Transcribe raw PCM s16le mono audio via AssemblyAI (upload + async job).
+ */
+export async function transcribeWithAssemblyAi(
+  pcm: Buffer,
+  sampleRateHertz = 16000,
+  options?: { timeoutMs?: number }
+): Promise<string> {
+  if (pcm.byteLength < 3200) {
+    throw new Error("Recording too short. Speak for a few seconds, then stop.");
+  }
+  const wav = pcmToWav(pcm, sampleRateHertz);
+  const durationSec = pcm.byteLength / (sampleRateHertz * 2);
+  const timeoutMs =
+    options?.timeoutMs ??
+    Math.min(280_000, Math.max(120_000, Math.ceil(durationSec * 400) + 90_000));
+  return uploadAndTranscribeAudio(wav, { timeoutMs, speakerLabels: true });
+}
+
+/** Transcribe a stored audio file (webm/wav/ogg/mp3) via AssemblyAI. */
+export async function transcribeAudioFile(
+  audioBytes: Buffer,
+  options?: { timeoutMs?: number; speakerLabels?: boolean }
+): Promise<string> {
+  return uploadAndTranscribeAudio(audioBytes, {
+    timeoutMs: options?.timeoutMs ?? 180_000,
+    speakerLabels: options?.speakerLabels ?? false,
+  });
 }

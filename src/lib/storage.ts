@@ -48,6 +48,9 @@ function guessContentType(fileName: string) {
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
   if (lower.endsWith(".bmp")) return "image/bmp";
   if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
+  if (lower.endsWith(".webm")) return "audio/webm";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
   return "application/octet-stream";
 }
 
@@ -196,6 +199,42 @@ export async function saveLegalDocument(
   const fullPath = path.join(dir, localKey);
   await writeFile(fullPath, buffer);
   return `local:patients/_legal/${officeId}/${localKey}`;
+}
+
+/** Schedule visit dictation audio (on-the-go clinician notes). Keys under patients/* for IAM. */
+export async function saveScheduleDictation(
+  entryId: string,
+  fileName: string,
+  buffer: Buffer,
+  mimeType?: string
+): Promise<string> {
+  const storageType = process.env.STORAGE_TYPE ?? "local";
+  const key = `patients/_schedule-dictation/${entryId}/${randomBytes(8).toString("hex")}_${sanitizeFileName(fileName)}`;
+  const contentType = mimeType || guessContentType(fileName);
+
+  if (storageType === "s3") {
+    const client = getS3Client();
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: key,
+        Body: buffer,
+        ServerSideEncryption: process.env.AWS_KMS_KEY_ID ? "aws:kms" : "AES256",
+        ...(process.env.AWS_KMS_KEY_ID
+          ? { SSEKMSKeyId: process.env.AWS_KMS_KEY_ID }
+          : {}),
+        ContentType: contentType,
+      })
+    );
+    return `s3:${key}`;
+  }
+
+  const dir = path.join(LOCAL_PATH, "patients", "_schedule-dictation", entryId);
+  await mkdir(dir, { recursive: true });
+  const localKey = key.split("/").pop()!;
+  const fullPath = path.join(dir, localKey);
+  await writeFile(fullPath, buffer);
+  return `local:patients/_schedule-dictation/${entryId}/${localKey}`;
 }
 
 export async function readDocument(storageKey: string): Promise<Buffer> {

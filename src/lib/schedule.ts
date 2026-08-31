@@ -28,6 +28,12 @@ export type ScheduleEntryDTO = {
   roomNumber: string | null;
   docNotes: string | null;
   docNotesAcknowledgedAt: string | null;
+  dictation: {
+    hasAudio: boolean;
+    hasTranscript: boolean;
+    durationMs: number | null;
+    updatedAt: string | null;
+  } | null;
 };
 
 export type ScheduleOverlapHit = {
@@ -106,7 +112,14 @@ export function toScheduleEntryDTO(entry: {
   docNotes?: string | null;
   docNotesAcknowledgedAt?: Date | string | null;
   patient: { id: string; name: string };
+  visitDictation?: {
+    storageKey?: string | null;
+    transcript?: string | null;
+    durationMs?: number | null;
+    updatedAt?: Date | string | null;
+  } | null;
 }): ScheduleEntryDTO {
+  const dictation = entry.visitDictation;
   return {
     entryId: entry.id,
     id: entry.patient.id,
@@ -121,6 +134,14 @@ export function toScheduleEntryDTO(entry: {
     roomNumber: entry.roomNumber ?? null,
     docNotes: entry.docNotes ?? null,
     docNotesAcknowledgedAt: toIsoString(entry.docNotesAcknowledgedAt),
+    dictation: dictation?.storageKey
+      ? {
+          hasAudio: true,
+          hasTranscript: Boolean(dictation.transcript?.trim()),
+          durationMs: dictation.durationMs ?? null,
+          updatedAt: toIsoString(dictation.updatedAt),
+        }
+      : null,
   };
 }
 

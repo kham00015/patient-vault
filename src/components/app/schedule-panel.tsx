@@ -26,6 +26,7 @@ import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, formatClinicScheduleTime, scheduleDateFromDayAndTime, toClinicDateInputValue } from "@/lib/utils";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, FileText, Search, Stethoscope, UserX } from "lucide-react";
 import { FillablePdfChartEditor } from "@/components/app/fillable-pdf-chart-editor";
+import { ScheduleDictateControl } from "@/components/app/schedule-dictate-control";
 import { MM_SUPER_BILL_PDF_URL } from "@/lib/forms/templates/mm-encounter";
 
 type PatientOption = {
@@ -1146,6 +1147,21 @@ export function SchedulePanel({
                   >
                     {entry.name}
                   </button>
+
+                  {canEdit && (
+                    <ScheduleDictateControl
+                      entryId={entry.entryId}
+                      patientName={entry.name}
+                      dictation={entry.dictation}
+                      onDictationChange={(next) =>
+                        setScheduled((rows) =>
+                          rows.map((row) =>
+                            row.entryId === entry.entryId ? { ...row, dictation: next } : row
+                          )
+                        )
+                      }
+                    />
+                  )}
 
                   {canEdit ? (
                     <>

@@ -95,6 +95,14 @@ export async function GET(request: Request) {
         docNotes: true,
         docNotesAcknowledgedAt: true,
         patient: { select: { id: true, name: true } },
+        visitDictation: {
+          select: {
+            storageKey: true,
+            transcript: true,
+            durationMs: true,
+            updatedAt: true,
+          },
+        },
       },
       orderBy: { date: "asc" },
     });

@@ -19,6 +19,7 @@ import {
   AI_HPI_NEW_RULES,
   AI_ORGANIZE_RULES,
   AI_PLAN_RULES,
+  AI_SCHEDULE_DICTATION_CLEANUP_RULES,
 } from "@/lib/ai-rules";
 import type { HpiVisitKind } from "@/lib/hpi-visit-context";
 import type { ChartDocumentAttachment } from "@/lib/ai-chart-context";
@@ -354,6 +355,53 @@ export async function draftHpiFromTranscript(params: {
 
   return {
     text: extractText(response.output?.message?.content).replace(/^HPI:\s*/i, "").trim(),
+    provider: "bedrock" as const,
+  };
+}
+
+/** Schedule list dictation: polish raw STT only — no chart, My Brain, or visit templates. */
+export async function cleanScheduleDictationTranscript(transcript: string) {
+  if (!isBedrockConfigured()) {
+    throw new Error(
+      "AWS Bedrock is not configured. Set AWS credentials/role and BEDROCK_MODEL_ID."
+    );
+  }
+
+  const trimmed = transcript.trim();
+  if (!trimmed) {
+    return { text: "", provider: "bedrock" as const };
+  }
+
+  const client = getBedrockClient();
+  const response = await client.send(
+    new ConverseCommand({
+      modelId: DEFAULT_BEDROCK_MODEL_ID,
+      system: [{ text: AI_SCHEDULE_DICTATION_CLEANUP_RULES }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              text: `Raw schedule dictation transcript:\n\n${trimmed}`,
+            },
+          ],
+        },
+      ],
+      inferenceConfig: {
+        temperature: 0.1,
+        maxTokens: 4000,
+      },
+    })
+  );
+
+  const text = extractText(response.output?.message?.content)
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .trim();
+
+  return {
+    text: text || trimmed,
     provider: "bedrock" as const,
   };
 }

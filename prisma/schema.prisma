@@ -115,6 +115,7 @@ model User {
   referralDocumentsUploaded ReferralDocument[] @relation("UploadedReferralDocuments")
   formPrefillsCreated FormPrefill[] @relation("CreatedFormPrefills")
   legalDocumentsUploaded LegalDocument[] @relation("UploadedLegalDocuments")
+  scheduleVisitDictationsCreated ScheduleVisitDictation[] @relation("CreatedScheduleVisitDictations")
   office               Office?              @relation(fields: [officeId], references: [id], onDelete: Restrict)
 
   @@index([officeId])
@@ -533,10 +534,30 @@ model ScheduleEntry {
   roomNumber             String?
   docNotes               String?
   docNotesAcknowledgedAt DateTime?
+  visitDictation         ScheduleVisitDictation?
 
   @@unique([scheduleDay, patientId, providerKey])
   @@index([scheduleDay, providerKey])
   @@index([date])
+}
+
+/** On-the-go clinician visit dictation attached to a schedule row. */
+model ScheduleVisitDictation {
+  id              String        @id @default(cuid())
+  scheduleEntryId String        @unique
+  storageKey      String
+  mimeType        String
+  fileSize        Int
+  durationMs      Int?
+  transcript      String        @default("")
+  createdById     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  scheduleEntry   ScheduleEntry @relation(fields: [scheduleEntryId], references: [id], onDelete: Cascade)
+  createdBy       User          @relation("CreatedScheduleVisitDictations", fields: [createdById], references: [id])
+
+  @@index([createdById])
+  @@index([updatedAt])
 }
 
 model ScheduleDayBlock {
