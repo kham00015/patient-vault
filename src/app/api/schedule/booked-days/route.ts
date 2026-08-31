@@ -35,7 +35,11 @@ export async function GET(request: Request) {
       where: {
         providerKey,
         patient: officeScope(auth.user),
-        ...scheduleEntryDayWhere({ startDay, endDay }),
+        ...scheduleEntryDayWhere({
+          preset: "custom",
+          startDay,
+          endDay,
+        }),
       },
       select: { scheduleDay: true, date: true },
     });
