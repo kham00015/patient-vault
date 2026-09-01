@@ -1,6 +1,8 @@
+import "server-only";
+
 import { prisma } from "@/lib/prisma";
 import { AI_BRAIN_TYPE_LABELS } from "@/lib/ai-brain-types";
-import type { ChartDocumentAttachment } from "@/lib/ai-chart-context";
+import type { ChartDocumentAttachment } from "@/lib/ai-chart-context-types";
 import { MY_BRAIN_PRIORITY_RULES } from "@/lib/my-brain-rules";
 import {
   absorbedDocumentText,

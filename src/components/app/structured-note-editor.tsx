@@ -32,6 +32,10 @@ import { MixedNoteField } from "@/components/app/mixed-note-field";
 import { NoteTextToolbar } from "@/components/app/note-text-toolbar";
 import { HpiDictateModal } from "@/components/app/hpi-dictate-modal";
 import {
+  isHistoryExtractTarget,
+  type AiDraftSectionTarget,
+} from "@/lib/ai-draft-section-targets";
+import {
   appendAiNoteContinuation,
   appendPlainToNoteSection,
   noteSectionToPlainText,
@@ -441,7 +445,7 @@ export function StructuredNoteEditor({
   const [expandedSection, setExpandedSection] = useState<NoteSectionKey | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [pdfRefreshKey, setPdfRefreshKey] = useState(0);
-  const [aiTarget, setAiTarget] = useState<"assessment" | "plan" | "hpi" | null>(null);
+  const [aiTarget, setAiTarget] = useState<AiDraftSectionTarget | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiDraft, setAiDraft] = useState("");
   const [aiError, setAiError] = useState("");
@@ -727,7 +731,7 @@ export function StructuredNoteEditor({
     return noteSectionToPlainText(text).trim();
   }
 
-  function buildAiNoteContext(target: "assessment" | "plan" | "hpi") {
+  function buildAiNoteContext(target: AiDraftSectionTarget) {
     const s = sectionsRef.current;
     const parts: string[] = [];
     if (ctx(s.chiefComplaint)) parts.push(`=== CHIEF COMPLAINT ===\n${ctx(s.chiefComplaint)}`);
@@ -740,7 +744,27 @@ export function StructuredNoteEditor({
     }
     if (ctx(s.reviewOfSystems)) parts.push(`=== ROS ===\n${ctx(s.reviewOfSystems)}`);
     if (ctx(s.physicalExam)) parts.push(`=== EXAM ===\n${ctx(s.physicalExam)}`);
-    if (ctx(s.pastMedicalHistory)) parts.push(`=== NOTE PMH ===\n${ctx(s.pastMedicalHistory)}`);
+    if (ctx(s.pastMedicalHistory)) {
+      parts.push(
+        target === "pastMedicalHistory"
+          ? `=== CURRENT PMH DRAFT (incorporate and complete) ===\n${ctx(s.pastMedicalHistory)}`
+          : `=== NOTE PMH ===\n${ctx(s.pastMedicalHistory)}`
+      );
+    }
+    if (ctx(s.socialHistory)) {
+      parts.push(
+        target === "socialHistory"
+          ? `=== CURRENT SOCIAL HISTORY DRAFT (incorporate and complete) ===\n${ctx(s.socialHistory)}`
+          : `=== NOTE SOCIAL HISTORY ===\n${ctx(s.socialHistory)}`
+      );
+    }
+    if (ctx(s.familyHistory)) {
+      parts.push(
+        target === "familyHistory"
+          ? `=== CURRENT FAMILY HISTORY DRAFT (incorporate and complete) ===\n${ctx(s.familyHistory)}`
+          : `=== NOTE FAMILY HISTORY ===\n${ctx(s.familyHistory)}`
+      );
+    }
     if (target === "plan") {
       if (ctx(s.assessment)) parts.push(`=== ASSESSMENT ===\n${ctx(s.assessment)}`);
     } else if (target === "assessment" && ctx(s.assessment)) {
@@ -750,16 +774,72 @@ export function StructuredNoteEditor({
       parts.push(`=== CURRENT PLAN DRAFT (optional reference) ===\n${ctx(s.plan)}`);
     }
     if (diagnosisText) parts.push(`=== CHART DIAGNOSES (visit list) ===\n${diagnosisText}`);
-    parts.push(
+    const serverReviewHint =
       target === "hpi"
-        ? "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Produce a COMPLETE HPI from all of that plus this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
-        : "=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, and uploaded PDFs/images. Use all of that with this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
+        ? "Produce a COMPLETE HPI from all of that plus this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom."
+        : target === "pastMedicalHistory"
+          ? "Extract PMH problems/events from all of that plus this visit note. Include private physician notes when present."
+          : target === "socialHistory"
+            ? "Extract social history facts from all of that plus this visit note. Include private physician notes when present."
+            : target === "familyHistory"
+              ? "Extract family history from all of that plus this visit note. Include private physician notes when present."
+              : "Use all of that with this visit note. If sources majorly conflict, keep your best draft and add a parenthetical conflict note at the bottom.";
+    parts.push(
+      `=== SERVER CHART REVIEW ===\nThe API also loads the full patient chart: sections, prior notes, forms, orders, uploaded PDFs/images, and private physician notes (not part of the structured chart). ${serverReviewHint}`
     );
     return parts.join("\n\n");
   }
 
-  async function runSectionAi(target: "assessment" | "plan" | "hpi") {
+  function applyHistoryAiExtract(
+    target: "pastMedicalHistory" | "socialHistory" | "familyHistory",
+    text: string
+  ) {
+    const current = sectionsRef.current[target] ?? "";
+    const next = noteSectionToPlainText(current).trim()
+      ? appendPlainToNoteSection(current, text)
+      : appendPlainToNoteSection("", text);
+    updateSection(target, next);
+  }
+
+  const historyExtractLabels: Record<
+    "pastMedicalHistory" | "socialHistory" | "familyHistory",
+    string
+  > = {
+    pastMedicalHistory: "Past Medical History",
+    socialHistory: "Social History",
+    familyHistory: "Family History",
+  };
+
+  async function runSectionAi(target: AiDraftSectionTarget) {
     const noteContext = buildAiNoteContext(target);
+
+    if (isHistoryExtractTarget(target)) {
+      setAiLoading(true);
+      setAiTarget(target);
+      try {
+        const res = await api<{ text: string; noData?: boolean }>(
+          `/api/patients/${patientId}/ai/draft-section`,
+          {
+            method: "POST",
+            json: { target, noteContext },
+          }
+        );
+        if (res.noData || !res.text?.trim()) {
+          window.alert(
+            `No ${historyExtractLabels[target]} information was found in the chart, notes, PDFs, or private physician notes. Nothing was added to the note.`
+          );
+          return;
+        }
+        applyHistoryAiExtract(target, res.text);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "AI extraction failed");
+      } finally {
+        setAiLoading(false);
+        setAiTarget(null);
+      }
+      return;
+    }
+
     if (target === "assessment" && !ctx(sectionsRef.current.hpi)) {
       setAiTarget(target);
       setAiDraft("");
@@ -832,7 +912,13 @@ export function StructuredNoteEditor({
     const includeCollapse = options?.includeCollapse !== false;
     const showDiagnosis = fieldKey === "assessment";
     const showPmhDx = fieldKey === "pastMedicalHistory";
-    const showAi = fieldKey === "assessment" || fieldKey === "plan" || fieldKey === "hpi";
+    const showAi =
+      fieldKey === "assessment" ||
+      fieldKey === "plan" ||
+      fieldKey === "hpi" ||
+      fieldKey === "pastMedicalHistory" ||
+      fieldKey === "socialHistory" ||
+      fieldKey === "familyHistory";
     const showDictate = fieldKey === "hpi";
 
     return (
@@ -936,10 +1022,16 @@ export function StructuredNoteEditor({
                 ? "Draft Assessment from full chart + HPI with AI"
                 : fieldKey === "plan"
                   ? "Draft Plan from full chart + HPI/Assessment with AI"
-                  : "Draft complete HPI from full chart, PDFs, and prior notes"
+                  : fieldKey === "hpi"
+                    ? "Draft complete HPI from full chart, PDFs, and prior notes"
+                    : fieldKey === "pastMedicalHistory"
+                      ? "Extract PMH from chart into this box (no guessing)"
+                      : fieldKey === "socialHistory"
+                        ? "Extract social history from chart into this box (no guessing)"
+                        : "Extract family history from chart into this box (no guessing)"
             }
             disabled={aiLoading && aiTarget === fieldKey}
-            onClick={() => runSectionAi(fieldKey as "assessment" | "plan" | "hpi")}
+            onClick={() => runSectionAi(fieldKey as AiDraftSectionTarget)}
           >
             <Bot size={12} />
             {aiLoading && aiTarget === fieldKey ? "..." : "AI"}
@@ -1322,7 +1414,7 @@ export function StructuredNoteEditor({
       </Modal>
 
       <Modal
-        open={aiTarget !== null}
+        open={aiTarget !== null && !isHistoryExtractTarget(aiTarget)}
         onClose={() => {
           if (aiLoading) return;
           setAiTarget(null);
@@ -1338,10 +1430,12 @@ export function StructuredNoteEditor({
               : "AI Assessment draft"
         }
         wide
+        closeOnBackdrop={false}
+        closeOnEscape={false}
       >
         <p className="mb-3 text-sm text-[var(--pv-muted)]">
           {aiTarget === "hpi"
-            ? "Reviews the full chart (prior notes, forms, orders, PDFs) plus this visit’s HPI/CC. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
+            ? "Reviews the full chart (prior notes, forms, orders, PDFs, private physician notes) plus this visit’s HPI/CC. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
             : aiTarget === "assessment"
               ? "Reviews the full chart (notes, forms, orders, PDFs) plus this visit’s HPI. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."
               : "Reviews the full chart (notes, forms, orders, PDFs) plus HPI/Assessment. Major conflicts are noted in parentheses at the bottom. Transfer appends in the AI color."}

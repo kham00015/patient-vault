@@ -1,3 +1,5 @@
+import "server-only";
+
 import { extractText, getDocumentProxy } from "unpdf";
 import { readDocument } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
@@ -9,51 +11,19 @@ import {
   formatDisplayName,
   formatSexAtBirth,
 } from "@/lib/patient-registration";
+import type {
+  BedrockDocumentFormat,
+  BedrockImageFormat,
+  ChartDocumentAttachment,
+  PatientChartAiContext,
+} from "@/lib/ai-chart-context-types";
 
-export type BedrockDocumentFormat =
-  | "pdf"
-  | "csv"
-  | "doc"
-  | "docx"
-  | "xls"
-  | "xlsx"
-  | "html"
-  | "txt"
-  | "md";
-
-export type BedrockImageFormat = "png" | "jpeg" | "gif" | "webp";
-
-export type ChartDocumentAttachment =
-  | {
-      kind: "document";
-      name: string;
-      format: BedrockDocumentFormat;
-      bytes: Uint8Array;
-    }
-  | {
-      kind: "image";
-      name: string;
-      format: BedrockImageFormat;
-      bytes: Uint8Array;
-    };
-
-export type PatientChartAiContext = {
-  text: string;
-  attachments: ChartDocumentAttachment[];
-  attachmentSummary: string[];
-  skipped: string[];
-  coverage: {
-    notes: number;
-    forms: number;
-    orders: number;
-    encounters: number;
-    documentsTotal: number;
-    documentsAttached: number;
-    documentsInlined: number;
-    documentsExtracted: number;
-    documentsSkipped: number;
-  };
-};
+export type {
+  BedrockDocumentFormat,
+  BedrockImageFormat,
+  ChartDocumentAttachment,
+  PatientChartAiContext,
+} from "@/lib/ai-chart-context-types";
 
 /** Bedrock Converse native doc size limit is ~4.5MB per file. */
 const MAX_ATTACHMENTS = 30;
@@ -229,6 +199,13 @@ export async function buildPatientChartAiContext(
       },
     })
     .catch(() => []);
+  const personalNotes = await prisma.patientPersonalNote
+    .findMany({
+      where: { patientId },
+      orderBy: { updatedAt: "desc" },
+      include: { user: { select: { name: true, email: true } } },
+    })
+    .catch(() => []);
 
   const lines: string[] = [];
   lines.push("=== PATIENT ===");
@@ -244,6 +221,11 @@ export async function buildPatientChartAiContext(
   if (dto.allergies?.trim()) lines.push(`Allergies: ${dto.allergies}`);
   if (dto.currentMedications?.trim()) {
     lines.push(`Current medications (registration): ${dto.currentMedications}`);
+  }
+  const chartPmh = dto.pmh?.trim() ?? "";
+  const chartDiagnosis = dto.diagnosis?.trim() ?? "";
+  if (chartPmh && chartPmh !== chartDiagnosis) {
+    lines.push(`Chart PMH panel: ${chartPmh}`);
   }
   if (dto.primaryInsuranceCarrier?.trim()) {
     lines.push(
@@ -275,6 +257,18 @@ export async function buildPatientChartAiContext(
           (enc.chiefComplaint?.trim() ? ` · CC: ${enc.chiefComplaint.trim()}` : "") +
           (enc.summary?.trim() ? ` · ${enc.summary.trim()}` : "")
       );
+    }
+  }
+
+  const privateNotes = personalNotes.filter((entry) => entry.content?.trim());
+  if (privateNotes.length > 0) {
+    lines.push("\n=== PRIVATE PHYSICIAN NOTES (not part of structured chart) ===");
+    for (const entry of privateNotes) {
+      const author = entry.user.name?.trim() || entry.user.email;
+      lines.push(
+        `\n--- ${author} · updated ${entry.updatedAt.toISOString().slice(0, 10)} ---`
+      );
+      lines.push(entry.content.trim());
     }
   }
 

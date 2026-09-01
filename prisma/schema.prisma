@@ -532,8 +532,11 @@ model ScheduleEntry {
   readyAt                DateTime?
   noShowAt               DateTime?
   roomNumber             String?
+  nurseNotes             String?
   docNotes               String?
   docNotesAcknowledgedAt DateTime?
+  /** Unified chart document ids (upload id, `note:…`, `form:…`) for physician review. */
+  selectedDocumentIds    Json      @default("[]")
   visitDictation         ScheduleVisitDictation?
 
   @@unique([scheduleDay, patientId, providerKey])

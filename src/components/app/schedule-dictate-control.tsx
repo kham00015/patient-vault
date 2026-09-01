@@ -5,8 +5,8 @@ import { api } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
-import { Check, Copy, FileText, Mic, Pause, Play, Square } from "lucide-react";
+import { cn, formatClinicDateOnly, scheduleDateFromInput } from "@/lib/utils";
+import { ArrowRightFromLine, Check, Copy, FileText, Mic, Pause, Play, Square } from "lucide-react";
 
 export type ScheduleDictationSummary = {
   hasAudio: boolean;
@@ -162,12 +162,17 @@ async function openActiveMicrophone(): Promise<{ stream: MediaStream; label: str
 
 export function ScheduleDictateControl({
   entryId,
+  patientId,
+  scheduleDate,
   patientName,
   dictation,
   disabled,
   onDictationChange,
 }: {
   entryId: string;
+  patientId: string;
+  /** Schedule calendar day (YYYY-MM-DD) for the dated HPI prefix. */
+  scheduleDate: string;
   patientName: string;
   dictation: ScheduleDictationSummary | null;
   disabled?: boolean;
@@ -182,6 +187,8 @@ export function ScheduleDictateControl({
   const [transcript, setTranscript] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [copied, setCopied] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const [transferDone, setTransferDone] = useState(false);
   const [error, setError] = useState("");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [inputLevel, setInputLevel] = useState(0);
@@ -539,6 +546,30 @@ export function ScheduleDictateControl({
     }
   }
 
+  async function transferToHpi() {
+    const text = transcript.trim();
+    if (!text) return;
+    setTransferring(true);
+    setTransferDone(false);
+    setError("");
+    try {
+      await api(`/api/schedule/${entryId}/dictation`, {
+        method: "PATCH",
+        json: { transcript: text },
+      });
+      await api<{ noteId: string; encounterId: string }>(
+        `/api/schedule/${entryId}/dictation/transfer-hpi`,
+        { method: "POST", json: { transcript: text } }
+      );
+      setTransferDone(true);
+      window.setTimeout(() => setTransferDone(false), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not transfer to HPI");
+    } finally {
+      setTransferring(false);
+    }
+  }
+
   async function copyFromButton() {
     setError("");
     try {
@@ -709,10 +740,20 @@ export function ScheduleDictateControl({
         onClose={() => setTranscriptOpen(false)}
         title={`Visit dictation — ${patientName}`}
         wide
+        closeOnBackdrop={false}
+        closeOnEscape={false}
       >
         <div className="space-y-3">
           <p className="text-sm text-[var(--pv-muted)]">
-            Edit freely — changes autosave as you type.
+            Edit freely — changes autosave as you type. Transfer appends{" "}
+            <span className="text-[var(--pv-fg-soft)]">
+              {formatClinicDateOnly(scheduleDateFromInput(scheduleDate))}:
+            </span>
+            {" "}
+            plus the dictation to the draft visit note on this schedule day&apos;s encounter
+            (started by staff or clinician in the chart — blank line if HPI already has text). If no
+            encounter or note exists yet, ask staff to start today&apos;s encounter with a note
+            first.
             {saveStatus === "saving"
               ? " Saving…"
               : saveStatus === "saved"
@@ -720,6 +761,7 @@ export function ScheduleDictateControl({
                 : saveStatus === "error"
                   ? " Save failed."
                   : ""}
+            {transferring ? " Transferring…" : transferDone ? " Transferred to HPI." : ""}
           </p>
           <Textarea
             value={transcript}
@@ -730,15 +772,30 @@ export function ScheduleDictateControl({
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
+              className="!gap-1.5 pv-ai-btn"
+              disabled={!transcript.trim() || transferring}
+              onClick={() => void transferToHpi()}
+              title="Append dated dictation to this patient's visit note HPI"
+            >
+              {transferDone ? <Check size={14} /> : <ArrowRightFromLine size={14} />}
+              {transferring ? "Transferring…" : transferDone ? "Transferred" : "Transfer"}
+            </Button>
+            <Button
+              type="button"
               variant="ghost"
               className="!gap-1.5"
-              disabled={!transcript.trim()}
+              disabled={!transcript.trim() || transferring}
               onClick={() => void copyTranscript()}
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? "Copied" : "Copy"}
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setTranscriptOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={transferring}
+              onClick={() => setTranscriptOpen(false)}
+            >
               Close
             </Button>
           </div>

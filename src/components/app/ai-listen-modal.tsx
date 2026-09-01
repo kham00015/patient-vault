@@ -466,7 +466,14 @@ export function AiListenModal({
   const canSave = Boolean(transcript.trim() || hpi.trim());
 
   return (
-    <Modal open={open} onClose={onClose} title={`AI Listen — ${patientName}`} wide>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`AI Listen — ${patientName}`}
+      wide
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+    >
       <div className="space-y-4">
         <p className="text-sm text-[var(--pv-muted)]">
           Record the visit conversation. Press Done for a raw transcript, then choose a draft mode —

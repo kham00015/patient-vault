@@ -10,10 +10,6 @@ import {
 
 export const SCHEDULE_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
 
-export function defaultScheduleDuration(visitCategory: ScheduleEntry["visitCategory"]) {
-  return visitCategory === "NEW_PATIENT" ? 30 : 15;
-}
-
 export type ScheduleEntryDTO = {
   entryId: string;
   id: string;
@@ -26,6 +22,7 @@ export type ScheduleEntryDTO = {
   readyAt: string | null;
   noShowAt: string | null;
   roomNumber: string | null;
+  nurseNotes: string | null;
   docNotes: string | null;
   docNotesAcknowledgedAt: string | null;
   dictation: {
@@ -34,7 +31,20 @@ export type ScheduleEntryDTO = {
     durationMs: number | null;
     updatedAt: string | null;
   } | null;
+  /** Latest chart note authored by the current user for this patient. */
+  myLastNoteId: string | null;
+  myLastNoteType: string | null;
+  selectedDocumentIds: string[];
 };
+
+export function parseScheduleSelectedDocumentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+}
+
+export function defaultScheduleDuration(visitCategory: ScheduleEntry["visitCategory"]) {
+  return visitCategory === "NEW_PATIENT" ? 30 : 15;
+}
 
 export type ScheduleOverlapHit = {
   entryId: string;
@@ -109,8 +119,10 @@ export function toScheduleEntryDTO(entry: {
   readyAt?: Date | string | null;
   noShowAt?: Date | string | null;
   roomNumber?: string | null;
+  nurseNotes?: string | null;
   docNotes?: string | null;
   docNotesAcknowledgedAt?: Date | string | null;
+  selectedDocumentIds?: unknown;
   patient: { id: string; name: string };
   visitDictation?: {
     storageKey?: string | null;
@@ -118,7 +130,7 @@ export function toScheduleEntryDTO(entry: {
     durationMs?: number | null;
     updatedAt?: Date | string | null;
   } | null;
-}): ScheduleEntryDTO {
+}, extras?: { myLastNoteId?: string | null; myLastNoteType?: string | null }): ScheduleEntryDTO {
   const dictation = entry.visitDictation;
   return {
     entryId: entry.id,
@@ -132,6 +144,7 @@ export function toScheduleEntryDTO(entry: {
     readyAt: toIsoString(entry.readyAt),
     noShowAt: toIsoString(entry.noShowAt),
     roomNumber: entry.roomNumber ?? null,
+    nurseNotes: entry.nurseNotes ?? null,
     docNotes: entry.docNotes ?? null,
     docNotesAcknowledgedAt: toIsoString(entry.docNotesAcknowledgedAt),
     dictation: dictation?.storageKey
@@ -142,6 +155,9 @@ export function toScheduleEntryDTO(entry: {
           updatedAt: toIsoString(dictation.updatedAt),
         }
       : null,
+    myLastNoteId: extras?.myLastNoteId ?? null,
+    myLastNoteType: extras?.myLastNoteType ?? null,
+    selectedDocumentIds: parseScheduleSelectedDocumentIds(entry.selectedDocumentIds),
   };
 }
 

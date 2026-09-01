@@ -15,7 +15,14 @@ export const maxDuration = 180;
 type Params = { params: Promise<{ id: string }> };
 
 const bodySchema = z.object({
-  target: z.enum(["assessment", "plan", "hpi"]),
+  target: z.enum([
+    "assessment",
+    "plan",
+    "hpi",
+    "pastMedicalHistory",
+    "socialHistory",
+    "familyHistory",
+  ]),
   noteContext: z.string().min(1).max(80_000),
 });
 
@@ -92,6 +99,7 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({
       text: result.text,
+      noData: result.noData ?? false,
       target: body.target,
       coverage: chart.coverage,
       brainSources: brain.sourceCount,

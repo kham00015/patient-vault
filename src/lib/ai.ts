@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -19,11 +21,21 @@ import {
   AI_HPI_NEW_RULES,
   AI_ORGANIZE_RULES,
   AI_PLAN_RULES,
+  AI_PMH_CHART_RULES,
+  AI_SOCIAL_HISTORY_CHART_RULES,
+  AI_FAMILY_HISTORY_CHART_RULES,
   AI_SCHEDULE_DICTATION_CLEANUP_RULES,
 } from "@/lib/ai-rules";
 import type { HpiVisitKind } from "@/lib/hpi-visit-context";
-import type { ChartDocumentAttachment } from "@/lib/ai-chart-context";
+import type { ChartDocumentAttachment } from "@/lib/ai-chart-context-types";
+import {
+  type AiDraftSectionTarget,
+  isHistoryExtractTarget,
+} from "@/lib/ai-draft-section-targets";
 import { appendMyBrainToPrompt } from "@/lib/my-brain";
+
+export type { AiDraftSectionTarget } from "@/lib/ai-draft-section-targets";
+export { isHistoryExtractTarget } from "@/lib/ai-draft-section-targets";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -232,8 +244,20 @@ export async function organizeChartWithAI(chartText: string) {
   return JSON.parse(jsonMatch[0]) as Record<string, string>;
 }
 
+const AI_EXTRACT_NO_DATA_TOKEN = "NO_DATA";
+
+function isExtractSectionNoData(raw: string) {
+  const token = raw.trim().replace(/^[`'"]|[`'"]$/g, "");
+  if (token === AI_EXTRACT_NO_DATA_TOKEN) return true;
+  if (/^no_data$/i.test(token)) return true;
+  if (/not documented in available records/i.test(token)) return true;
+  if (/^social history not documented/i.test(token)) return true;
+  if (/^family history not documented/i.test(token)) return true;
+  return false;
+}
+
 export async function draftNoteSectionWithAI(params: {
-  target: "assessment" | "plan" | "hpi";
+  target: AiDraftSectionTarget;
   noteContext: string;
   patientData?: string;
   attachments?: ChartDocumentAttachment[];
@@ -251,7 +275,13 @@ export async function draftNoteSectionWithAI(params: {
       ? AI_ASSESSMENT_RULES
       : target === "plan"
         ? AI_PLAN_RULES
-        : AI_HPI_CHART_RULES;
+        : target === "hpi"
+          ? AI_HPI_CHART_RULES
+          : target === "pastMedicalHistory"
+            ? AI_PMH_CHART_RULES
+            : target === "socialHistory"
+              ? AI_SOCIAL_HISTORY_CHART_RULES
+              : AI_FAMILY_HISTORY_CHART_RULES;
   const systemPrompt = appendMyBrainToPrompt(systemRules, params.brainData);
 
   const chartBlock = params.patientData?.trim()
@@ -259,16 +289,34 @@ export async function draftNoteSectionWithAI(params: {
     : "";
 
   const sectionLabel =
-    target === "assessment" ? "Assessment" : target === "plan" ? "Plan" : "complete HPI";
+    target === "assessment"
+      ? "Assessment"
+      : target === "plan"
+        ? "Plan"
+        : target === "hpi"
+          ? "complete HPI"
+          : target === "pastMedicalHistory"
+            ? "Past Medical History"
+            : target === "socialHistory"
+              ? "Social History"
+              : "Family History";
 
   const extraInstruction =
     target === "assessment"
       ? " Every assessment diagnosis line must start with an ICD-10-CM code, then the diagnosis (example: J45.51 Uncontrolled asthma with recent exacerbation)."
       : target === "hpi"
         ? " Write narrative prose suitable for the HPI box. Do not title it HPI. Use prior notes, PDFs, forms, and chart sections to produce a complete history focused on today's visit."
-        : "";
+        : target === "pastMedicalHistory"
+          ? " List ONLY chronic conditions and past medical events explicitly documented. Use ICD-10-CM codes only when explicitly present in the materials. If nothing is documented, output exactly NO_DATA."
+          : target === "socialHistory"
+            ? " One social fact per line. Extract ONLY what is explicitly documented. If nothing is documented, output exactly NO_DATA."
+            : " One family history item per line. Extract ONLY what is explicitly documented. If nothing is documented, output exactly NO_DATA.";
 
-  const userText = `Draft the ${sectionLabel} for this visit note after reviewing the FULL chart, PDFs/documents, forms, orders, prior notes, and the current visit note below.${extraInstruction} If there is a MAJOR conflict between sources, keep your best draft and add a parenthetical conflict note at the bottom after one blank line.
+  const conflictInstruction = isHistoryExtractTarget(target)
+    ? ""
+    : " If there is a MAJOR conflict between sources, keep your best draft and add a parenthetical conflict note at the bottom after one blank line.";
+
+  const userText = `Draft the ${sectionLabel} for this visit note after reviewing the FULL chart, PDFs/documents, forms, orders, prior notes, and the current visit note below.${extraInstruction}${conflictInstruction}
 
 === CURRENT VISIT NOTE ===
 ${params.noteContext}${chartBlock}`;
@@ -280,8 +328,8 @@ ${params.noteContext}${chartBlock}`;
     system: [{ text: systemPrompt }],
     messages: toBedrockMessages([{ role: "user", content: userText }], attachments),
     inferenceConfig: {
-      temperature: 0.25,
-      maxTokens: target === "hpi" ? 3200 : 2500,
+      temperature: isHistoryExtractTarget(target) ? 0.1 : 0.25,
+      maxTokens: target === "hpi" ? 3200 : target === "pastMedicalHistory" ? 2500 : 2000,
     },
   });
 
@@ -290,9 +338,14 @@ ${params.noteContext}${chartBlock}`;
     try {
       const response = await client.send(command);
       const raw = extractText(response.output?.message?.content);
+      const text =
+        target === "hpi" ? normalizeHpiDraft(raw) : normalizeSectionList(raw);
+      if (isHistoryExtractTarget(target) && isExtractSectionNoData(text)) {
+        return { text: "", noData: true, provider: "bedrock" as const };
+      }
       return {
-        text:
-          target === "hpi" ? normalizeHpiDraft(raw) : normalizeSectionList(raw),
+        text,
+        noData: false,
         provider: "bedrock" as const,
       };
     } catch (error) {

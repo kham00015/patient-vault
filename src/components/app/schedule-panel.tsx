@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import type { SessionUser } from "@/lib/roles";
 import { canWrite } from "@/lib/roles";
 import { api } from "@/lib/api-client";
@@ -24,9 +25,17 @@ import {
 import type { ChartNavigationIntent } from "@/lib/chart-navigation";
 import { formatDisplayName } from "@/lib/patient-registration";
 import { cn, formatClinicScheduleTime, scheduleDateFromDayAndTime, toClinicDateInputValue } from "@/lib/utils";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, FileText, Search, Stethoscope, UserX } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, FileStack, FileText, Search, Stethoscope, UserX } from "lucide-react";
 import { FillablePdfChartEditor } from "@/components/app/fillable-pdf-chart-editor";
+import { FullPageDocumentViewer } from "@/components/app/full-page-document-viewer";
 import { ScheduleDictateControl } from "@/components/app/schedule-dictate-control";
+import {
+  ScheduleSelectedDocumentsModal,
+  type ScheduleChartDocumentItem,
+} from "@/components/app/schedule-selected-documents-modal";
+import { TextReportDocumentEditor } from "@/components/app/text-report-document-editor";
+import { isTextReportDocument } from "@/lib/document-sections";
+import { getNoteTypeLabel } from "@/lib/notes";
 import { MM_SUPER_BILL_PDF_URL } from "@/lib/forms/templates/mm-encounter";
 
 type PatientOption = {
@@ -59,7 +68,7 @@ type OverlapPrompt =
 
 type SelectPatientFromSchedule = (
   patient: PatientOption,
-  options: Pick<ChartNavigationIntent, "fromSchedule" | "scheduleDate" | "visitCategory">
+  options?: ChartNavigationIntent
 ) => void;
 
 const SCHEDULE_TOOLBAR_HEIGHT = "h-10";
@@ -113,6 +122,22 @@ function suggestNextScheduledTime(entries: ScheduleEntryDTO[]) {
   const nextMinute = endMinutes % 60;
   if (nextHour >= 24) return "09:00";
   return `${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`;
+}
+
+function getSelectedDocumentsButtonStyles(entry: ScheduleEntryDTO) {
+  const hasSelection = entry.selectedDocumentIds.length > 0;
+  if (!hasSelection) {
+    return "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]";
+  }
+  return "!border-cyan-500/50 !bg-cyan-600/25 !text-cyan-100 hover:!bg-cyan-600/35";
+}
+
+function getNurseNotesButtonStyles(entry: ScheduleEntryDTO) {
+  const hasNotes = Boolean(entry.nurseNotes?.trim());
+  if (!hasNotes) {
+    return "!border-[var(--pv-border-strong)] !bg-[var(--pv-btn)] !text-[var(--pv-muted-2)] hover:!bg-[var(--pv-border)]";
+  }
+  return "!border-fuchsia-500/50 !bg-fuchsia-600/25 !text-fuchsia-100 hover:!bg-fuchsia-600/35";
 }
 
 function getDocNotesButtonStyles(entry: ScheduleEntryDTO) {
@@ -335,7 +360,21 @@ export function SchedulePanel({
   const [docNotesTarget, setDocNotesTarget] = useState<ScheduleEntryDTO | null>(null);
   const [docNotesDraft, setDocNotesDraft] = useState("");
   const [savingDocNotes, setSavingDocNotes] = useState(false);
+  const [nurseNotesTarget, setNurseNotesTarget] = useState<ScheduleEntryDTO | null>(null);
+  const [nurseNotesDraft, setNurseNotesDraft] = useState("");
+  const [savingNurseNotes, setSavingNurseNotes] = useState(false);
   const [superBillTarget, setSuperBillTarget] = useState<ScheduleEntryDTO | null>(null);
+  const [lastNoteViewer, setLastNoteViewer] = useState<{
+    patientId: string;
+    patientName: string;
+    noteId: string;
+    noteType?: string | null;
+  } | null>(null);
+  const [selectedDocsTarget, setSelectedDocsTarget] = useState<ScheduleEntryDTO | null>(null);
+  const [chartDocViewer, setChartDocViewer] = useState<{
+    patientId: string;
+    doc: ScheduleChartDocumentItem;
+  } | null>(null);
   const [savingCheckedInId, setSavingCheckedInId] = useState<string | null>(null);
   const [savingReadyId, setSavingReadyId] = useState<string | null>(null);
   const [savingNoShowId, setSavingNoShowId] = useState<string | null>(null);
@@ -606,7 +645,9 @@ export function SchedulePanel({
       ready?: boolean;
       noShow?: boolean;
       roomNumber?: string | null;
+      nurseNotes?: string | null;
       docNotes?: string | null;
+      selectedDocumentIds?: string[];
       visitCategory?: VisitCategory;
       scheduledTime?: string;
       durationMinutes?: number;
@@ -750,6 +791,27 @@ export function SchedulePanel({
     }
   }
 
+  function openNurseNotes(entry: ScheduleEntryDTO) {
+    setNurseNotesTarget(entry);
+    setNurseNotesDraft(entry.nurseNotes ?? "");
+  }
+
+  async function saveNurseNotes() {
+    if (!nurseNotesTarget) return;
+    setSavingNurseNotes(true);
+    setError("");
+    try {
+      await patchEntry(nurseNotesTarget.id, {
+        nurseNotes: nurseNotesDraft.trim() || null,
+      });
+      setNurseNotesTarget(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save nurse notes.");
+    } finally {
+      setSavingNurseNotes(false);
+    }
+  }
+
   function openDocNotes(entry: ScheduleEntryDTO) {
     setDocNotesTarget(entry);
     setDocNotesDraft(entry.docNotes ?? "");
@@ -791,6 +853,34 @@ export function SchedulePanel({
     } finally {
       setAcknowledgingId(null);
     }
+  }
+
+  const nurseNotesEntry = nurseNotesTarget
+    ? scheduled.find((s) => s.entryId === nurseNotesTarget.entryId) ?? nurseNotesTarget
+    : null;
+
+  const selectedDocsEntry = selectedDocsTarget
+    ? scheduled.find((s) => s.entryId === selectedDocsTarget.entryId) ?? selectedDocsTarget
+    : null;
+
+  function openSelectedDocuments(entry: ScheduleEntryDTO) {
+    setSelectedDocsTarget(entry);
+  }
+
+  async function saveSelectedDocuments(ids: string[]) {
+    if (!selectedDocsEntry) return;
+    setError("");
+    try {
+      await patchEntry(selectedDocsEntry.id, { selectedDocumentIds: ids });
+      setSelectedDocsTarget(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save selected documents.");
+      throw e;
+    }
+  }
+
+  function openChartDocument(patientId: string, doc: ScheduleChartDocumentItem) {
+    setChartDocViewer({ patientId, doc });
   }
 
   const docNotesEntry = docNotesTarget
@@ -1048,6 +1138,7 @@ export function SchedulePanel({
             const readyBusy = savingReadyId === entry.id;
             const noShowBusy = savingNoShowId === entry.id;
             const visitStyles = getScheduleVisitStyles(entry.visitCategory ?? "FOLLOW_UP");
+            const hasNurseNotes = Boolean(entry.nurseNotes?.trim());
             const hasDocNotes = Boolean(entry.docNotes?.trim());
 
             return (
@@ -1151,6 +1242,8 @@ export function SchedulePanel({
                   {canEdit && (
                     <ScheduleDictateControl
                       entryId={entry.entryId}
+                      patientId={entry.id}
+                      scheduleDate={date}
                       patientName={entry.name}
                       dictation={entry.dictation}
                       onDictationChange={(next) =>
@@ -1161,6 +1254,45 @@ export function SchedulePanel({
                         )
                       }
                     />
+                  )}
+
+                  {entry.myLastNoteId && (
+                    <Button
+                      type="button"
+                      className="!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold !border-violet-500/40 !bg-violet-900/30 !text-violet-100 hover:!bg-violet-800/40"
+                      title="Open your last note"
+                      onClick={() =>
+                        setLastNoteViewer({
+                          patientId: entry.id,
+                          patientName: entry.name,
+                          noteId: entry.myLastNoteId!,
+                          noteType: entry.myLastNoteType,
+                        })
+                      }
+                    >
+                      <FileText size={14} />
+                      Last Note
+                    </Button>
+                  )}
+
+                  {(canEdit || entry.selectedDocumentIds.length > 0) && (
+                    <Button
+                      type="button"
+                      className={cn(
+                        "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
+                        getSelectedDocumentsButtonStyles(entry)
+                      )}
+                      title={
+                        canEdit
+                          ? "Select chart documents for physician review"
+                          : "Open selected documents for review"
+                      }
+                      onClick={() => openSelectedDocuments(entry)}
+                    >
+                      <FileStack size={14} />
+                      Selected Documents
+                      {entry.selectedDocumentIds.length > 0 ? ` (${entry.selectedDocumentIds.length})` : ""}
+                    </Button>
                   )}
 
                   {canEdit ? (
@@ -1253,6 +1385,17 @@ export function SchedulePanel({
                         type="button"
                         className={cn(
                           "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
+                          getNurseNotesButtonStyles(entry)
+                        )}
+                        onClick={() => openNurseNotes(entry)}
+                      >
+                        <ClipboardList size={14} />
+                        Nurse Notes
+                      </Button>
+                      <Button
+                        type="button"
+                        className={cn(
+                          "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
                           getDocNotesButtonStyles(entry)
                         )}
                         onClick={() => openDocNotes(entry)}
@@ -1312,6 +1455,19 @@ export function SchedulePanel({
                         <span className="shrink-0 rounded bg-[var(--pv-btn)] px-2 py-1 text-xs text-[var(--pv-muted-2)]">
                           Room {entry.roomNumber}
                         </span>
+                      )}
+                      {hasNurseNotes && (
+                        <Button
+                          type="button"
+                          className={cn(
+                            "!h-8 shrink-0 gap-1 !px-3 !text-xs font-semibold",
+                            getNurseNotesButtonStyles(entry)
+                          )}
+                          onClick={() => openNurseNotes(entry)}
+                        >
+                          <ClipboardList size={14} />
+                          Nurse Notes
+                        </Button>
                       )}
                       {hasDocNotes && (
                         <Button
@@ -1426,6 +1582,54 @@ export function SchedulePanel({
       </Modal>
 
       <Modal
+        open={nurseNotesEntry !== null}
+        onClose={() => setNurseNotesTarget(null)}
+        title={nurseNotesEntry ? `Nurse notes — ${nurseNotesEntry.name}` : "Nurse notes"}
+        className="max-w-sm"
+      >
+        {nurseNotesEntry && (
+          <>
+            {nurseNotesEntry.nurseNotes?.trim() ? (
+              <div
+                className="mb-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-2.5 text-sm whitespace-pre-wrap text-fuchsia-100"
+              >
+                {nurseNotesEntry.nurseNotes}
+              </div>
+            ) : (
+              <p className="mb-3 text-sm text-[var(--pv-muted)]">No nurse notes yet.</p>
+            )}
+
+            {canEdit && (
+              <>
+                <p className="mb-2 text-xs text-[var(--pv-muted)]">
+                  {nurseNotesEntry.nurseNotes?.trim()
+                    ? "Edit note for the clinician"
+                    : "Message the clinician about this patient"}
+                </p>
+                <Textarea
+                  value={nurseNotesDraft}
+                  onChange={(e) => setNurseNotesDraft(e.target.value)}
+                  className="!min-h-[88px] !text-sm"
+                  autoFocus={!nurseNotesEntry.nurseNotes?.trim()}
+                />
+              </>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" onClick={() => setNurseNotesTarget(null)}>
+                Close
+              </Button>
+              {canEdit && (
+                <Button variant="primary" disabled={savingNurseNotes} onClick={() => saveNurseNotes()}>
+                  {savingNurseNotes ? "Saving..." : "Save"}
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
         open={docNotesEntry !== null}
         onClose={() => setDocNotesTarget(null)}
         title={docNotesEntry ? `Doc notes — ${docNotesEntry.name}` : "Doc notes"}
@@ -1458,7 +1662,6 @@ export function SchedulePanel({
                 <Textarea
                   value={docNotesDraft}
                   onChange={(e) => setDocNotesDraft(e.target.value)}
-                  placeholder="CT chest, return in two weeks..."
                   className="!min-h-[88px] !text-sm"
                   autoFocus={!docNotesEntry.docNotes?.trim()}
                 />
@@ -1544,6 +1747,63 @@ export function SchedulePanel({
           />
         )}
       </Modal>
+
+      {lastNoteViewer &&
+        createPortal(
+          <FullPageDocumentViewer
+            title={
+              lastNoteViewer.noteType
+                ? `${getNoteTypeLabel(lastNoteViewer.noteType)} — ${lastNoteViewer.patientName}`
+                : `Last note — ${lastNoteViewer.patientName}`
+            }
+            url={`/api/patients/${lastNoteViewer.patientId}/notes/${lastNoteViewer.noteId}/pdf`}
+            mimeType="text/html"
+            onClose={() => setLastNoteViewer(null)}
+            backLabel="Back to schedule"
+          />,
+          document.body
+        )}
+
+      {chartDocViewer &&
+        (chartDocViewer.doc.kind === "report" || isTextReportDocument(chartDocViewer.doc)
+          ? createPortal(
+              <TextReportDocumentEditor
+                patientId={chartDocViewer.patientId}
+                documentId={chartDocViewer.doc.sourceId ?? chartDocViewer.doc.id}
+                title={chartDocViewer.doc.name}
+                readOnly
+                onClose={() => setChartDocViewer(null)}
+                backLabel="Back to schedule"
+              />,
+              document.body
+            )
+          : createPortal(
+              <FullPageDocumentViewer
+                title={chartDocViewer.doc.name}
+                url={
+                  chartDocViewer.doc.openUrl ??
+                  `/api/patients/${chartDocViewer.patientId}/documents/${chartDocViewer.doc.id}`
+                }
+                mimeType={chartDocViewer.doc.mimeType}
+                onClose={() => setChartDocViewer(null)}
+                backLabel="Back to schedule"
+              />,
+              document.body
+            ))}
+
+      <ScheduleSelectedDocumentsModal
+        open={selectedDocsEntry !== null}
+        onClose={() => setSelectedDocsTarget(null)}
+        patientId={selectedDocsEntry?.id ?? ""}
+        patientName={selectedDocsEntry?.name ?? ""}
+        selectedIds={selectedDocsEntry?.selectedDocumentIds ?? []}
+        canSelect={canEdit && user.role !== "CLINICIAN"}
+        onSave={canEdit && user.role !== "CLINICIAN" ? saveSelectedDocuments : undefined}
+        onOpenDocument={(doc) => {
+          if (!selectedDocsEntry) return;
+          openChartDocument(selectedDocsEntry.id, doc);
+        }}
+      />
     </div>
   );
 }

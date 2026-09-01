@@ -1,3 +1,5 @@
+import "server-only";
+
 import { extractText, getDocumentProxy } from "unpdf";
 import mammoth from "mammoth";
 import type { AiBrainDocumentExtractionStatus } from "@prisma/client";

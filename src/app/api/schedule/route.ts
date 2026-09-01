@@ -15,6 +15,7 @@ import { assertScheduleProviderInOffice } from "@/lib/schedule-providers";
 import { normalizeScheduleDay, scheduleDateFromDayAndTime } from "@/lib/utils";
 import { officeScope, requireOfficeId } from "@/lib/office";
 import { assertPatientReadable } from "@/lib/patient-access";
+import { loadMyLastNotesByPatient } from "@/lib/schedule-my-last-notes";
 
 async function loadNoShowAtForDay(scheduleDay: string, providerKey: string) {
   try {
@@ -92,8 +93,10 @@ export async function GET(request: Request) {
         checkedInAt: true,
         readyAt: true,
         roomNumber: true,
+        nurseNotes: true,
         docNotes: true,
         docNotesAcknowledgedAt: true,
+        selectedDocumentIds: true,
         patient: { select: { id: true, name: true } },
         visitDictation: {
           select: {
@@ -111,13 +114,28 @@ export async function GET(request: Request) {
     const officeId = requireOfficeId(auth.user);
     const blocked = await isScheduleDayBlocked(officeId, scheduleDay, provider);
 
+    const myLastNoteMap =
+      auth.user.role === "CONSULTANT"
+        ? new Map<string, { id: string; type: string }>()
+        : await loadMyLastNotesByPatient(
+            auth.user.id,
+            entries.map((entry) => entry.patient.id)
+          );
+
     return NextResponse.json({
       date: scheduleDay,
       provider,
       blocked,
-      patients: entries.map((entry) =>
-        toScheduleEntryDTO({ ...entry, noShowAt: noShowMap.get(entry.id) ?? null })
-      ),
+      patients: entries.map((entry) => {
+        const myLast = myLastNoteMap.get(entry.patient.id);
+        return toScheduleEntryDTO(
+          { ...entry, noShowAt: noShowMap.get(entry.id) ?? null },
+          {
+            myLastNoteId: myLast?.id ?? null,
+            myLastNoteType: myLast?.type ?? null,
+          }
+        );
+      }),
     });
   } catch (error) {
     console.error("[schedule GET]", error);
@@ -263,8 +281,10 @@ const patchSchema = z.object({
   ready: z.boolean().optional(),
   noShow: z.boolean().optional(),
   roomNumber: z.string().max(20).nullable().optional(),
+  nurseNotes: z.string().max(2000).nullable().optional(),
   docNotes: z.string().max(2000).nullable().optional(),
   acknowledgeDocNotes: z.boolean().optional(),
+  selectedDocumentIds: z.array(z.string().min(1).max(200)).max(50).optional(),
 });
 
 export async function PATCH(request: Request) {
@@ -286,8 +306,10 @@ export async function PATCH(request: Request) {
     const hasReady = body.ready !== undefined;
     const hasNoShow = body.noShow !== undefined;
     const hasRoom = body.roomNumber !== undefined;
+    const hasNurseNotes = body.nurseNotes !== undefined;
     const hasDocNotes = body.docNotes !== undefined;
     const hasAcknowledge = body.acknowledgeDocNotes !== undefined;
+    const hasSelectedDocuments = body.selectedDocumentIds !== undefined;
 
     if (
       !hasVisitCategory &&
@@ -297,8 +319,10 @@ export async function PATCH(request: Request) {
       !hasReady &&
       !hasNoShow &&
       !hasRoom &&
+      !hasNurseNotes &&
       !hasDocNotes &&
-      !hasAcknowledge
+      !hasAcknowledge &&
+      !hasSelectedDocuments
     ) {
       return badRequest("No fields to update");
     }
@@ -307,7 +331,9 @@ export async function PATCH(request: Request) {
     if (hasReady && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasNoShow && !canManageScheduleReady(auth.user.role)) return forbidden();
     if (hasRoom && !canManageScheduleReady(auth.user.role)) return forbidden();
+    if (hasNurseNotes && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
     if (hasDocNotes && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
+    if (hasSelectedDocuments && !canWriteScheduleDocNotes(auth.user.role)) return forbidden();
 
     if (hasScheduledTime && !canWrite(auth.user.role)) return forbidden();
     if (hasDuration && !canWrite(auth.user.role)) return forbidden();
@@ -327,8 +353,10 @@ export async function PATCH(request: Request) {
       checkedInAt?: Date | null;
       readyAt?: Date | null;
       roomNumber?: string | null;
+      nurseNotes?: string | null;
       docNotes?: string | null;
       docNotesAcknowledgedAt?: Date | null;
+      selectedDocumentIds?: string[];
     } = {};
 
     if (hasVisitCategory) {
@@ -356,12 +384,19 @@ export async function PATCH(request: Request) {
     if (hasRoom) {
       data.roomNumber = body.roomNumber?.trim() || null;
     }
+    if (hasNurseNotes) {
+      data.nurseNotes = body.nurseNotes?.trim() || null;
+    }
     if (hasDocNotes) {
       const nextNotes = body.docNotes?.trim() || null;
       data.docNotes = nextNotes;
       if (nextNotes !== existing.docNotes) {
         data.docNotesAcknowledgedAt = null;
       }
+    }
+
+    if (hasSelectedDocuments) {
+      data.selectedDocumentIds = body.selectedDocumentIds ?? [];
     }
 
     if (hasAcknowledge) {
@@ -402,7 +437,9 @@ export async function PATCH(request: Request) {
     if (hasReady) auditMeta.ready = body.ready ?? false;
     if (hasNoShow) auditMeta.noShow = body.noShow ?? false;
     if (hasRoom) auditMeta.roomSet = Boolean(data.roomNumber);
+    if (hasNurseNotes) auditMeta.hasNurseNotes = Boolean(data.nurseNotes);
     if (hasDocNotes) auditMeta.hasDocNotes = Boolean(data.docNotes);
+    if (hasSelectedDocuments) auditMeta.selectedDocumentCount = body.selectedDocumentIds?.length ?? 0;
     if (hasAcknowledge) auditMeta.docNotesAcknowledged = body.acknowledgeDocNotes ?? false;
 
     await createAuditLog({

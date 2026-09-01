@@ -484,7 +484,14 @@ export function HpiDictateModal({
   const canSave = Boolean(transcript.trim() || hpi.trim());
 
   return (
-    <Modal open={open} onClose={onClose} title="Dictate HPI" wide>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Dictate HPI"
+      wide
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+    >
       <div className="space-y-4">
         <p className="text-sm text-[var(--pv-muted)]">
           Dictate your HPI, press Done, then choose a draft mode — or Save the raw transcript and
